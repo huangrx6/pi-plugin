@@ -42,17 +42,17 @@ done
 
 ### 方式三：仓库自带的一行命令脚本
 
-如果嫌上面长，仓库根有 `bin/install.sh` 做同样的事：
+如果嫌上面长，仓库根有 `bin/install.sh` 做同样的事，**全交互**——列出 extensions 让勾选、问目标目录、确认创建：
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/huangrx6/pi-plugin/main/bin/install.sh)
 ```
 
-默认装到 `~/.pi/agent/extensions`。想装别的目录，传一个位置参数：
+脚本会依次问：
 
-```bash
-bash <(curl ...) ./.pi/extensions    # 项目级
-```
+1. 装哪些 extensions（编号 / `all` / 回车全选）
+2. 装到哪个目录（默认 `~/.pi/agent/extensions`）
+3. 目录不存在是否创建
 
 工作原理 = 方式二（git clone 到目标 + 软链各 extension），升级 `git pull`。
 
