@@ -19,3 +19,6 @@ coverage/
 
 # Sparse-checkout temp (used by bin/install.sh)
 .pi-plugin-tmp/
+
+# Legacy per-extension directories (content moved into extensions/)
+.legacy/
