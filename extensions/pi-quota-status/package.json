@@ -1,0 +1,26 @@
+{
+  "name": "pi-quota-status",
+  "version": "0.1.0",
+  "description": "Show AI subscription quota (OpenCode Go / Zhipu GLM) in the pi footer, auto-switching on model change.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ]
+}

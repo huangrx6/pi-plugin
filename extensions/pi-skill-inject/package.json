@@ -1,0 +1,27 @@
+{
+  "name": "pi-skill-inject",
+  "version": "0.1.0",
+  "description": "Inline /skill loading for pi: type /skill-name in a prompt to inject that skill's content for the current turn.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ]
+}

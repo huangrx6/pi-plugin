@@ -1,0 +1,26 @@
+{
+  "name": "pi-mode-switcher",
+  "version": "1.0.0",
+  "description": "Four-mode permission control for pi using native tool_call interception. Zero third-party dependencies: auto / plan / safe / lock.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "pi-package"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "files": [
+    "index.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

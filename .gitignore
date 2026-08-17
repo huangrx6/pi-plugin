@@ -1,0 +1,21 @@
+# Build artifacts
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test output
+coverage/
+*.log
+
+# pi runtime state
+.pi-cache/
+
+# Sparse-checkout temp (used by bin/install.sh)
+.pi-plugin-tmp/

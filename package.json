@@ -1,0 +1,28 @@
+{
+  "name": "huangrx6-pi-plugin",
+  "version": "0.1.0",
+  "description": "Monorepo of pi extensions: skill-inject, mode-switcher, quota-status.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "monorepo"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/pi-skill-inject",
+      "./extensions/pi-mode-switcher",
+      "./extensions/pi-quota-status"
+    ]
+  },
+  "files": [
+    "extensions/",
+    "bin/",
+    "README.md",
+    "LICENSE"
+  ]
+}
