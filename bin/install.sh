@@ -88,14 +88,25 @@ fi
 # ----------------------------------------------------------------------------
 # Shallow + sparse clone
 # ----------------------------------------------------------------------------
-TMP=$(mktemp -d -t pi-plugin-install-XXXXXX)
-trap 'rm -rf "$TMP"' EXIT
+# symlink 模式用持久 cache（避免 trap 清理后 symlink 变断链）
+# copy 模式用临时目录（不需要持久化）
+if [[ "$MODE" == "symlink" ]]; then
+  CACHE_KEY=$(printf '%s' "$REPO" | shasum -a 256 | cut -c1-12)
+  TMP="$HOME/.cache/pi-plugin-install/$CACHE_KEY"
+  mkdir -p "$TMP"
+  trap '' EXIT   # symlink 模式不清理 cache
+else
+  TMP=$(mktemp -d -t pi-plugin-install-XXXXXX)
+  trap 'rm -rf "$TMP"' EXIT
+fi
 
-info "正在克隆 $REPO 的 extensions/ 目录…"
-if ! git clone --depth 1 --filter=blob:none --sparse "$GIT_URL" "$TMP/repo" 2>/dev/null; then
-  err "克隆失败：$GIT_URL"
-  err "检查网络或仓库名（--repo <owner/repo>）"
-  exit 1
+if [[ ! -d "$TMP/repo" ]]; then
+  info "正在克隆 $REPO 的 extensions/ 目录…"
+  if ! git clone --depth 1 --filter=blob:none --sparse "$GIT_URL" "$TMP/repo" 2>/dev/null; then
+    err "克隆失败：$GIT_URL"
+    err "检查网络或仓库名（--repo <owner/repo>）"
+    exit 1
+  fi
 fi
 
 if ! git -C "$TMP/repo" sparse-checkout set extensions 2>/dev/null; then
@@ -187,7 +198,7 @@ fi
 # Install
 # ----------------------------------------------------------------------------
 echo ""
-info "开始安装 ${#SELECTED[@]} 个扩展到 $TARGET（$MODE 模式）"
+info "开始安装 ${#SELECTED[@]} 个扩展到 ${TARGET}（${MODE} 模式）"
 echo ""
 
 for ext in "${SELECTED[@]}"; do
