@@ -386,13 +386,14 @@ REST API 不一样？比如 OpenAI ChatGPT Plus（需要 OAuth + 自定义 heade
 ## 验证
 
 ```bash
-# 手动验证六个接口（key 来自环境变量）
-curl -H "Authorization: Bearer $OPENCODE_API_KEY"   https://opencode.ai/zen/go/v1/usage
-curl -H "Authorization: Bearer $ZAI_API_KEY"         https://open.bigmodel.cn/api/monitor/usage/quota/limit
-curl -H "Authorization: Bearer $MINIMAX_API_KEY"     https://www.minimaxi.com/v1/token_plan/remains
-curl -H "Authorization: Bearer $KIMI_API_KEY"        https://api.kimi.com/coding/v1/usages
-curl -H "Authorization: Bearer $DEEPSEEK_API_KEY"    https://api.deepseek.com/user/balance
-curl -H "Authorization: Bearer $OPENROUTER_API_KEY"  https://openrouter.ai/api/v1/key
+# 手动验证六个接口（key 来自环境变量；名称与 pi 官方一致，
+# 别名兼容详见上面 “别名兼容” 表）
+curl -H "Authorization: Bearer $OPENCODE_API_KEY"             https://opencode.ai/zen/go/v1/usage
+curl -H "Authorization: Bearer $ZAI_CODING_CN_API_KEY"        https://open.bigmodel.cn/api/monitor/usage/quota/limit
+curl -H "Authorization: Bearer $MINIMAX_CN_API_KEY"            https://www.minimaxi.com/v1/token_plan/remains
+curl -H "Authorization: Bearer $KIMI_API_KEY"                 https://api.kimi.com/coding/v1/usages
+curl -H "Authorization: Bearer $DEEPSEEK_API_KEY"             https://api.deepseek.com/user/balance
+curl -H "Authorization: Bearer $OPENROUTER_API_KEY"           https://openrouter.ai/api/v1/key
 ```
 
 重启 pi 后，用 `/model` 在 6 个 provider 间切换，footer 显示应随之切换：
