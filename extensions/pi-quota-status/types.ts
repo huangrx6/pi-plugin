@@ -14,21 +14,21 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 // ── pi hook types ─────────────────────────────────────────────────────
 
 export type FooterTheme = {
- fg: (color: string, text: string) => string;
+   fg: (color: string, text: string) => string;
 };
 
 export type FooterData = {
- getGitBranch: () => string | null;
- getExtensionStatuses: () => ReadonlyMap<string, string>;
- getAvailableProviderCount: () => number;
- onBranchChange: (callback: () => void) => () => void;
+   getGitBranch: () => string | null;
+   getExtensionStatuses: () => ReadonlyMap<string, string>;
+   getAvailableProviderCount: () => number;
+   onBranchChange: (callback: () => void) => () => void;
 };
 
 /** `ExtensionContext` widened with the optional context-usage accessor. */
 export type QuotaCtx = ExtensionContext & {
- getContextUsage?: () =>
-  | { tokens: number | null; contextWindow: number; percent: number | null }
-  | undefined;
+   getContextUsage?: () =>
+      | { tokens: number | null; contextWindow: number; percent: number | null }
+      | undefined;
 };
 
 export type ModelLike = { provider?: string; id?: string } | undefined | null;
@@ -51,24 +51,24 @@ export type ModelLike = { provider?: string; id?: string } | undefined | null;
  * existing `colorForPercent` thresholds apply uniformly across providers.
  */
 export type QuotaBar =
- | {
-    readonly kind: "percentage";
-    readonly label: string;
-    readonly percent: number;
-    readonly resetsInMs?: number;
-   }
- | {
-    readonly kind: "balance";
-    readonly label: string;
-    readonly amount: number;
-    readonly currency: string;
-   }
- | { readonly kind: "text"; readonly label: string; readonly text: string };
+   | {
+        readonly kind: "percentage";
+        readonly label: string;
+        readonly percent: number;
+        readonly resetsInMs?: number;
+     }
+   | {
+        readonly kind: "balance";
+        readonly label: string;
+        readonly amount: number;
+        readonly currency: string;
+     }
+   | { readonly kind: "text"; readonly label: string; readonly text: string };
 
 /** Module-level state shape (provider tag + rendered bars). */
 export type QuotaData = {
- readonly provider: string;
- readonly bars: readonly QuotaBar[];
+   readonly provider: string;
+   readonly bars: readonly QuotaBar[];
 };
 
 // ── Adapter contract ──────────────────────────────────────────────────
@@ -79,26 +79,26 @@ export type QuotaData = {
  * Adding a new subscription = add one entry; nothing else changes.
  */
 export interface QuotaAdapter {
- /** Footer tag, e.g. "⚡OC". */
- readonly display: string;
- /** Pi provider-name aliases (e.g. "opencode-go" + custom names). */
- readonly providerNames: readonly string[];
- /**
- * Primary env var name (aligned with pi-coding-agent's official
- * convention for this provider, so users can set ONE env var that
- * both pi and this extension read from).
- */
- readonly apiKeyEnvVar: string;
- /**
- * Additional env var names to try if `apiKeyEnvVar` is unset.
- * Used for backward compat with users who set a different env var
- * name (e.g. `ZAI_API_KEY` vs pi's official `ZAI_CODING_CN_API_KEY`).
- */
- readonly apiKeyEnvVarAliases?: readonly string[];
- /** API URL. Mirror of ENDPOINTS[id] for introspection. */
- readonly endpoint: string;
- /** Fetch + parse into a flat bar list. The framework attaches `display`. */
- readonly fetch: (apiKey: string) => Promise<readonly QuotaBar[]>;
+   /** Footer tag, e.g. "⚡OC". */
+   readonly display: string;
+   /** Pi provider-name aliases (e.g. "opencode-go" + custom names). */
+   readonly providerNames: readonly string[];
+   /**
+    * Primary env var name (aligned with pi-coding-agent's official
+    * convention for this provider, so users can set ONE env var that
+    * both pi and this extension read from).
+    */
+   readonly apiKeyEnvVar: string;
+   /**
+    * Additional env var names to try if `apiKeyEnvVar` is unset.
+    * Used for backward compat with users who set a different env var
+    * name (e.g. `ZAI_API_KEY` vs pi's official `ZAI_CODING_CN_API_KEY`).
+    */
+   readonly apiKeyEnvVarAliases?: readonly string[];
+   /** API URL. Mirror of ENDPOINTS[id] for introspection. */
+   readonly endpoint: string;
+   /** Fetch + parse into a flat bar list. The framework attaches `display`. */
+   readonly fetch: (apiKey: string) => Promise<readonly QuotaBar[]>;
 }
 
 // ── Usage stats (read from session entries) ───────────────────────────
@@ -109,9 +109,9 @@ export interface QuotaAdapter {
  * via `as UsageLike` at the read site.
  */
 export type UsageLike = {
- input?: number;
- output?: number;
- cacheRead?: number;
- cacheWrite?: number;
- cost?: { total?: number };
+   input?: number;
+   output?: number;
+   cacheRead?: number;
+   cacheWrite?: number;
+   cost?: { total?: number };
 };

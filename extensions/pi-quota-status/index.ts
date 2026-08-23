@@ -46,7 +46,12 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { ADAPTERS, adapterEnvVars, resolveAdapterApiKey, subscriptionForProvider } from "./adapters.ts";
+import {
+  ADAPTERS,
+  adapterEnvVars,
+  resolveAdapterApiKey,
+  subscriptionForProvider,
+} from "./adapters.ts";
 import {
   STALE_KEEP_MS,
   TREE_THROTTLE_MS,
