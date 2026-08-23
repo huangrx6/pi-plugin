@@ -110,29 +110,49 @@ pi 启动时自动扫描加载。重启 pi 或 `/reload` 生效。
 
 ## 配置
 
-扩展读取环境变量作为 API Key（**不写入任何文件**）：
+扩展读取环境变量作为 API Key（**不写入任何文件**）。`apiKeyEnvVar` 对齐 pi-coding-agent 官方约定——你只需要在 shell 里设一次 env，pi 的 auth.json 和本扩展都会读到：
 
 ```bash
-# OpenCode Go 订阅 Key
+# OpenCode Go / OpenCode (同一个 Key 对应两个 pi provider 名)
 export OPENCODE_API_KEY="oc-..."
 
-# 智谱 GLM Coding Plan Key
-export ZAI_API_KEY="xxxxx"
+# 智谱 GLM Coding Plan (官方名是 ZAI_CODING_CN_API_KEY；
+# 如果你之前已经设了 ZAI_API_KEY 也一样能用，扩展会自动 fallback)
+export ZAI_CODING_CN_API_KEY="xxxxx"
 
-# MiniMax Token Plan Key（同样以 Bearer 鉴权）
-export MINIMAX_API_KEY="ey..."
+# MiniMax Token Plan (官方名是 MINIMAX_CN_API_KEY；
+# 已设 MINIMAX_API_KEY 的也兼容)
+export MINIMAX_CN_API_KEY="ey..."
 
-# Kimi Code 会员 Key（注意：是 sk-kimi-... 专用 key，不是 Moonshot 开放平台的 sk-...）
+# Kimi Code 会员 Key（专用 key sk-kimi-...，不是 Moonshot 开放平台的 sk-...）
 export KIMI_API_KEY="sk-kimi-..."
 
-# DeepSeek 按量付费 Key
+# DeepSeek 按量付费
 export DEEPSEEK_API_KEY="sk-..."
 
-# OpenRouter 管理 Key（注意：需要去 console 单独创建，不是普通 API key）
+# OpenRouter (管理 Key，需去 console 单独创建)
 export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
-你的 pi 已在用前面几个 key 作为 provider 凭证，通常已配置。若无，加到 shell 配置（如 `.zshrc`）后重启 pi。
+**pi auth.json 的对应写法**（同一个 env 变量两边都会读）：
+
+```json
+{
+  "zai-coding-cn": { "type": "api_key", "key": "$ZAI_CODING_CN_API_KEY" },
+  "minimax-cn":    { "type": "api_key", "key": "$MINIMAX_CN_API_KEY" },
+  "opencode-go":   { "type": "api_key", "key": "$OPENCODE_API_KEY" },
+  "deepseek":      { "type": "api_key", "key": "$DEEPSEEK_API_KEY" }
+}
+```
+
+**别名兼容**（设过旧名字也能用，无需重设）：
+
+| provider | 官方 env (primary) | 别名 (fallback) |
+|---|---|---|
+| `zai-coding-cn` | `ZAI_CODING_CN_API_KEY` | `ZAI_API_KEY` |
+| `minimax-cn` | `MINIMAX_CN_API_KEY` | `MINIMAX_API_KEY` |
+
+其他 provider 没有官方/别名分歧，primary 就是官方名。设过任何名字都能工作（按顺序查找，找到第一个非空就用）。
 
 ### 不支持订阅
 
