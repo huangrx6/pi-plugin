@@ -152,7 +152,10 @@ export const ADAPTERS = {
 
   minimax: {
     display: "⚡MiniMax",
-    providerNames: ["minimax", "cc-switch-mini-max"],
+    // Common aliases: canonical lowercase, cc-switch's default name
+    // (older versions), and `minimax-cn` (cc-switch newer versions
+    // and hand-rolled provider setups). All resolve to the same sub.
+    providerNames: ["minimax", "cc-switch-mini-max", "minimax-cn"],
     apiKeyEnvVar: "MINIMAX_API_KEY",
     endpoint: ENDPOINTS.minimax,
     async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
