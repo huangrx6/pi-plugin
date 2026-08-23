@@ -112,7 +112,11 @@ export const ADAPTERS = {
   zhipu: {
     display: "⚡GLM",
     providerNames: ["zai-coding-cn"],
-    apiKeyEnvVar: "ZAI_API_KEY",
+    // Primary: pi-coding-agent's official env var for zai-coding-cn.
+    // Aliases: shorter name + zai (no -cn region) variant — users who
+    // set any of these get a working key without changing their config.
+    apiKeyEnvVar: "ZAI_CODING_CN_API_KEY",
+    apiKeyEnvVarAliases: ["ZAI_API_KEY"],
     endpoint: ENDPOINTS.zhipu,
     async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
       const json = await fetchJsonBearer<{
@@ -156,7 +160,10 @@ export const ADAPTERS = {
     // (older versions), and `minimax-cn` (cc-switch newer versions
     // and hand-rolled provider setups). All resolve to the same sub.
     providerNames: ["minimax", "cc-switch-mini-max", "minimax-cn"],
-    apiKeyEnvVar: "MINIMAX_API_KEY",
+    // Primary: pi-coding-agent's official env var for minimax-cn.
+    // Aliases: `MINIMAX_API_KEY` for users on the non-regional variant.
+    apiKeyEnvVar: "MINIMAX_CN_API_KEY",
+    apiKeyEnvVarAliases: ["MINIMAX_API_KEY"],
     endpoint: ENDPOINTS.minimax,
     async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
       const json = await fetchJsonBearer<{
@@ -354,4 +361,32 @@ export function subscriptionForProvider(
 ): Subscription | null {
   if (!provider) return null;
   return PROVIDER_TO_SUB.get(provider) ?? null;
+}
+
+/** All env-var names an adapter accepts for its API key, in lookup order
+ *  (primary first, then aliases). Casts through `QuotaAdapter` so
+ *  callers don't need to handle the inferred literal-type missing the
+ *  optional `apiKeyEnvVarAliases` field. */
+export function adapterEnvVars(adapter: QuotaAdapter): readonly string[] {
+  const a = adapter as QuotaAdapter;
+  return [a.apiKeyEnvVar, ...(a.apiKeyEnvVarAliases ?? [])];
+}
+
+/**
+ * Resolve the API key for an adapter by trying its primary env var
+ * (matches pi-coding-agent's official convention) then its aliases
+ * (backward-compat with users who set shorter / different names).
+ *
+ * Returns the first env var that's set and non-empty. Returns
+ * undefined if none are configured — caller should surface a "no key"
+ * error to the user.
+ */
+export function resolveAdapterApiKey(
+  adapter: QuotaAdapter,
+): string | undefined {
+  for (const name of adapterEnvVars(adapter)) {
+    const value = process.env[name];
+    if (value && value.trim() !== "") return value;
+  }
+  return undefined;
 }

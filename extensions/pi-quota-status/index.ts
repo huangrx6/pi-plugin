@@ -46,7 +46,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { ADAPTERS, subscriptionForProvider } from "./adapters.ts";
+import { ADAPTERS, adapterEnvVars, resolveAdapterApiKey, subscriptionForProvider } from "./adapters.ts";
 import {
   STALE_KEEP_MS,
   TREE_THROTTLE_MS,
@@ -114,11 +114,12 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
     return;
   }
   const adapter = ADAPTERS[sub];
-  const apiKey = process.env[adapter.apiKeyEnvVar];
+  const apiKey = resolveAdapterApiKey(adapter);
   if (!apiKey) {
+    const names = adapterEnvVars(adapter).join(" or ");
     state.quotaData = null;
     state.quotaFetchedAt = 0;
-    state.errorText = `⚠ ${adapter.display} 无 Key (${adapter.apiKeyEnvVar})`;
+    state.errorText = `⚠ ${adapter.display} 无 Key (${names})`;
     updateFooter(ctx);
     return;
   }

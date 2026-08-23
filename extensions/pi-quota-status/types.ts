@@ -83,8 +83,18 @@ export interface QuotaAdapter {
  readonly display: string;
  /** Pi provider-name aliases (e.g. "opencode-go" + custom names). */
  readonly providerNames: readonly string[];
- /** Env var to read for the API key (e.g. "OPENCODE_API_KEY"). */
+ /**
+ * Primary env var name (aligned with pi-coding-agent's official
+ * convention for this provider, so users can set ONE env var that
+ * both pi and this extension read from).
+ */
  readonly apiKeyEnvVar: string;
+ /**
+ * Additional env var names to try if `apiKeyEnvVar` is unset.
+ * Used for backward compat with users who set a different env var
+ * name (e.g. `ZAI_API_KEY` vs pi's official `ZAI_CODING_CN_API_KEY`).
+ */
+ readonly apiKeyEnvVarAliases?: readonly string[];
  /** API URL. Mirror of ENDPOINTS[id] for introspection. */
  readonly endpoint: string;
  /** Fetch + parse into a flat bar list. The framework attaches `display`. */
