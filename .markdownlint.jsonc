@@ -1,0 +1,13 @@
+{
+  // markdownlint configuration for the pi-plugin monorepo.
+  //
+  // MD060 (table-column-style): set to "padded" because every README in
+  // this repo uses the spaced form ("| h1 | h2 |") rather than the
+  // default "compact" form ("|h1|h2|"). Switching the rule to padded
+  // accepts the existing convention without rewriting any tables.
+  // Other MD rules (line length, fenced-code language, etc.) are left
+  // at their defaults and addressed per-file as needed.
+  "MD060": {
+    "style": "padded"
+  }
+}
