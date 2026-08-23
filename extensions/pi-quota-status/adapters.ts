@@ -278,14 +278,25 @@ export const ADAPTERS = {
     async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
       const json = await fetchJsonBearer<{
         is_available: boolean;
-        balance: Array<{
+        // Official field name (api-docs.deepseek.com/api/get-user-balance)
+        // is `balance_infos`, not `balance` — older drafts used `balance`.
+        balance_infos: Array<{
+          currency: string;
+          total_balance: string;
+          granted_balance?: string;
+          topped_up_balance?: string;
+        }>;
+        // Defensive fallback for a legacy/alternate shape in case the
+        // API drifts back to `balance` — costs one property access.
+        balance?: Array<{
           currency: string;
           total_balance: string;
           granted_balance?: string;
           topped_up_balance?: string;
         }>;
       }>(ENDPOINTS.deepseek, apiKey);
-      const entry = json.balance?.[0];
+      const entry =
+        json.balance_infos?.[0] ?? json.balance?.[0];
       if (!entry) throw new Error("响应中无余额数据");
       const amount = Number.parseFloat(entry.total_balance);
       if (!Number.isFinite(amount)) throw new Error("余额数据格式异常");

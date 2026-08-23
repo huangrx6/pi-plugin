@@ -83,7 +83,6 @@ function mountFooter(ctx: QuotaCtx): void {
         renderFooter(
           state.activeFooterCtx ?? ctx,
           state.activeModel,
-          // @ts-ignore
           state.activeThinkingLevel,
           footerData,
           theme,
