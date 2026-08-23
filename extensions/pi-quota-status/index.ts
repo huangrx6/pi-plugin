@@ -138,7 +138,14 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
     state.errorText = "";
   } catch (e) {
     if (seq !== state.fetchSeq) return;
+    // Keep last good data ONLY for the same provider on a transient
+    // failure. If the user just switched providers, the cached data
+    // belongs to the OLD provider — showing it would mislead (e.g.
+    // deepseek selected but ⚡MiniMax rendered). Provider switch =
+    // stale-keep disabled, error surfaced instead.
+    const sameProvider = state.quotaData?.provider === adapter.display;
     const fresh =
+      sameProvider &&
       state.quotaFetchedAt > 0 &&
       Date.now() - state.quotaFetchedAt <= STALE_KEEP_MS;
     if (!fresh) {
@@ -146,7 +153,8 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
       state.quotaFetchedAt = 0;
       state.errorText = `⚠ ${adapter.display}: ${e instanceof Error ? e.message : String(e)}`;
     }
-    // Keep last good data (marked stale by buildQuotaText) on transient errors.
+    // Same-provider transient errors keep the last good data (marked
+    // stale by buildQuotaText once older than STALE_KEEP_MS).
   }
   updateFooter(ctx);
 }
