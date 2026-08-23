@@ -23,6 +23,9 @@ export const ENDPOINTS = {
   opencode: "https://opencode.ai/zen/go/v1/usage",
   zhipu: "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
   minimax: "https://www.minimaxi.com/v1/token_plan/remains",
+  deepseek: "https://api.deepseek.com/user/balance",
+  kimi: "https://api.kimi.com/coding/v1/usages",
+  openrouter: "https://openrouter.ai/api/v1/key",
 } as const;
 
 // ── Shared JSON GET with Bearer auth + 15s timeout ─────────────────────
@@ -73,6 +76,8 @@ export function percentBarFromLimitRemaining(
 // ── Adapter registry ───────────────────────────────────────────────────
 
 export const ADAPTERS = {
+  // ── Percentage-window providers ──────────────────────────────────────
+
   opencode: {
     display: "⚡OC",
     providerNames: ["opencode-go"],
@@ -212,6 +217,119 @@ export const ADAPTERS = {
       }
       if (bars.length === 0) throw new Error("响应中无用量数据");
       return bars;
+    },
+  },
+
+  kimi: {
+    display: "⚡Kimi",
+    // Kimi Code (会员订阅) uses a separate API key from the regular
+    // Moonshot Open Platform key — alias both provider names just in case.
+    providerNames: ["kimi", "moonshot", "kimi-code"],
+    apiKeyEnvVar: "KIMI_API_KEY",
+    endpoint: ENDPOINTS.kimi,
+    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
+      const json = await fetchJsonBearer<{
+        usage?: {
+          limit: string;
+          remaining: string;
+          resetTime: string;
+        };
+        limits?: Array<{
+          window?: { duration: number; timeUnit: string };
+          detail?: { limit: string; remaining: string; resetTime: string };
+        }>;
+      }>(ENDPOINTS.kimi, apiKey);
+      const bars: QuotaBar[] = [];
+      const now = Date.now();
+      // 5h rolling window: limits[] entry with 300-minute duration.
+      const fiveHour = json.limits?.find((l) => l.window?.duration === 300);
+      if (fiveHour?.detail) {
+        const bar = percentBarFromLimitRemaining(fiveHour.detail, "5h:", now);
+        if (bar) bars.push(bar);
+      }
+      // `usage` is the wider overall quota (typically weekly on Kimi
+      // Code — reset is days away, not hours).
+      if (json.usage) {
+        const bar = percentBarFromLimitRemaining(json.usage, "周:", now);
+        if (bar) bars.push(bar);
+      }
+      if (bars.length === 0) throw new Error("响应中无用量数据");
+      return bars;
+    },
+  },
+
+  // ── Balance / remaining-credit providers ─────────────────────────────
+
+  deepseek: {
+    display: "⚡DeepSeek",
+    providerNames: ["deepseek", "deepseek-cn"],
+    apiKeyEnvVar: "DEEPSEEK_API_KEY",
+    endpoint: ENDPOINTS.deepseek,
+    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
+      const json = await fetchJsonBearer<{
+        is_available: boolean;
+        balance: Array<{
+          currency: string;
+          total_balance: string;
+          granted_balance?: string;
+          topped_up_balance?: string;
+        }>;
+      }>(ENDPOINTS.deepseek, apiKey);
+      const entry = json.balance?.[0];
+      if (!entry) throw new Error("响应中无余额数据");
+      const amount = Number.parseFloat(entry.total_balance);
+      if (!Number.isFinite(amount)) throw new Error("余额数据格式异常");
+      // DeepSeek's API returns ISO-style currency codes (CNY / USD).
+      // Map to display symbols; pass through unchanged if unknown.
+      const symbol =
+        entry.currency === "CNY" ? "¥" : entry.currency === "USD" ? "$" : "";
+      // If is_available is false, force amount to 0 so the bar still
+      // renders (the "无 Key" / API-error branches above already cover
+      // the case of no key at all).
+      return [
+        {
+          kind: "balance",
+          label: "余额:",
+          amount: json.is_available ? amount : 0,
+          currency: symbol,
+        },
+      ];
+    },
+  },
+
+  openrouter: {
+    display: "⚡OR",
+    providerNames: ["openrouter"],
+    apiKeyEnvVar: "OPENROUTER_API_KEY",
+    endpoint: ENDPOINTS.openrouter,
+    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
+      const json = await fetchJsonBearer<{
+        data?: {
+          limit_remaining?: number | string | null;
+          label?: string | null;
+          is_free_tier?: boolean;
+        };
+      }>(ENDPOINTS.openrouter, apiKey);
+      const data = json.data;
+      if (
+        !data ||
+        data.limit_remaining === undefined ||
+        data.limit_remaining === null
+      ) {
+        throw new Error("响应中无限度数据");
+      }
+      const amount = Number.parseFloat(String(data.limit_remaining));
+      if (!Number.isFinite(amount)) throw new Error("额度数据格式异常");
+      // OpenRouter credits are USD-denominated; the API doesn't return a
+      // currency field, so we hard-code "$".
+      return [
+        {
+          kind: "balance",
+          label: data.is_free_tier ? "免费额度:" : "额度:",
+          amount,
+          currency: "$",
+        },
+      ];
     },
   },
 } as const satisfies Record<string, QuotaAdapter>;
