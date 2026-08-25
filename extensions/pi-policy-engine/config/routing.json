@@ -1,0 +1,48 @@
+{
+  "taskRules": {
+    "documentation": [
+      "readme", "documentation", "docs", "markdown", "typo", "文档", "说明文档", "注释", "拼写", "措辞"
+    ],
+    "debugging": [
+      "debug", "bug", "exception", "error", "failure", "fails", "broken", "regression", "报错", "异常", "错误", "失败", "排查", "定位", "不工作", "不生效", "为什么"
+    ],
+    "review": [
+      "code review", "review diff", "review this", "审查代码", "代码审查", "review", "帮我看看这个 diff", "检查这个 diff"
+    ],
+    "research": [
+      "research", "investigate options", "compare providers", "调研", "研究一下", "查官方", "查文档", "对比方案", "对比平台"
+    ],
+    "architecture": [
+      "architecture", "system design", "microservice", "migration plan", "架构", "架构设计", "系统设计", "拆分", "迁移方案", "微服务", "领域边界", "重构整个"
+    ]
+  },
+  "domainRules": {
+    "database": [
+      "database", "postgres", "postgresql", "mysql", "oracle", "sql", "schema", "migration", "transaction", "index", "数据库", "数据表", "表结构", "索引", "事务", "迁移"
+    ],
+    "kubernetes": [
+      "kubernetes", "k8s", "helm", "deployment", "statefulset", "daemonset", "pod", "ingress", "configmap", "secret", "hostpath", "volumemount", "volume", "kubectl", "容器编排", "挂载"
+    ],
+    "security": [
+      "security", "auth", "authentication", "authorization", "oauth", "jwt", "permission", "credential", "secret", "password", "安全", "认证", "鉴权", "授权", "权限", "密钥", "密码"
+    ],
+    "backend": [
+      "spring", "java", "controller", "service", "repository", "api", "backend", "microservice", "后端", "接口", "服务层"
+    ],
+    "frontend": [
+      "react", "vue", "angular", "frontend", "css", "dom", "browser", "前端", "页面", "组件", "样式"
+    ]
+  },
+  "highRisk": [
+    "production", "prod", "线上", "生产", "breaking change", "破坏性变更", "drop table", "drop database", "删库", "schema migration", "数据库迁移", "数据迁移", "权限模型", "认证体系", "支付", "payment", "资金", "credential", "secret rotation", "密钥轮换"
+  ],
+  "mediumRisk": [
+    "refactor", "重构", "多个模块", "跨模块", "multi-module", "并发", "concurrency", "cache", "缓存", "deployment", "k8s", "kubernetes", "rollback", "回滚", "兼容", "backward compatible", "api change", "接口变更"
+  ],
+  "simpleHints": [
+    "typo", "拼写", "只改", "only change", "one line", "一行", "readme", "文档", "注释"
+  ],
+  "analysisOnlyHints": [
+    "不要修改", "先不要改", "只分析", "只检查", "do not edit", "don't edit", "analysis only", "review only"
+  ]
+}

@@ -1,0 +1,221 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { classifyTask } from "../src/core/classifier.js";
+import { chooseWorkflow, modelPolicyId } from "../src/core/router.js";
+import { composePolicies, loadProjectPolicies, renderPolicyBlock } from "../src/core/loader.js";
+import { findMutatingShell, isApprovalPrompt, isMutatingShell, shouldBlockTool } from "../src/core/guard.js";
+import { mergeConfig } from "../src/core/config.js";
+import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+let routing;
+try {
+  routing = JSON.parse(readFileSync(join(root, "config", "routing.json"), "utf8"));
+} catch (error) {
+  throw new Error(`failed to load config/routing.json: ${error.message}`);
+}
+
+function c(prompt) {
+  return classifyTask(prompt, routing, []);
+}
+
+{
+  const x = c("帮我只改 README 里的一处 Tab 补全描述");
+  assert.equal(x.taskType, "documentation");
+  assert.equal(x.risk, "low");
+  assert.equal(chooseWorkflow(x, "auto"), "quick");
+}
+
+{
+  const x = c("这个接口最近偶尔返回旧数据，帮我排查 bug 并修复");
+  assert.equal(x.taskType, "debugging");
+  assert.equal(chooseWorkflow(x, "auto"), "standard");
+}
+
+{
+  const x = c("设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚");
+  assert.equal(x.taskType, "architecture");
+  assert.equal(x.risk, "high");
+  assert.equal(chooseWorkflow(x, "auto"), "strict");
+  assert.ok(x.domains.includes("database"));
+}
+
+{
+  const x = c("k8s deployment 的 hostPath 挂载需要调整，生产环境不能停机");
+  assert.equal(x.risk, "high");
+  assert.ok(x.domains.includes("kubernetes"));
+  assert.equal(chooseWorkflow(x, "auto"), "strict");
+}
+
+{
+  const x = c("只分析这个数据库迁移方案，不要修改任何文件");
+  assert.equal(x.analysisOnly, true);
+  assert.equal(chooseWorkflow(x, "auto"), "standard");
+}
+
+assert.equal(modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M3" }), "model.minimax-m3");
+assert.equal(modelPolicyId({ provider: "deepseek", id: "deepseek-v4" }), "model.deepseek");
+assert.equal(modelPolicyId({ provider: "foo", id: "bar" }), null);
+
+assert.equal(isMutatingShell("git status"), false);
+assert.equal(isMutatingShell("rg TODO src"), false);
+assert.equal(isMutatingShell("git commit -am test"), true);
+assert.equal(isMutatingShell("kubectl apply -f deploy.yaml"), true);
+assert.equal(isMutatingShell("echo hello > file.txt"), true);
+assert.equal(isApprovalPrompt("开始执行，按这个计划做"), true);
+assert.equal(isApprovalPrompt("继续分析这个计划"), false);
+
+{
+  const x = shouldBlockTool({ toolName: "edit", input: {} }, "soft", true);
+  assert.equal(x.block, true);
+}
+{
+  const x = shouldBlockTool({ toolName: "bash", input: { command: "git status" } }, "hard", true);
+  assert.equal(x.block, false);
+}
+{
+  const x = shouldBlockTool({ toolName: "bash", input: { command: "rm -rf tmp" } }, "hard", true);
+  assert.equal(x.block, true);
+}
+{
+  const x = shouldBlockTool({ toolName: "bash", input: { command: "rm -rf tmp" } }, "soft", true);
+  assert.equal(x.block, false);
+}
+
+{
+  const projectPolicies = loadProjectPolicies(join(root, "examples", "project"), {
+    projectPolicyMaxFiles: 12,
+    projectPolicyMaxBytes: 24000,
+  });
+  assert.equal(projectPolicies.length, 2);
+  assert.match(projectPolicies[0].content, /backward compatible/i);
+  assert.match(projectPolicies[1].content, /observability/i);
+}
+
+// mergeConfig: deep merge of nested objects.
+{
+  const merged = mergeConfig(
+    { gate: "soft", profile: "auto", nested: { a: 1, b: 2 } },
+    { gate: "hard", nested: { b: 99, c: 3 } },
+    { includePolicies: ["behavior.execution-discipline"] },
+  );
+  assert.equal(merged.gate, "hard");
+  assert.equal(merged.profile, "auto");
+  assert.deepEqual(merged.nested, { a: 1, b: 99, c: 3 });
+}
+
+// mergeConfig: arrays of objects with `id` are unioned (deduped by id).
+{
+  const merged = mergeConfig(
+    { items: [{ id: "x", v: 1 }, { id: "y", v: 2 }] },
+    { items: [{ id: "y", v: 22 }, { id: "z", v: 3 }] },
+  );
+  assert.equal(merged.items.length, 3);
+  const xs = merged.items.map((i) => i.id);
+  assert.deepEqual(xs, ["x", "y", "z"]);
+  assert.equal(merged.items.find((i) => i.id === "y").v, 22);
+}
+
+// Categorized shell guard: findMutatingShell returns category+label.
+{
+  const rm = findMutatingShell("rm -rf tmp");
+  assert.equal(rm.category, "file");
+  assert.equal(rm.label, "rm");
+  const git = findMutatingShell("git push origin main");
+  assert.equal(git.category, "git");
+  const kubectl = findMutatingShell("kubectl apply -f x.yaml");
+  assert.equal(kubectl.category, "k8s");
+  assert.equal(findMutatingShell("git status"), null);
+}
+
+// Per-category enable/disable via config.guard.
+{
+  const git = findMutatingShell("git commit -m x");
+  assert.equal(git.category, "git");
+  // hard gate with k8s disabled
+  const blocked = shouldBlockTool(
+    { toolName: "bash", input: { command: "kubectl apply -f x" } },
+    "hard",
+    true,
+    { disabledCategories: ["k8s"] },
+  );
+  assert.equal(blocked.block, false);
+  const blockedFile = shouldBlockTool(
+    { toolName: "bash", input: { command: "rm -rf tmp" } },
+    "hard",
+    true,
+    { disabledCategories: ["k8s"] },
+  );
+  assert.equal(blockedFile.block, true);
+  assert.match(blockedFile.reason, /file: rm/);
+}
+
+// Byte budget: composePolicies drops low-priority policies when over budget.
+{
+  const decision = {
+    taskType: "coding",
+    risk: "high",
+    confidence: 0.9,
+    analysisOnly: false,
+    domains: ["database", "kubernetes"],
+    workflow: "strict",
+    profile: "coding",
+    modelPolicy: "model.minimax-m3",
+    gate: "soft",
+    reasons: [],
+  };
+  const tight = composePolicies({
+    packageRoot: root,
+    decision,
+    config: { policyMaxBytes: 1500, excludePolicies: [], includePolicies: [] },
+    phase: "planning",
+  });
+  assert.ok(tight.truncated.length > 0, "expected some policies to be truncated under tight budget");
+  // project-domain.kubernetes should drop before core.* does.
+  assert.ok(!tight.policies.some((p) => p.id === "domain.kubernetes"));
+  assert.ok(tight.policies.some((p) => p.id === "core.evidence-priority"));
+}
+
+// renderPolicyBlock surfaces truncated list.
+{
+  const decision = {
+    taskType: "coding",
+    risk: "low",
+    confidence: 0.9,
+    analysisOnly: false,
+    domains: [],
+    workflow: "quick",
+    profile: "coding",
+    modelPolicy: null,
+    gate: "soft",
+    reasons: [],
+  };
+  const block = renderPolicyBlock({
+    decision,
+    policies: [],
+    projectPolicies: [],
+    phase: "executing",
+    truncated: ["domain.database", "model.minimax-m3"],
+  });
+  assert.match(block, /domain\.database/);
+  assert.match(block, /model\.minimax-m3/);
+  assert.match(block, /byte budget/i);
+}
+
+// Command parsing.
+{
+  const a = parsePolicyCommand("strict");
+  assert.equal(a.action, "strict");
+  assert.deepEqual(a.rest, []);
+  const b = parsePolicyCommand("  once quick  ");
+  assert.equal(b.action, "once");
+  assert.deepEqual(b.rest, ["quick"]);
+  const c = parsePolicyCommand("   ");
+  assert.equal(c.action, "status");
+  assert.deepEqual(c.rest, []);
+}
+
+process.stdout.write("self-test: OK\n");

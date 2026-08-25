@@ -1,0 +1,9 @@
+{
+  "mode": "auto",
+  "gate": "hard",
+  "profile": "auto",
+  "domainHints": ["backend"],
+  "projectPolicies": [
+    "compatibility.md"
+  ]
+}

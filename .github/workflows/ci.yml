@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pi-policy-engine:
+    name: pi-policy-engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        working-directory: extensions/pi-policy-engine
+        run: npm install --no-audit --no-fund
+        continue-on-error: true
+      - name: Syntax check (node --check)
+        working-directory: extensions/pi-policy-engine
+        run: |
+          for f in extensions/policy-engine/index.js src/core/*.js; do
+            node --check "$f"
+          done
+      - name: Self test
+        working-directory: extensions/pi-policy-engine
+        run: node ./scripts/self-test.mjs
+      - name: Smoke test (extension lifecycle)
+        working-directory: extensions/pi-policy-engine
+        run: node ./scripts/smoke-extension.mjs
+
+  markdown-lint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run markdownlint-cli2
+        run: npx --yes markdownlint-cli2 "**/*.md"

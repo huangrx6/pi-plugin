@@ -1,0 +1,7 @@
+{
+  "id": "research",
+  "policies": [
+    "behavior.context-hygiene",
+    "workflow.research-first"
+  ]
+}

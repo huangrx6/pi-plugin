@@ -1,0 +1,8 @@
+{
+  "id": "architecture",
+  "policies": [
+    "behavior.execution-discipline",
+    "behavior.context-hygiene",
+    "behavior.tool-discipline"
+  ]
+}

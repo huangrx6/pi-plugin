@@ -1,0 +1,11 @@
+{
+  "mode": "auto",
+  "gate": "soft",
+  "profile": "auto",
+  "showStatus": true,
+  "projectPolicyMaxFiles": 12,
+  "projectPolicyMaxBytes": 24000,
+  "includePolicies": [],
+  "excludePolicies": [],
+  "domainHints": []
+}
