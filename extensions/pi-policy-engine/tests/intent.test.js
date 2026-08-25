@@ -93,7 +93,6 @@ test("negated and topic-mention verbs never form a frame", () => {
   assert.equal(mention.frameFound, false);
 });
 
-
 test("v0.17 advisory modality: asking HOW to change is read-only", () => {
   const cases = [
     ["告诉我如何修复这个问题，不要修改代码", "read-only"],
@@ -122,7 +121,10 @@ test("v0.17 advisory never swallows direct commands", () => {
     ["直接修改代码", "mutate"],
     ["change the config", "mutate"],
     ["告诉我如何修复，然后你直接修改", "mutate"], // later direct clause wins
-    ["设计生产环境 PostgreSQL 数据库迁移方案并实施，不能停机，需要回滚", "mutate"],
+    [
+      "设计生产环境 PostgreSQL 数据库迁移方案并实施，不能停机，需要回滚",
+      "mutate",
+    ],
     ["写一份修复方案文档", "mutate"], // 写 live beats the 方案 noun
   ];
   for (const [prompt, want] of cases) {
@@ -138,7 +140,9 @@ test("v0.17 bare plan-noun stays dead: 设计迁移方案 routes via risk, not i
   // No communication frame, no direct verb — the plan-noun is a discussed
   // topic (dead evidence), so intent is unclear and strict rigor holds.
   assert.equal(
-    extractExecutionIntent("设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚"),
+    extractExecutionIntent(
+      "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚",
+    ),
     "unclear",
   );
 });
