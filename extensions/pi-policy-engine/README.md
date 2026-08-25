@@ -180,6 +180,45 @@ reason: Policy Engine: ... [file: deploy-tool-prod]. Segment: ...
 - 确认 `disabledCategories` 关掉某个分类后不会误拦
 - 排查"为啥这条命令没被拦"
 
+#### 对比两条 prompt 的路由：`/policy diff <promptA> || <promptB>`
+
+调 `config/routing.json` 关键词、加 domainHints、改某个 policy 后，看两条 prompt 路由是不是如预期般不同：
+
+```text
+/policy diff "修一个 PG migration bug" || "改 README typo"
+```
+
+输出：
+
+```text
+# Policy diff
+
+LEFT : 修一个 PG migration bug
+RIGHT: 改 README typo
+
+LEFT
+  workflow: strict
+  task / risk: architecture / high
+  ...
+RIGHT
+  workflow: quick
+  task / risk: documentation / low
+  ...
+
+Differences (4):
+  workflow: strict  →  quick
+  task: architecture  →  documentation
+  risk: high  →  low
+  would require approval: yes  →  no
+```
+
+适用场景：
+- 调 routing 后验证变化（"这个新关键词生效了吗"）
+- 对比两个相似 prompt 为什么一条 strict 一条 quick
+- 纯读：不触发 agent、不动 session state、不发 semantic fallback 请求
+
+分隔符是 `||`（两边不需空格），不会被 prompt 里常见内容触发。
+
 #### Resolved 配置：`/policy config`
 
 打印当前**实际生效**的 merged 配置（defaults + global + project + runtime override 四层合起来），debug "为什么这个值不是我配的"：

@@ -13,13 +13,19 @@ import {
 import {
   formatConfig,
   formatDecision,
+  formatDiff,
   formatGuardPreview,
   formatHistory,
   formatPreview,
   formatStatusSummary,
 } from "./format.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
-import { buildEffectiveConfig, preview, recordHistory } from "./state.js";
+import {
+  buildEffectiveConfig,
+  compareDecisions,
+  preview,
+  recordHistory,
+} from "./state.js";
 
 const MODE_OPTIONS = [
   { key: "auto", description: "按 prompt 内容自动路由 workflow（默认）" },
@@ -217,6 +223,58 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
+    if (action === "diff") {
+      const joined = rest.join(" ");
+      const sepIdx = joined.indexOf("||");
+      if (sepIdx === -1) {
+        notify(
+          ctx,
+          "Usage: /policy diff <promptA> || <promptB>  (compare two prompts' routing decisions side by side)",
+          "warning",
+        );
+        return;
+      }
+      const leftPrompt = joined.slice(0, sepIdx).trim();
+      const rightPrompt = joined.slice(sepIdx + 2).trim();
+      if (!leftPrompt || !rightPrompt) {
+        notify(
+          ctx,
+          "Both prompts required: /policy diff <promptA> || <promptB>",
+          "warning",
+        );
+        return;
+      }
+      try {
+        const [left, right] = await Promise.all([
+          preview({
+            packageRoot,
+            cwd: ctx?.cwd ?? process.cwd(),
+            prompt: leftPrompt,
+            model: ctx?.model ?? state.currentModel,
+          }),
+          preview({
+            packageRoot,
+            cwd: ctx?.cwd ?? process.cwd(),
+            prompt: rightPrompt,
+            model: ctx?.model ?? state.currentModel,
+          }),
+        ]);
+        const differences = compareDecisions(left, right);
+        notify(
+          ctx,
+          formatDiff({ leftPrompt, left, rightPrompt, right, differences }),
+          "info",
+        );
+      } catch (err) {
+        notify(
+          ctx,
+          `diff failed: ${err instanceof Error ? err.message : String(err)}`,
+          "warning",
+        );
+      }
+      return;
+    }
+
     if (action === "history") {
       if (rest[0] === "clear-disk") {
         const cfg = buildEffectiveConfig({
@@ -332,7 +390,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N|clear-disk]|test-guard <cmd>|config|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|test-guard <cmd>|config|status|why|cancel|reset]",
       "info",
     );
   };

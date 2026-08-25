@@ -36,14 +36,10 @@ import {
   buildSemanticRequestBody,
   maybeSemanticClassify,
 } from "../src/core/semantic.js";
-import {
-  formatConfig,
-  formatGuardPreview,
-  formatHistory,
-  formatPreview,
-} from "../extensions/policy-engine/format.js";
+import { formatConfig, formatDiff, formatGuardPreview, formatHistory, formatPreview } from "../extensions/policy-engine/format.js";
 import {
   HISTORY_CAP,
+  compareDecisions,
   preview,
   recordHistory,
 } from "../extensions/policy-engine/state.js";
@@ -993,6 +989,141 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const state = { history: [] };
   recordHistory(state, { source: "decide", prompt: "x", decision: null });
   assert.equal(state.history.length, 0);
+}
+
+// compareDecisions: identical decisions produce empty diff.
+{
+  const decision = {
+    workflow: "strict",
+    taskType: "architecture",
+    risk: "high",
+    confidence: 0.9,
+    domains: ["database"],
+    profile: "architecture",
+    gate: "soft",
+    modelPolicy: "model.minimax-m3",
+    analysisOnly: false,
+  };
+  const preview = {
+    decision,
+    wouldRequireApproval: true,
+  };
+  assert.deepEqual(compareDecisions(preview, preview), []);
+}
+
+// compareDecisions: workflow + risk + confidence + domains differ.
+{
+  const left = {
+    decision: {
+      workflow: "strict",
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.9,
+      domains: ["database"],
+      profile: "architecture",
+      gate: "soft",
+      modelPolicy: null,
+      analysisOnly: false,
+    },
+    wouldRequireApproval: true,
+  };
+  const right = {
+    decision: {
+      workflow: "quick",
+      taskType: "documentation",
+      risk: "low",
+      confidence: 0.7,
+      domains: [],
+      profile: "coding",
+      gate: "soft",
+      modelPolicy: null,
+      analysisOnly: false,
+    },
+    wouldRequireApproval: false,
+  };
+  const diffs = compareDecisions(left, right);
+  // workflow, task, risk, confidence, domains, profile, would require approval
+  assert.ok(diffs.length >= 5);
+  assert.ok(diffs.some((d) => d.field === "workflow" && d.left === "strict" && d.right === "quick"));
+  assert.ok(diffs.some((d) => d.field === "risk" && d.left === "high" && d.right === "low"));
+}
+
+// compareDecisions: domains with different order / content.
+{
+  const left = { decision: { domains: ["a", "b"] }, wouldRequireApproval: false };
+  const right = { decision: { domains: ["b", "a"] }, wouldRequireApproval: false };
+  // joined-comma comparison: "a,b" vs "b,a" -> differ
+  assert.ok(compareDecisions(left, right).some((d) => d.field === "domains"));
+}
+
+// formatDiff: identical preview shows "no differences".
+{
+  const decision = {
+    workflow: "quick",
+    taskType: "coding",
+    risk: "low",
+    confidence: 0.85,
+    domains: [],
+    profile: "coding",
+    gate: "soft",
+    modelPolicy: null,
+    analysisOnly: false,
+  };
+  const preview = { decision, wouldRequireApproval: false };
+  const text = formatDiff({
+    leftPrompt: "fix typo",
+    left: preview,
+    rightPrompt: "fix typo 2",
+    right: preview,
+    differences: [],
+  });
+  assert.match(text, /# Policy diff/);
+  assert.match(text, /fix typo/);
+  assert.match(text, /both prompts route identically/);
+}
+
+// formatDiff: differences shown with arrow separator.
+{
+  const left = {
+    decision: {
+      workflow: "strict",
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.9,
+      domains: ["database"],
+      profile: "architecture",
+      gate: "soft",
+      modelPolicy: "model.minimax-m3",
+      analysisOnly: false,
+    },
+    wouldRequireApproval: true,
+  };
+  const right = {
+    decision: {
+      workflow: "quick",
+      taskType: "documentation",
+      risk: "low",
+      confidence: 0.7,
+      domains: [],
+      profile: "coding",
+      gate: "soft",
+      modelPolicy: null,
+      analysisOnly: false,
+    },
+    wouldRequireApproval: false,
+  };
+  const text = formatDiff({
+    leftPrompt: "PG migration",
+    left,
+    rightPrompt: "fix typo",
+    right,
+    differences: compareDecisions(left, right),
+  });
+  assert.match(text, /LEFT/);
+  assert.match(text, /RIGHT/);
+  assert.match(text, /Differences \(\d+\)/);
+  assert.match(text, /workflow: strict  →  quick/);
+  assert.match(text, /risk: high  →  low/);
 }
 
 // history-store: resolveHistoryPath expands ~ and resolves relative paths.

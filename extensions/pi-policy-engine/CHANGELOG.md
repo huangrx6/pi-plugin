@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.10.0
+
+- **Side-by-side routing comparison**: `/policy diff <promptA> || <promptB>`
+  runs the full preview pipeline for two prompts in parallel and shows
+  the resulting decisions next to each other, with a Differences list of
+  fields that changed. Pure read — no agent invocation, no state mutation.
+  Useful for verifying that a routing keyword change actually moved
+  prompts between workflows.
+- New helpers in state.js (`compareDecisions`) and format.js
+  (`formatDiff`). Both used by `/policy diff` and reusable for future
+  comparison-style commands.
+
 ## 0.9.0
 
 - **Cross-session history persistence**: `/policy history` now reads from

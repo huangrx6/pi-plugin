@@ -105,6 +105,52 @@ export function formatStatusSummary({ config, phase, pendingApproval, model }) {
  * config object already has defaults < global < project < runtime merged
  * in by `mergeConfig`, so this shows the actual values in force.
  */
+/**
+ * Render a `/policy diff` result. Shows the two prompts + their decisions
+ * side by side, then a "Differences" section listing fields that differ.
+ * Returns a graceful message when both prompts route identically.
+ */
+export function formatDiff({ leftPrompt, left, rightPrompt, right, differences }) {
+  const lines = ["# Policy diff", ""];
+  lines.push(`LEFT : ${leftPrompt ?? ""}`);
+  lines.push(`RIGHT: ${rightPrompt ?? ""}`);
+  lines.push("");
+  lines.push("LEFT");
+  lines.push(`  workflow: ${left?.decision?.workflow ?? "?"}`);
+  lines.push(`  task / risk: ${left?.decision?.taskType ?? "?"} / ${left?.decision?.risk ?? "?"}`);
+  lines.push(`  domains: ${(left?.decision?.domains ?? []).join(",") || "none"}`);
+  lines.push(`  confidence: ${left?.decision?.confidence ?? "?"}`);
+  lines.push(`  profile / gate: ${left?.decision?.profile ?? "?"} / ${left?.decision?.gate ?? "?"}`);
+  lines.push(`  would require approval: ${left?.wouldRequireApproval ? "yes" : "no"}`);
+  lines.push("");
+  lines.push("RIGHT");
+  lines.push(`  workflow: ${right?.decision?.workflow ?? "?"}`);
+  lines.push(`  task / risk: ${right?.decision?.taskType ?? "?"} / ${right?.decision?.risk ?? "?"}`);
+  lines.push(`  domains: ${(right?.decision?.domains ?? []).join(",") || "none"}`);
+  lines.push(`  confidence: ${right?.decision?.confidence ?? "?"}`);
+  lines.push(`  profile / gate: ${right?.decision?.profile ?? "?"} / ${right?.decision?.gate ?? "?"}`);
+  lines.push(`  would require approval: ${right?.wouldRequireApproval ? "yes" : "no"}`);
+  lines.push("");
+  if (!differences || differences.length === 0) {
+    lines.push("Differences: (none — both prompts route identically)");
+  } else {
+    lines.push(`Differences (${differences.length}):`);
+    for (const d of differences) {
+      lines.push(`  ${d.field}: ${formatDiffValue(d.left)}  →  ${formatDiffValue(d.right)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatDiffValue(value) {
+  if (value === undefined) return "(unset)";
+  if (value === null) return "(null)";
+  if (typeof value === "string") return value;
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number") return String(value);
+  return JSON.stringify(value);
+}
+
 export function formatConfig(config) {
   const lines = ["# Resolved policy-engine config", ""];
   lines.push("routing");

@@ -125,6 +125,53 @@ export async function decide({
 }
 
 /**
+ * Compare two decisions and return the list of fields that differ. Used by
+ * `/policy diff`. Returns an array of `{ field, left, right }` objects
+ * (only for fields where left !== right). Compares on the classification /
+ * decision shape so it works with either preview or decide output.
+ */
+export function compareDecisions(left, right) {
+  if (!left || !right) return [];
+  const fields = [
+    ["workflow", left?.decision?.workflow, right?.decision?.workflow],
+    ["task", left?.decision?.taskType, right?.decision?.taskType],
+    ["risk", left?.decision?.risk, right?.decision?.risk],
+    [
+      "confidence",
+      left?.decision?.confidence,
+      right?.decision?.confidence,
+    ],
+    [
+      "domains",
+      (left?.decision?.domains ?? []).join(","),
+      (right?.decision?.domains ?? []).join(","),
+    ],
+    ["profile", left?.decision?.profile, right?.decision?.profile],
+    ["gate", left?.decision?.gate, right?.decision?.gate],
+    [
+      "model policy",
+      left?.decision?.modelPolicy ?? "default",
+      right?.decision?.modelPolicy ?? "default",
+    ],
+    [
+      "analysis only",
+      left?.decision?.analysisOnly,
+      right?.decision?.analysisOnly,
+    ],
+    [
+      "would require approval",
+      left?.wouldRequireApproval,
+      right?.wouldRequireApproval,
+    ],
+  ];
+  const out = [];
+  for (const [field, l, r] of fields) {
+    if (l !== r) out.push({ field, left: l, right: r });
+  }
+  return out;
+}
+
+/**
  * Dry-run classification + policy composition for a given prompt. Used by
  * `/policy preview <prompt>`. Does NOT mutate state, does NOT block, does
  * NOT touch any runtime override — it's a pure read.
