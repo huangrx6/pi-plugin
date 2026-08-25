@@ -35,13 +35,18 @@ export function formatHistory(entries, n = 5) {
   const limit = Math.min(Math.max(1, Number(n) || 5), entries.length);
   const lines = [`# Routing history (last ${limit} of ${entries.length})`, ""];
   // Walk the array backwards without .reverse() to avoid mutating a slice.
-  for (let i = entries.length - 1, shown = 0; i >= 0 && shown < limit; i--, shown++) {
+  for (
+    let i = entries.length - 1, shown = 0;
+    i >= 0 && shown < limit;
+    i--, shown++
+  ) {
     const e = entries[i];
     const idx = i + 1; // 1-based chronological numbering
     const time = new Date(e.ts).toISOString().slice(11, 19);
     const conf =
       typeof e.confidence === "number" ? e.confidence.toFixed(2) : "?";
-    const taskRisk = e.task && e.risk ? `${e.task} / ${e.risk}` : e.task ?? "?";
+    const taskRisk =
+      e.task && e.risk ? `${e.task} / ${e.risk}` : (e.task ?? "?");
     lines.push(
       `${idx}. [${time}] ${e.source ?? "decide"}  ${e.workflow}  (${taskRisk}, conf=${conf})`,
     );
@@ -110,9 +115,7 @@ export function formatConfig(config) {
   lines.push(`  domainHints: ${JSON.stringify(config.domainHints ?? [])}`);
   lines.push("");
   lines.push("policies");
-  lines.push(
-    `  projectPolicyMaxFiles: ${config.projectPolicyMaxFiles ?? 12}`,
-  );
+  lines.push(`  projectPolicyMaxFiles: ${config.projectPolicyMaxFiles ?? 12}`);
   lines.push(
     `  projectPolicyMaxBytes: ${config.projectPolicyMaxBytes ?? 24000}`,
   );
@@ -155,7 +158,15 @@ export function formatConfig(config) {
  */
 export function formatPreview(preview) {
   if (!preview) return "No preview available.";
-  const { decision, classification, policies, projectPolicies, truncated, wouldRequireApproval, stats } = preview;
+  const {
+    decision,
+    classification,
+    policies,
+    projectPolicies,
+    truncated,
+    wouldRequireApproval,
+    stats,
+  } = preview;
   const lines = [
     "# Policy preview (dry run; nothing is executed)",
     "",
@@ -177,7 +188,10 @@ export function formatPreview(preview) {
     lines.push(`truncated by byte budget:`);
     for (const id of truncated) lines.push(`  - ${id}`);
   }
-  lines.push("", `project policies (${stats.projectCount} loaded, ${stats.projectBytes} bytes):`);
+  lines.push(
+    "",
+    `project policies (${stats.projectCount} loaded, ${stats.projectBytes} bytes):`,
+  );
   for (const p of projectPolicies) lines.push(`  - ${p.id}`);
   if (classification?.reasons?.length) {
     lines.push("", "classification reasons:");

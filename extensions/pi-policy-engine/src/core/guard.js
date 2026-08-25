@@ -151,15 +151,23 @@ export function compileCustomPatterns(configGuard) {
       continue;
     }
     if (typeof label !== "string" || !label) {
-      result.warnings.push(`customPatterns[${i}]: label must be a non-empty string`);
+      result.warnings.push(
+        `customPatterns[${i}]: label must be a non-empty string`,
+      );
       continue;
     }
     if (typeof regex !== "string" || !regex) {
-      result.warnings.push(`customPatterns[${i}]: regex must be a non-empty string`);
+      result.warnings.push(
+        `customPatterns[${i}]: regex must be a non-empty string`,
+      );
       continue;
     }
     try {
-      result.patterns.push({ category, label, pattern: new RegExp(regex, "i") });
+      result.patterns.push({
+        category,
+        label,
+        pattern: new RegExp(regex, "i"),
+      });
     } catch (err) {
       result.warnings.push(
         `customPatterns[${i}]: invalid regex /${regex}/i: ${err?.message ?? err}`,

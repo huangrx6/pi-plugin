@@ -6,10 +6,7 @@ import {
   loadEffectiveConfig,
   loadRoutingConfig,
 } from "../../src/core/config.js";
-import {
-  composePolicies,
-  loadProjectPolicies,
-} from "../../src/core/loader.js";
+import { composePolicies, loadProjectPolicies } from "../../src/core/loader.js";
 import { buildDecision } from "../../src/core/router.js";
 import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
@@ -38,7 +35,9 @@ export function createState() {
 export const HISTORY_CAP = 50;
 
 function summarizePrompt(prompt) {
-  const oneLine = String(prompt ?? "").replace(/\s+/g, " ").trim();
+  const oneLine = String(prompt ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
   return oneLine.length > 80 ? oneLine.slice(0, 77) + "..." : oneLine;
 }
 
@@ -104,11 +103,7 @@ export async function decide({
 }) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
   const routing = loadRoutingConfig(packageRoot);
-  let classification = classifyTask(
-    prompt,
-    routing,
-    config.domainHints ?? [],
-  );
+  let classification = classifyTask(prompt, routing, config.domainHints ?? []);
   const mode = explicitMode ?? state.onceMode ?? config.mode ?? "auto";
 
   // Optional semantic fallback (DESIGN §4). Disabled by default. Any

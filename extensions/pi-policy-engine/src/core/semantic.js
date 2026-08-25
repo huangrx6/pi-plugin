@@ -67,7 +67,14 @@ export function buildSemanticRequestBody(model, userJsonPayload) {
 
 function validateSemanticResponse(parsed) {
   if (!parsed || typeof parsed !== "object") return null;
-  const validTask = ["documentation", "debugging", "review", "research", "architecture", "coding"];
+  const validTask = [
+    "documentation",
+    "debugging",
+    "review",
+    "research",
+    "architecture",
+    "coding",
+  ];
   const validRisk = ["low", "medium", "high"];
   if (!validTask.includes(parsed.taskType)) return null;
   if (!validRisk.includes(parsed.risk)) return null;
@@ -81,7 +88,8 @@ function validateSemanticResponse(parsed) {
     risk: parsed.risk,
     domains: parsed.domains,
     analysisOnly: parsed.analysisOnly,
-    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.85,
+    confidence:
+      typeof parsed.confidence === "number" ? parsed.confidence : 0.85,
   };
 }
 
@@ -93,17 +101,24 @@ function validateSemanticResponse(parsed) {
  * @returns Merged classification if semantic fallback ran successfully, else null.
  *   On null the caller should use the deterministic classification unchanged.
  */
-export async function maybeSemanticClassify(prompt, classification, config, opts = {}) {
+export async function maybeSemanticClassify(
+  prompt,
+  classification,
+  config,
+  opts = {},
+) {
   const fb = config?.semanticFallback;
   if (!fb || fb.enabled !== true) return null;
-  const threshold = typeof fb.confidenceThreshold === "number" ? fb.confidenceThreshold : 0.7;
+  const threshold =
+    typeof fb.confidenceThreshold === "number" ? fb.confidenceThreshold : 0.7;
   if (classification.confidence >= threshold) return null;
 
   const endpoint = typeof fb.endpoint === "string" ? fb.endpoint : null;
   const model = typeof fb.model === "string" ? fb.model : null;
   if (!endpoint || !model) return null;
 
-  const apiKeyEnv = typeof fb.apiKeyEnvVar === "string" ? fb.apiKeyEnvVar : null;
+  const apiKeyEnv =
+    typeof fb.apiKeyEnvVar === "string" ? fb.apiKeyEnvVar : null;
   const apiKey = apiKeyEnv ? process.env[apiKeyEnv] : null;
   if (!apiKey) return null;
 
@@ -114,7 +129,10 @@ export async function maybeSemanticClassify(prompt, classification, config, opts
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const body = buildSemanticRequestBody(model, buildSemanticPrompt(prompt, classification));
+    const body = buildSemanticRequestBody(
+      model,
+      buildSemanticPrompt(prompt, classification),
+    );
     const response = await fetcher(endpoint, {
       method: "POST",
       headers: {
