@@ -3,7 +3,7 @@
 ## 1. Design goal
 
 Provide a small **task-flow policy layer** for Pi without recreating a full
-agent runtime. The extension works entirely at the **model-behavior layer**:
+agent runtime. The extension works entirely at the **task-behavior layer**:
 it injects execution-discipline constraints into the system prompt and runs
 a strict-workflow state machine in `before_agent_start`. It does **not**
 intercept tool calls — tool permission is out of scope by design, so the

@@ -362,7 +362,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 ## 已知限制
 
 - V0.x classifier 默认是规则式不是语义模型；可选启用 `semanticFallback`（OpenAI 兼容 HTTP 调用）在确定性置信度低时调小模型重分类。默认关闭，任何失败回退到确定性结果。需要 API key + 网络，不适合离线场景。
-- **strict 审批是软约束**（模型行为层）：它指导模型"PLAN-ONLY、停下等批准"，但不机械拦截。模型不遵守时的兜底由你运行的权限扩展负责（如有）。
+- **strict 审批是软约束（任务行为层）**：它指导模型"PLAN-ONLY、停下等批准"，但不机械拦截。模型不遵守时的兜底由你运行的权限扩展负责（如有）。
 - runtime `/policy` override 只在当前 Pi 进程；持久化请写 global/project `policy-engine.json`
 - strict approval 依赖明确批准语句（白名单）；刻意设计，避免模糊语句意外放行
 

@@ -20,7 +20,7 @@ policyEngine(pi);
 assert.ok(handlers.has("session_start"));
 assert.ok(handlers.has("before_agent_start"));
 // v0.12: no tool_call handler on purpose — the extension is purely
-// model-behavior layer. Tool permission is out of scope.
+// task-behavior layer. Tool permission is out of scope.
 assert.ok(!handlers.has("tool_call"));
 assert.ok(commands.has("policy"));
 

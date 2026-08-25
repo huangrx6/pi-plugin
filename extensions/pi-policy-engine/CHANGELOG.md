@@ -3,7 +3,7 @@
 ## 0.12.0
 
 - **Removed the tool-call gate entirely**. The extension is now purely
-  model-behavior layer: strict planning injects a PLAN-ONLY instruction and
+  task-behavior layer: strict planning injects a PLAN-ONLY instruction and
   the model stops to ask for approval itself (like a skill that says "ask
   the user here"). No `tool_call` handler exists. This makes the extension
   fully independent of any permission extension — it neither blocks tools

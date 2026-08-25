@@ -1,7 +1,7 @@
 // Approval-phrase recognition for the strict-workflow state machine.
 //
 // Scope note (v0.12): this module deliberately contains NO tool-call
-// interception. The extension works entirely at the model-behavior layer —
+// interception. The extension works entirely at the task-behavior layer —
 // strict planning injects a PLAN-ONLY instruction and the model is expected
 // to stop and ask the user for approval, exactly like a skill that requires
 // user confirmation. Whether any given tool call is *permitted* is someone
