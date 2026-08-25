@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -357,11 +358,7 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     "node script.js 2>&1",
   ];
   for (const cmd of allow) {
-    assert.equal(
-      findMutatingShell(cmd),
-      null,
-      `should NOT match: ${cmd}`,
-    );
+    assert.equal(findMutatingShell(cmd), null, `should NOT match: ${cmd}`);
   }
   const block = [
     "ls > /tmp/real-output.txt",
@@ -1282,10 +1279,11 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 
 // validateConfig: missing manifest path -> error.
 {
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  // Create a temp manifest with a non-existent path.
+  // Temp fixtures go to the OS temp dir (mkdtemp), never the package root —
+  // earlier revisions built them under <package>/.tmp-validate-* and leaked
+  // on assertion failure.
   const fs = await import("node:fs/promises");
-  const tmpDir = await fs.mkdtemp(join(root, ".tmp-validate-"));
+  const tmpDir = await fs.mkdtemp(join(tmpdir(), "pi-policy-validate-"));
   await fs.mkdir(join(tmpDir, "policies"), { recursive: true });
   await fs.writeFile(
     join(tmpDir, "policies", "manifest.json"),
@@ -1312,17 +1310,16 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 
 // validateConfig: profile referencing unknown id -> error.
 {
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const fs = await import("node:fs/promises");
-  const tmpDir = await fs.mkdtemp(join(root, ".tmp-validate-"));
-  await fs.mkdir(join(tmpDir, "profiles"), { recursive: true });
+  const tmpDir2 = await fs.mkdtemp(join(tmpdir(), "pi-policy-validate-"));
+  await fs.mkdir(join(tmpDir2, "profiles"), { recursive: true });
   await fs.writeFile(
-    join(tmpDir, "profiles", "broken.json"),
+    join(tmpDir2, "profiles", "broken.json"),
     JSON.stringify({ policies: ["missing.policy"] }),
   );
   const result = validateConfig({
     config: {},
-    packageRoot: tmpDir,
+    packageRoot: tmpDir2,
   });
   assert.equal(result.ok, false);
   assert.ok(
@@ -1333,7 +1330,7 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
         i.message.includes("missing.policy"),
     ),
   );
-  await fs.rm(tmpDir, { recursive: true, force: true });
+  await fs.rm(tmpDir2, { recursive: true, force: true });
 }
 
 // formatValidation: ok with warnings.

@@ -16,7 +16,7 @@ pi 的**三级批准控制**扩展（类似 Claude Code 的权限级别）。**�
 
 当前模式显示在 **footer 状态行**（和 MCP/LSP 等扩展状态一起，按 key 排序），`◈` 作为视觉分隔：
 
-```
+```text
 🔌 MCP: 3 servers enabled ◈ mode:请求批准 LSP Inactive
 ```
 
@@ -101,7 +101,7 @@ pi.on("tool_call", async (event, ctx) => {
 
 每次工具调用进入 `checkPermission(mode, toolName, input, confirm)`：
 
-```
+```text
 只读白名单 (read/ls/grep/find/glob + 只读 bash) → 永远放行
         ↓
 mode === "full"  → 全部放行，不询问
@@ -114,6 +114,7 @@ mode === "smart" → 危险 bash（rm -rf/sudo/...）→ confirm 弹框；其余
 ### bash 启发式：isWriteBash() / isRiskyBash()
 
 **isWriteBash**（判断是否是写/联网操作）：
+
 ```typescript
 function isWriteBash(cmd: string): boolean {
   const c = cmd.trim();
@@ -128,6 +129,7 @@ function isWriteBash(cmd: string): boolean {
 ```
 
 **isRiskyBash**（判断是否危险/不可逆）：
+
 ```typescript
 function isRiskyBash(cmd: string): boolean {
   if (/^rm\b.*(-r|-f|--recursive|--force)/.test(c)) return true;  // rm 递归/强制
@@ -158,7 +160,8 @@ function persistMode(mode: Mode): void {
 ### /mode 交互选择器
 
 无参数 `/mode` 弹**选择器**（pi 内置 `ctx.ui.select`，像 `/model` 一样）：
-```
+
+```text
 选择权限模式（当前: 帮我批准）
   ask   — 请求批准：编辑外部文件和使用互联网时始终询问
   smart — 帮我批准：仅对检测到的风险操作请求批准
@@ -191,7 +194,7 @@ function renderStatus(ctx: UiCtx): void {
 
 ### 完整事件流
 
-```
+```text
 启动
   ├─ loadPersistedMode() → 恢复上次模式
   └─ session_start → setStatus("mode", "◈ mode:X") 显示当前模式
@@ -213,7 +216,7 @@ function renderStatus(ctx: UiCtx): void {
 
 ## 文件结构
 
-```
+```text
 pi-mode-switcher/
 ├── index.ts          # 扩展入口（全部逻辑，单文件）
 ├── package.json      # 包元信息 + pi.extensions 清单

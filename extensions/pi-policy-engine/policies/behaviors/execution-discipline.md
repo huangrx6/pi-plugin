@@ -3,6 +3,7 @@
 Inspect before editing. Establish the current behavior and the intended outcome before mutation.
 
 For non-trivial work:
+
 - identify hard constraints and assumptions;
 - make one coherent change at a time;
 - verify after meaningful changes;

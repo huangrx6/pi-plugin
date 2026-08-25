@@ -80,7 +80,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/huangrx6/pi-plugin/main/bin/
 
 ## 目录结构
 
-```
+```text
 pi-plugin/
 ├── README.md                  # 本文件
 ├── package.json               # pi-package 元数据

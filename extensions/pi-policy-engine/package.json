@@ -1,9 +1,12 @@
 {
   "name": "pi-policy-engine",
-  "version": "0.1.0",
+  "version": "0.11.1",
   "description": "Composable policy router and runtime guard for Pi coding agent.",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "pi-package",
     "pi",
@@ -19,6 +22,6 @@
   },
   "scripts": {
     "test": "node ./scripts/self-test.mjs && node ./scripts/smoke-extension.mjs",
-    "check": "node --check ./extensions/policy-engine/index.js && node --check ./src/core/classifier.js && node --check ./src/core/router.js && node --check ./src/core/loader.js && node --check ./src/core/guard.js && node --check ./src/core/config.js"
+    "check": "for f in extensions/policy-engine/*.js src/core/*.js; do node --check \"$f\"; done"
   }
 }

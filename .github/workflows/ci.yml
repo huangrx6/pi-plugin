@@ -8,23 +8,18 @@ on:
 
 jobs:
   pi-policy-engine:
-    name: pi-policy-engine
+    name: pi-policy-engine (js)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Install deps
+      - name: Syntax check (node --check over all extension + core files)
         working-directory: extensions/pi-policy-engine
-        run: npm install --no-audit --no-fund
-        continue-on-error: true
-      - name: Syntax check (node --check)
-        working-directory: extensions/pi-policy-engine
-        run: |
-          for f in extensions/policy-engine/index.js src/core/*.js; do
-            node --check "$f"
-          done
+        run: npm run check
       - name: Self test
         working-directory: extensions/pi-policy-engine
         run: node ./scripts/self-test.mjs
@@ -32,10 +27,40 @@ jobs:
         working-directory: extensions/pi-policy-engine
         run: node ./scripts/smoke-extension.mjs
 
+  pi-quota-status:
+    name: pi-quota-status (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # pi-quota-status ships its own tsconfig + ambient globals.d.ts shim
+      # (the pi runtime packages aren't installed under node_modules here;
+      # the shim declares their module shape so static checks pass).
+      - name: Type check (tsc --noEmit)
+        run: npx --yes -p typescript tsc -p extensions/pi-quota-status
+
   markdown-lint:
     name: markdownlint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # `#` prefix is markdownlint-cli2's documented cross-platform negation.
+      # Config ignoreFiles can't exclude dot-dirs like .legacy/ (globby does
+      # not match hidden path segments), so exclusions live on the command
+      # line. .legacy/ is untracked local-only; kept for local/CI parity.
       - name: Run markdownlint-cli2
-        run: npx --yes markdownlint-cli2 "**/*.md"
+        run: npx --yes markdownlint-cli2 "**/*.md" "#**/.legacy/**" "#**/node_modules/**"
+
+# Known CI gaps (see AGENTS.md "测试与 CI" for the prescribed fix path):
+# - pi-mode-switcher / pi-skill-inject have no type-check infra (no tsconfig
+#   or ambient shim). To onboard: copy the pi-quota-status pattern (tsconfig
+#   + globals.d.ts) and add a matching job above.
+# - Actions are pinned by tag (@v4), not commit SHA: this sandbox cannot
+#   reach github.com over HTTPS to resolve authoritative SHAs. Pin them
+#   (actions/checkout, actions/setup-node) when network allows.

@@ -1,8 +1,5 @@
 # pi-skill-inject
 
-<!-- markdownlint-disable MD013 -->
-<!-- 中文文本 + 表格按 80 字符硬折行会破坏可读性，本文件不禁用行宽规则 -->
-
 在 pi 的 prompt 里输入 `/skill-name`，把对应 skill 的内容注入**当前这一轮对话**——不切换上下文、不执行命令、不打断思路。
 
 ## 快速开始

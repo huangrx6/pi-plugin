@@ -1,8 +1,5 @@
 # pi-policy-engine
 
-<!-- markdownlint-disable MD013 -->
-<!-- 中文文本 + 表格按 80 字符硬折行会破坏可读性，本文件不禁用行宽规则 -->
-
 给 Pi Coding Agent 加一个**策略层**：在 prompt 进来时自动根据任务类型、风险、领域、模型选一套工作流（quick / standard / strict），把约束注入 system prompt；在 strict 流程下用机械门禁阻止未批准前的写操作。
 
 ## 快速开始

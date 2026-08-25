@@ -3,6 +3,7 @@
 The plan has been approved. Execute the approved scope in bounded waves.
 
 For each wave:
+
 1. Make only the coherent changes required by the approved plan.
 2. Verify the wave.
 3. Re-check the active Constraint Ledger.

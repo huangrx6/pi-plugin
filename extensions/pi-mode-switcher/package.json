@@ -1,7 +1,7 @@
 {
   "name": "pi-mode-switcher",
-  "version": "1.0.0",
-  "description": "Four-mode permission control for pi using native tool_call interception. Zero third-party dependencies: auto / plan / safe / lock.",
+  "version": "0.1.0",
+  "description": "Three-mode approval control for pi (ask / smart / full) via native tool_call interception + confirm dialogs. Zero dependencies.",
   "license": "MIT",
   "type": "module",
   "engines": {

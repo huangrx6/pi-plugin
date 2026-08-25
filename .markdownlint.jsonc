@@ -1,12 +1,23 @@
 {
   // markdownlint configuration for the pi-plugin monorepo.
   //
-  // MD060 (table-column-style): set to "padded" because every README in
-  // this repo uses the spaced form ("| h1 | h2 |") rather than the
-  // default "compact" form ("|h1|h2|"). Switching the rule to padded
-  // accepts the existing convention without rewriting any tables.
-  // Other MD rules (line length, fenced-code language, etc.) are left
-  // at their defaults and addressed per-file as needed.
+  // MD013 (line-length): disabled repo-wide. This is a primarily CJK
+  // repository: hard-wrapping Chinese prose at 80 columns shatters
+  // readability, and tables / ASCII state diagrams legitimately exceed it.
+  // This replaces the per-file `<!-- markdownlint-disable MD013 -->` inline
+  // comments that previously lived in some READMEs (single source of truth:
+  // here).
+  //
+  // MD060 (table-column-style): "padded" because every README in this repo
+  // uses the spaced form ("| h1 | h2 |") rather than the default "compact"
+  // form ("|h1|h2|").
+  //
+  // Everything else stays at markdownlint defaults and is enforced by CI.
+  // Ignoring paths: markdownlint-cli2's `ignoreFiles` globs do not match
+  // dot-directories like `.legacy/`, so exclusions are done on the command
+  // line with the documented `#` negation syntax (see ci.yml):
+  //   markdownlint-cli2 "**/*.md" "#**/.legacy/**" "#**/node_modules/**"
+  "MD013": false,
   "MD060": {
     "style": "padded"
   }

@@ -3,6 +3,7 @@
 This turn is PLAN-ONLY. Do not mutate files, configuration, infrastructure, or external state.
 
 Produce a concise but explicit Task Contract and Constraint Ledger:
+
 - F# = confirmed facts
 - C# = MUST / MUST NOT constraints
 - A# = assumptions that still need evidence

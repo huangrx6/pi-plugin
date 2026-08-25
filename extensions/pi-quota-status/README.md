@@ -4,7 +4,7 @@
 
 ## 效果
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │  (聊天消息区域)                                              │
 ├─────────────────────────────────────────────────────────────┤
@@ -102,7 +102,7 @@ pi install /Users/huangrx6/pi-quota-status
 
 将 `index.ts`、`package.json` 放入 pi 扩展自动发现目录：
 
-```
+```text
 /Users/huangrx6/.pi/agent/extensions/pi-quota-status/
 ```
 
@@ -315,7 +315,7 @@ curl -H "Authorization: Bearer $OPENROUTER_API_KEY" \
 
 ### 事件流
 
-```
+```text
 session_start     → 挂载 footer + 立即查询当前模型用量 + 渲染
 model_select      → 更新 activeModel + 强制刷新用量（绕过节流）
 thinking_level_select → 更新显示（模型带 thinking 时）
@@ -404,7 +404,7 @@ curl -H "Authorization: Bearer $OPENROUTER_API_KEY"           https://openrouter
 
 ## 文件结构
 
-```
+```text
 pi-quota-status/
 ├── index.ts          # 扩展入口（全部逻辑，单文件，约 600 行）
 ├── package.json      # 包元信息

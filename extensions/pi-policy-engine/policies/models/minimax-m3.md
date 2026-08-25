@@ -1,6 +1,7 @@
 # MiniMax M3 Adaptation
 
 Use explicit structure to reduce execution drift:
+
 - externalize hard constraints before non-trivial edits;
 - distinguish facts from assumptions;
 - execute broad work in bounded batches;

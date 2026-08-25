@@ -1,8 +1,5 @@
 # Design — pi-policy-engine v0.11
 
-<!-- markdownlint-disable MD013 -->
-<!-- 维护者文档，按 80 字符硬折行会破坏表格/状态图可读性 -->
-
 ## 1. Design goal
 
 Provide a small policy layer for Pi without recreating a full agent runtime.

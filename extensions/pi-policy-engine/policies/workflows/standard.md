@@ -1,6 +1,7 @@
 # Standard Workflow
 
 Before mutation, form a compact Task Contract containing:
+
 - Goal
 - Confirmed facts
 - MUST constraints
