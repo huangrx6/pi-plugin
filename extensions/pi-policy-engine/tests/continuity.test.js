@@ -12,7 +12,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const lastDecision = {
   taskType: "debugging",
   risk: "medium",
-  workflow: "standard",
+  rigor: "standard",
   profile: "debugging",
   confidence: 0.85,
   executionIntent: "mutate",
@@ -88,7 +88,7 @@ test("decide(): no-evidence default risk never escalates a follow-up", async () 
     lastDecision: {
       taskType: "documentation",
       risk: "low",
-      workflow: "quick",
+      rigor: "quick",
       profile: "documentation",
       confidence: 0.85,
       executionIntent: "mutate",
@@ -104,7 +104,7 @@ test("decide(): no-evidence default risk never escalates a follow-up", async () 
   });
   assert.equal(decision.taskType, "documentation");
   assert.equal(decision.risk, "low");
-  assert.equal(decision.workflow, "quick");
+  assert.equal(decision.rigor, "quick");
 });
 
 test("decide(): no lastDecision → full classification (no inheritance)", async () => {
@@ -120,10 +120,10 @@ test("decide(): no lastDecision → full classification (no inheritance)", async
   assert.ok(!decision.reasons.some((r) => r.startsWith("task-continuity:")));
 });
 
-test("decide(): previous workflow off → no continuity", async () => {
+test("decide(): previous rigor off → no continuity", async () => {
   const state = {
     ...createState(),
-    lastDecision: { ...lastDecision, workflow: "off" },
+    lastDecision: { ...lastDecision, rigor: "off" },
   };
   const { decision } = await decide({
     packageRoot: root,

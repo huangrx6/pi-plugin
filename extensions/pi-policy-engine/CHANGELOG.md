@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.19.0
+
+Flow/Rigor split + configurable model routing + /policy why budget line.
+Breaking semantic change (deliberate, ahead of 1.0 freeze).
+
+- **Flow / Rigor split**: the single `workflow` axis is now two orthogonal
+  dimensions — `rigor` (how strict: quick/standard/strict, from risk +
+  intent) and `flow` (how to work: debug-first/review-first/research-first,
+  from task type). debug-first + quick and debug-first + strict are both
+  expressible; profiles no longer carry flow policies, killing the old
+  profileHasWorkflow special case. Policy files moved:
+  workflows/ → flows/ + rigors/; manifest ids flow.*/rigor.*;
+  decision/compare/diff/preview/status/history all speak rigor+flow
+  (history JSONL keeps the `workflow` field name for old-file compat).
+- **Model routing externalized**: config/models.json rules
+  (first rule whose every match token appears in provider/id wins).
+  router.js keeps a built-in fallback; extending model support no longer
+  requires code changes.
+- **/policy why completeness**: shows concerns and a
+  `policy budget: X KB / Y KB` line (unified built-in + project total).
+
 ## 0.18.0
 
 Task continuity + Domain/Concern split + project-policy discovery upgrade.

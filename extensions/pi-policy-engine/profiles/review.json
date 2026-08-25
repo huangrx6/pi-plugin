@@ -1,7 +1,6 @@
 {
   "id": "review",
   "policies": [
-    "behavior.context-hygiene",
-    "workflow.review-first"
+    "behavior.context-hygiene"
   ]
 }

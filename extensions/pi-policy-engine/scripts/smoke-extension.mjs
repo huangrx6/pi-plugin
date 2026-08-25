@@ -45,7 +45,7 @@ const quick = await handlers.get("before_agent_start")(
   },
   ctx,
 );
-assert.match(quick.systemPrompt, /Workflow: quick/);
+assert.match(quick.systemPrompt, /Rigor: quick/);
 assert.match(quick.systemPrompt, /MiniMax M3 Adaptation/);
 
 await handlers.get("agent_end")({}, ctx);
@@ -61,7 +61,7 @@ const followUp = await handlers.get("before_agent_start")(
   ctx,
 );
 assert.match(followUp.systemPrompt, /Task type: documentation/);
-assert.match(followUp.systemPrompt, /Workflow: quick/);
+assert.match(followUp.systemPrompt, /Rigor: quick/);
 
 await handlers.get("agent_end")({}, ctx);
 
@@ -73,7 +73,7 @@ const strict = await handlers.get("before_agent_start")(
   },
   ctx,
 );
-assert.match(strict.systemPrompt, /Workflow: strict/);
+assert.match(strict.systemPrompt, /Rigor: strict/);
 assert.match(strict.systemPrompt, /Phase: planning/);
 assert.match(strict.systemPrompt, /PLAN-ONLY/);
 
@@ -118,6 +118,6 @@ assert.equal(classifyPlanResponse("为什么这么设计？"), "discuss");
 assert.equal(classifyPlanResponse("先别做了"), "cancel");
 
 await commands.get("policy").handler("why", ctx);
-assert.ok(notices.some((n) => String(n.message).includes("workflow: strict")));
+assert.ok(notices.some((n) => String(n.message).includes("rigor: strict")));
 
 process.stdout.write("smoke-extension: OK\n");

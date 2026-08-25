@@ -28,11 +28,11 @@ import {
 } from "./state.js";
 
 const MODE_OPTIONS = [
-  { key: "auto", description: "按 prompt 内容自动路由 workflow（默认）" },
-  { key: "quick", description: "轻量 workflow：Inspect → Change → Verify" },
+  { key: "auto", description: "按 prompt 内容自动路由 rigor（默认）" },
+  { key: "quick", description: "轻量 rigor：Inspect → Change → Verify" },
   {
     key: "standard",
-    description: "中等：Task Contract → Inspect → Plan → Execute → Verify",
+    description: "中等 rigor：Task Contract → Inspect → Plan → Execute → Verify",
   },
   { key: "strict", description: "plan + 等批准 + 分 wave 执行" },
   { key: "off", description: "完全关闭策略注入（含 model adaptation）" },
@@ -45,7 +45,7 @@ const PROFILE_OPTIONS = [
     description:
       "通用编码：execution discipline / minimal change / context hygiene",
   },
-  { key: "debugging", description: "debugging 任务 + debug-first workflow" },
+  { key: "debugging", description: "debugging 任务（flow: debug-first 由 task 决定）" },
   {
     key: "documentation",
     description: "文档/注释：execution discipline + minimal change",
@@ -56,11 +56,11 @@ const PROFILE_OPTIONS = [
   },
   {
     key: "review",
-    description: "代码审查：context hygiene + review-first workflow",
+    description: "代码审查：context hygiene（flow: review-first）",
   },
   {
     key: "research",
-    description: "调研：context hygiene + research-first workflow",
+    description: "调研：context hygiene（flow: research-first）",
   },
 ];
 

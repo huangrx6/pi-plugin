@@ -15,7 +15,7 @@ import {
   loadManifest,
   loadProfile,
 } from "../../src/core/loader.js";
-import { buildDecision } from "../../src/core/router.js";
+import { buildDecision, loadModelRules } from "../../src/core/router.js";
 import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
 export function createState() {
@@ -56,7 +56,7 @@ export function recordHistory(state, { source, prompt, decision }) {
     prompt: summarizePrompt(prompt),
     task: decision.taskType,
     risk: decision.risk,
-    workflow: decision.workflow,
+    workflow: decision.rigor ?? decision.workflow,
     profile: decision.profile,
     confidence: decision.confidence,
   });
@@ -79,12 +79,10 @@ export function buildEffectiveConfig({ packageRoot, cwd, state }) {
 }
 
 function resolvePreviewPhase(decision) {
-  if (decision.workflow === "off") return "idle";
-  if (
-    decision.workflow === "strict" &&
-    decision.executionIntent !== "read-only"
-  )
+  if (decision.rigor === "off") return "idle";
+  if (decision.rigor === "strict" && decision.executionIntent !== "read-only") {
     return "planning";
+  }
   return "executing";
 }
 
@@ -119,7 +117,7 @@ export async function decide({
   // a bare follow-up after a debugging/database task re-classified as
   // coding/none and drifted the model off its constraints.
   const last = state.lastDecision;
-  if (last && last.workflow !== "off" && isFollowUpPrompt(prompt)) {
+  if (last && last.rigor !== "off" && isFollowUpPrompt(prompt)) {
     const fresh = classification;
     const RANK = { low: 0, medium: 1, high: 2 };
     // A bare follow-up carries no risk signal of its own — the fresh
@@ -167,6 +165,7 @@ export async function decide({
     mode,
     profile: config.profile ?? "auto",
     model,
+    modelRules: loadModelRules(packageRoot),
   });
   return { decision, config, classification };
 }
@@ -254,7 +253,8 @@ export function validateConfig({ config, packageRoot }) {
 export function compareDecisions(left, right) {
   if (!left || !right) return [];
   const fields = [
-    ["workflow", left?.decision?.workflow, right?.decision?.workflow],
+    ["rigor", left?.decision?.rigor, right?.decision?.rigor],
+    ["flow", left?.decision?.flow ?? "default", right?.decision?.flow ?? "default"],
     ["task", left?.decision?.taskType, right?.decision?.taskType],
     ["risk", left?.decision?.risk, right?.decision?.risk],
     ["confidence", left?.decision?.confidence, right?.decision?.confidence],
@@ -332,7 +332,7 @@ export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
     projectPolicies,
     truncated,
     wouldRequireApproval:
-      decision.workflow === "strict" &&
+      decision.rigor === "strict" &&
       decision.executionIntent !== "read-only",
     stats: {
       builtInCount: policies.length,

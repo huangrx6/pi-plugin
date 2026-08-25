@@ -1,0 +1,7 @@
+{
+  "$comment": "Model policy routing (v0.19): first rule whose every pattern token appears in 'provider/id' wins. Extend this file instead of editing router.js.",
+  "rules": [
+    { "match": ["minimax", "m3"], "policy": "model.minimax-m3" },
+    { "match": ["deepseek"], "policy": "model.deepseek" }
+  ]
+}

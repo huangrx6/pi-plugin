@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { classifyTask } from "../src/core/classifier.js";
-import { chooseWorkflow } from "../src/core/router.js";
+import { chooseRigor } from "../src/core/router.js";
 import { classifyPlanResponse } from "../src/core/approval.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -45,7 +45,7 @@ for (const { prompt, expect, because } of corpus.cases) {
     }
     if (expect.workflow !== undefined) {
       assert.equal(
-        chooseWorkflow(x, "auto"),
+        chooseRigor(x, "auto"),
         expect.workflow,
         `${because} (workflow)`,
       );

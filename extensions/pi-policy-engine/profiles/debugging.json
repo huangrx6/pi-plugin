@@ -3,7 +3,6 @@
   "policies": [
     "behavior.execution-discipline",
     "behavior.minimal-change",
-    "behavior.context-hygiene",
-    "workflow.debug-first"
+    "behavior.context-hygiene"
   ]
 }

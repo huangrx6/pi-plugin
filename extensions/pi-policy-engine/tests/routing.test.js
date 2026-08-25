@@ -6,13 +6,31 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { classifyTask } from "../src/core/classifier.js";
-import { chooseWorkflow, modelPolicyId } from "../src/core/router.js";
+import { chooseRigor, chooseFlow, modelPolicyId, loadModelRules } from "../src/core/router.js";
 import { preview } from "../extensions/policy-engine/state.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const routing = JSON.parse(
   readFileSync(join(root, "config", "routing.json"), "utf8"),
 );
+
+test("modelPolicyId maps via config/models.json rules", () => {
+  const rules = loadModelRules(join(root, ".."));
+  assert.ok(Array.isArray(rules) && rules.length >= 2);
+  assert.equal(
+    modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M3" }, rules),
+    "model.minimax-m3",
+  );
+});
+
+test("flow derives from task type, independent of rigor", () => {
+  const debugging = { taskType: "debugging", risk: "low", executionIntent: "mutate" };
+  assert.equal(chooseFlow(debugging), "debug-first");
+  // debug-first pairs with ANY rigor
+  assert.equal(chooseRigor(debugging, "auto"), "quick");
+  assert.equal(chooseRigor({ ...debugging, risk: "high" }, "auto"), "strict");
+  assert.equal(chooseFlow({ taskType: "coding", risk: "low" }), null);
+});
 
 test("modelPolicyId mapping", () => {
   assert.equal(
@@ -32,28 +50,28 @@ test("workflow routing matrix", () => {
     routing,
     [],
   );
-  assert.equal(chooseWorkflow(quick, "auto"), "quick");
+  assert.equal(chooseRigor(quick, "auto"), "quick");
 
   const debug = classifyTask(
     "这个接口最近偶尔返回旧数据，帮我排查 bug 并修复",
     routing,
     [],
   );
-  assert.equal(chooseWorkflow(debug, "auto"), "standard");
+  assert.equal(chooseRigor(debug, "auto"), "standard");
 
   const strict = classifyTask(
     "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚",
     routing,
     [],
   );
-  assert.equal(chooseWorkflow(strict, "auto"), "strict");
+  assert.equal(chooseRigor(strict, "auto"), "strict");
 
   const k8s = classifyTask(
     "k8s deployment 的 hostPath 挂载需要调整，生产环境不能停机",
     routing,
     [],
   );
-  assert.equal(chooseWorkflow(k8s, "auto"), "strict");
+  assert.equal(chooseRigor(k8s, "auto"), "strict");
 
   // read-only intent downgrades strict rigor to standard
   const readonly = classifyTask(
@@ -61,7 +79,7 @@ test("workflow routing matrix", () => {
     routing,
     [],
   );
-  assert.equal(chooseWorkflow(readonly, "auto"), "standard");
+  assert.equal(chooseRigor(readonly, "auto"), "standard");
 });
 
 test("preview() end-to-end: strict PG migration", async () => {
@@ -72,7 +90,7 @@ test("preview() end-to-end: strict PG migration", async () => {
     model: { provider: "minimax-cn", id: "MiniMax-M3" },
   });
   assert.ok(result.decision);
-  assert.equal(result.decision.workflow, "strict");
+  assert.equal(result.decision.rigor, "strict");
   assert.ok(result.decision.domains.includes("database"));
   assert.ok(result.wouldRequireApproval);
   assert.ok(result.policies.some((p) => p.id === "core.evidence-priority"));
@@ -108,6 +126,6 @@ test("preview() is a pure read — no shared-state mutation", async () => {
     prompt: "high-risk 生产 PG schema 迁移",
     model: null,
   });
-  assert.equal(before.decision.workflow, "quick");
-  assert.equal(after.decision.workflow, "strict");
+  assert.equal(before.decision.rigor, "quick");
+  assert.equal(after.decision.rigor, "strict");
 });

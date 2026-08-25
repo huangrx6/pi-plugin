@@ -23,16 +23,16 @@
 设计生产环境 PostgreSQL schema 迁移方案并实施
 ```
 
-**1. Classifier（确定性规则，无 LLM 调用）判定** risk=high → workflow=strict。
+**1. Classifier（确定性规则，无 LLM 调用）判定** risk=high → rigor=strict。
 
 **2. `before_agent_start` 把这段话注入 system prompt**（节选）：
 
 ```text
 # Active Policy Runtime
-Workflow: strict
+Rigor: strict
 Phase: planning
 
-## Policy: workflow.strict-plan
+## Policy: rigor.strict-plan
 This turn is PLAN-ONLY. Do not mutate files, configuration, infrastructure,
 or external state. Produce a concise but explicit Task Contract and
 Constraint Ledger. ... Stop after the plan and ask for approval. Do not
@@ -65,7 +65,7 @@ pi install git:github.com/huangrx6/pi-plugin/extensions/pi-policy-engine
 
 ### 上手 3 步
 
-**1. 装上就用**——不需要写任何配置。默认按 prompt 内容自动选 workflow：
+**1. 装上就用**——不需要写任何配置。默认按 prompt 内容自动选 rigor（执行严格度）：
 
 | prompt 类型 | 自动选什么 |
 | --- | --- |
@@ -85,7 +85,7 @@ pi install git:github.com/huangrx6/pi-plugin/extensions/pi-policy-engine
 
 ```text
 /policy                       # 弹交互选择器（mode / profile）
-/policy strict                # 强制 strict workflow
+/policy strict                # 强制 strict rigor
 /policy once quick            # 仅下一轮用 quick
 /policy profile debugging     # 切到 debugging 策略集
 /policy cancel                # 取消 pending strict plan
@@ -100,19 +100,26 @@ pi install git:github.com/huangrx6/pi-plugin/extensions/pi-policy-engine
 
 ## 行为细节
 
-### Workflow 选择
+### Rigor 与 Flow（v0.19 拆分）
 
 ```text
 prompt 进入
    ↓
 Classifier（确定性规则匹配，无 LLM 调用）
-   ↓ 任务类型 + 风险 + 领域 + 模型 + 用户 override
+   ↓ 任务类型 + 风险 + 领域 + 关注点 + 模型 + 用户 override
    ↓
 Policy Router
-   ├─ 风险 high → strict（plan + 停下等批准 + 分 wave）
-   ├─ 风险 low  → quick
-   └─ 其余      → standard
+   ├─ Rigor（做多严格）
+   │    风险 high → strict（plan + 停下等批准 + 分 wave）
+   │    风险 low  → quick
+   │    其余      → standard
+   └─ Flow（怎么做，由任务类型决定）
+        debugging → debug-first
+        review    → review-first
+        research  → research-first
 ```
+
+两者正交：`debug-first + quick`、`debug-first + strict` 都成立。v0.19 之前 flow 挂在 profile 里，导致 "profile 带了 flow 就不再注入 workflow policy" 这类特判——现在 flow 由 task 类型直接推导，profile 只承载行为约束。
 
 为什么用规则不用 LLM？**让模型自己决定该给自己什么约束是循环依赖**。规则路由快、可解释、不会因为模型分心而漏判。
 
@@ -199,7 +206,7 @@ task: architecture
 risk: high
 confidence: 0.9
 domains: database, kubernetes
-workflow: strict
+rigor: strict
 phase: planning
 profile: architecture
 model policy: model.minimax-m3
@@ -235,16 +242,16 @@ LEFT : 修一个 PG migration bug
 RIGHT: 改 README typo
 
 LEFT
-  workflow: strict
+  rigor: strict
   task / risk: architecture / high
   ...
 RIGHT
-  workflow: quick
+  rigor: quick
   task / risk: documentation / low
   ...
 
 Differences (4):
-  workflow: strict  →  quick
+  rigor: strict  →  quick
   task: architecture  →  documentation
   risk: high  →  low
   would require approval: yes  →  no
@@ -445,7 +452,7 @@ Skill
   = 某个专业能力具体怎么做（数据库迁移、绘图、专项研究）
 
 pi-policy-engine (本扩展)
-  = 动态行为规则 + workflow 路由 + model/domain adaptation
+  = 动态行为规则 + rigor/flow 路由 + model/domain/concern adaptation
 ```
 
 本扩展不替代 AGENTS.md / Skill，也不假设它们存在。
@@ -468,7 +475,7 @@ pi-policy-engine/
 │   ├── semantic.js                  # 可选语义兜底
 │   └── history-store.js             # 路由历史 JSONL 持久化
 ├── policies/                        # Markdown 策略
-│   ├── core/ behaviors/ workflows/ domains/ models/
+│   ├── core/ behaviors/ flows/ rigors/ domains/ concerns/ models/
 │   └── manifest.json                # 全局 policy 注册表
 ├── profiles/                        # profile JSON（policy 组合）
 ├── config/
@@ -487,7 +494,7 @@ user prompt "设计生产环境 PG 迁移方案"
 before_agent_start
   ├─ 合并 defaults / global / project / runtime config
   ├─ classifyTask(prompt, routing, domainHints)
-  ├─ buildDecision(...) → workflow: strict
+  ├─ buildDecision(...) → rigor: strict
   ├─ composePolicies({ phase: "planning" }) → 注入 strict-plan policy
   ├─ loadProjectPolicies(cwd)
   └─ 拼到 event.systemPrompt 末尾

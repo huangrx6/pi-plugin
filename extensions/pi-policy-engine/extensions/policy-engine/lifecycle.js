@@ -44,15 +44,18 @@ import {
 function buildBlock({ packageRoot, cwd, config, decision, phase }) {
   // v0.17: one TOTAL byte budget — project policies participate in
   // policyMaxBytes after built-ins (composeAllPolicies).
-  const { policies, projectPolicies, truncated } = composeAllPolicies({
-    packageRoot,
-    cwd,
-    decision,
-    config,
-    phase,
-  });
+  const { policies, projectPolicies, truncated, builtInBytes, projectBytes } =
+    composeAllPolicies({
+      packageRoot,
+      cwd,
+      decision,
+      config,
+      phase,
+    });
   decision.loadedPolicies = [...policies, ...projectPolicies].map((p) => p.id);
   decision.truncatedPolicies = truncated;
+  decision.policyBytes = builtInBytes + projectBytes;
+  decision.policyBudget = Number(config.policyMaxBytes ?? 24000);
   return renderPolicyBlock({
     decision,
     policies,
@@ -152,7 +155,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
           phase: "awaiting_approval",
         });
         if (cfgAwait.showStatus !== false)
-          setStatus(ctx, `policy:${decision.workflow}/awaiting_approval`);
+          setStatus(ctx, `policy:${decision.rigor}/awaiting_approval`);
         return {
           systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Pending-plan discussion\nThe user is asking about the pending plan. Answer the question; do not start implementation. The plan still requires explicit approval afterwards.`,
         };
@@ -171,7 +174,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
           phase: "planning",
         });
         if (cfgAwait.showStatus !== false)
-          setStatus(ctx, `policy:${decision.workflow}/planning`);
+          setStatus(ctx, `policy:${decision.rigor}/planning`);
         return {
           systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Plan revision requested\nThe user approved the direction but added constraints or modifications. Update the Task Contract, Constraint Ledger, and plan accordingly; present the revised plan and stop for approval again. Do not execute.`,
         };
@@ -189,7 +192,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
           phase: "executing",
         });
         if (cfgAwait.showStatus !== false)
-          setStatus(ctx, `policy:${decision.workflow}/executing`);
+          setStatus(ctx, `policy:${decision.rigor}/executing`);
         return {
           systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Approved\nThe plan has been approved by the user. Execute the bounded waves defined in the plan; re-check constraints after each wave.`,
         };
@@ -207,7 +210,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       if (cfgAwait.showStatus !== false)
         setStatus(
           ctx,
-          `policy:${state.lastDecision.workflow}/awaiting_approval`,
+          `policy:${state.lastDecision.rigor}/awaiting_approval`,
         );
       return {
         systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Still awaiting approval\nThe user's message was not recognized as an approval, revision, or cancellation. Remain in PLAN-ONLY mode; remind the user that the plan is awaiting explicit approval.`,
@@ -237,14 +240,14 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
 
     if (state.onceMode) state.onceMode = null;
 
-    if (decision.workflow === "off") {
+    if (decision.rigor === "off") {
       state.phase = "idle";
       if (config.showStatus !== false) setStatus(ctx, "policy:off");
       return undefined;
     }
 
     if (
-      decision.workflow === "strict" &&
+      decision.rigor === "strict" &&
       decision.executionIntent !== "read-only"
     ) {
       state.phase = "planning";
@@ -261,7 +264,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     });
 
     if (config.showStatus !== false)
-      setStatus(ctx, `policy:${decision.workflow}/${state.phase}`);
+      setStatus(ctx, `policy:${decision.rigor}/${state.phase}`);
     return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
   });
 
@@ -280,7 +283,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     });
     if (cfg.showStatus !== false && state.lastDecision) {
       const label =
-        state.phase === "idle" ? state.lastDecision.workflow : state.phase;
+        state.phase === "idle" ? state.lastDecision.rigor : state.phase;
       setStatus(ctx, `policy:${label}`);
     }
   });

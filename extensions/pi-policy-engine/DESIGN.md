@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.18
+# Design — pi-policy-engine v0.19
 
 ## 1. Design goal
 
@@ -14,7 +14,7 @@ The extension owns:
 
 - classification (deterministic + opt-in semantic fallback);
 - policy composition (with byte-budget enforcement);
-- workflow selection (quick / standard / strict);
+- rigor selection (quick / standard / strict) + flow selection (v0.19);
 - strict approval state machine;
 - explainability + introspection (`/policy preview`, `why`, `diff`, `history`, `config`, `validate`).
 
@@ -40,7 +40,7 @@ user prompt
 before_agent_start
     ├─ classify task + risk + domains
     ├─ [opt-in] semantic fallback when deterministic confidence < threshold
-    ├─ choose profile + workflow
+    ├─ choose profile + rigor + flow
     ├─ choose model adaptation
     ├─ composePolicies: enforce byte budget, drop low-priority tail
     ├─ load project policies (with file + byte caps)
@@ -63,8 +63,10 @@ Core
   └─ evidence / constraints / verification         ← always loaded
 Behavior
   └─ execution discipline / scope / context / tools
-Workflow
-  └─ quick / standard / strict / debug / review / research
+Rigor
+  └─ quick / standard / strict          ← how strict (v0.19)
+Flow
+  └─ debug-first / review-first / research-first   ← how to work
 Domain
   └─ database / kubernetes / backend / frontend / docs
 Concern
@@ -89,7 +91,7 @@ could reach `policyMaxBytes + projectPolicyMaxBytes` while
 `/policy preview` reported only the built-in share — verified 700-byte
 budget injecting 1433 bytes. `budgetUsedPct` now reports the true total.
 
-Priority order (high → low): core > profile behaviors > workflow > domain > model > project.
+Priority order (high → low): core > profile behaviors > rigor/flow > domain > concern > model > project.
 
 ## 4. Classification: deterministic first, semantic as opt-in fallback
 
@@ -118,7 +120,7 @@ Why opt-in rather than always-on:
 3. **Cost**: even cheap models cost money; we shouldn't incur it without consent.
 4. **Determinism contract**: deterministic routing is what users rely on for reproducibility. Making the fallback optional keeps that contract.
 
-## 5. Strict workflow state machine
+## 5. Strict rigor state machine
 
 `phase` is the single source of truth (the pre-0.15 `pendingApproval` boolean
 described the same state with a second field and allowed invalid combos).
@@ -201,7 +203,7 @@ inherits taskType + domains from the last decision, recomputes
 executionIntent (a live intent on the follow-up wins; unclear falls
 back to the inherited one), and escalates risk ONLY when the follow-up
 itself produced a `risk:` reason — the no-evidence default "medium"
-never escalates a quick task to standard. Off-workflow or absent
+never escalates a quick task to standard. Off-rigor or absent
 lastDecision disables continuity. Every inheritance is recorded in
 reasons as `task-continuity: ...` for /policy why.
 
@@ -226,7 +228,7 @@ Pure read: runs `decide` with a **fresh** state (no runtime overrides applied).
 
 ### `/policy why`
 
-Shows the last decision's full reasoning: workflow / phase / task / risk /
+Shows the last decision's full reasoning: rigor / flow / phase / task / risk /
 profile / domains / model policy / confidence, plus loaded policies,
 truncated policies, and classification reasons.
 
@@ -265,14 +267,14 @@ domain/task expansion without changing classifier code.
 extensions/policy-engine/
 ├── index.js          # thin assembly: createState, register command + lifecycle
 ├── commands.js       # /policy command + interactive selector + all subcommands
-├── lifecycle.js      # pi event handlers (no tool_call) + strict-workflow state machine
+├── lifecycle.js      # pi event handlers (no tool_call) + strict-rigor state machine
 ├── state.js          # createState + decide/preview/compareDecisions/validateConfig glue + history recording
 ├── format.js         # all command output formatters
 └── helpers.js        # findPackageRoot / cleanModel / notify / setStatus / parsePolicyCommand
 
 src/core/             # pure modules, no pi import dependency — testable in isolation
 ├── classifier.js     # rule-based task/risk/domain classification
-├── router.js         # buildDecision (workflow + profile + model policy selection)
+├── router.js         # buildDecision (rigor + flow + profile + model policy via config/models.json)
 ├── loader.js         # loadManifest / loadProfile / loadProjectPolicies / composePolicies / renderPolicyBlock
 ├── approval.js       # classifyPlanResponse (approve/revise/discuss/cancel/unknown)
 ├── config.js         # loadEffectiveConfig / mergeConfig

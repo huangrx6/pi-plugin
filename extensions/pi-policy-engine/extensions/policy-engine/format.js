@@ -20,31 +20,38 @@ export function formatHistory(entries, n = 5) {
     const taskRisk =
       e.task && e.risk ? `${e.task} / ${e.risk}` : (e.task ?? "?");
     lines.push(
-      `${idx}. [${time}] ${e.source ?? "decide"}  ${e.workflow}  (${taskRisk}, conf=${conf})`,
+      `${idx}. [${time}] ${e.source ?? "decide"}  ${e.rigor ?? e.workflow ?? "?"}  (${taskRisk}, conf=${conf})`,
     );
     lines.push(`     prompt: ${e.prompt ?? ""}`);
   }
   return lines.join("\n");
 }
 
-function previewPhaseLabel(workflow) {
-  if (workflow === "off") return "idle";
-  if (workflow === "strict") return "planning";
+function previewPhaseLabel(rigor) {
+  if (rigor === "off") return "idle";
+  if (rigor === "strict") return "planning";
   return "executing";
 }
 
 export function formatDecision(decision, phase) {
   if (!decision) return "No policy decision has been made in this session yet.";
   const lines = [
-    `workflow: ${decision.workflow}`,
+    `rigor: ${decision.rigor}`,
+    `flow: ${decision.flow ?? "default"}`,
     `phase: ${phase}`,
     `task: ${decision.taskType}`,
     `risk: ${decision.risk}`,
     `profile: ${decision.profile}`,
     `domains: ${(decision.domains ?? []).join(", ") || "none"}`,
+    `concerns: ${(decision.concerns ?? []).join(", ") || "none"}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `confidence: ${decision.confidence}`,
   ];
+  if (Number.isFinite(decision.policyBytes)) {
+    const usedKb = Math.round(decision.policyBytes / 102.4) / 10;
+    const totalKb = Math.round((decision.policyBudget ?? 24000) / 102.4) / 10;
+    lines.push(`policy budget: ${usedKb} KB / ${totalKb} KB`);
+  }
   if (decision.loadedPolicies?.length) {
     lines.push("loaded policies:");
     for (const id of decision.loadedPolicies) lines.push(`- ${id}`);
@@ -92,7 +99,8 @@ export function formatDiff({
   lines.push(`RIGHT: ${rightPrompt ?? ""}`);
   lines.push("");
   lines.push("LEFT");
-  lines.push(`  workflow: ${left?.decision?.workflow ?? "?"}`);
+  lines.push(`  rigor: ${left?.decision?.rigor ?? "?"}`);
+  lines.push(`  flow: ${left?.decision?.flow ?? "default"}`);
   lines.push(
     `  task / risk: ${left?.decision?.taskType ?? "?"} / ${left?.decision?.risk ?? "?"}`,
   );
@@ -106,7 +114,8 @@ export function formatDiff({
   );
   lines.push("");
   lines.push("RIGHT");
-  lines.push(`  workflow: ${right?.decision?.workflow ?? "?"}`);
+  lines.push(`  rigor: ${right?.decision?.rigor ?? "?"}`);
+  lines.push(`  flow: ${right?.decision?.flow ?? "default"}`);
   lines.push(
     `  task / risk: ${right?.decision?.taskType ?? "?"} / ${right?.decision?.risk ?? "?"}`,
   );
@@ -233,8 +242,8 @@ export function formatPreview(preview) {
     `risk: ${decision.risk}`,
     `confidence: ${decision.confidence}`,
     `domains: ${(decision.domains ?? []).join(", ") || "none"}`,
-    `workflow: ${decision.workflow}`,
-    `phase: ${previewPhaseLabel(decision.workflow)}`,
+    `rigor: ${decision.rigor}`,
+    `phase: ${previewPhaseLabel(decision.rigor)}`,
     `profile: ${decision.profile}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `would require approval: ${wouldRequireApproval ? "yes" : "no"}`,

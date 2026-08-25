@@ -172,27 +172,23 @@ export function composePolicies({
 
   // Order matters for both selection and budget truncation. Lower in the
   // list = lower priority; if the byte budget runs out we drop from the
-  // tail first (project -> model -> domain -> workflow -> profile -> core).
+  // tail first (project -> model -> concern -> domain -> rigor/flow ->
+  // profile behaviors -> core).
   const ordered = [
     "core.evidence-priority",
     "core.constraint-retention",
     "core.verification",
     ...(profile.policies ?? []),
   ];
-  // If the profile already carries a workflow.* policy (e.g. debugging →
-  // debug-first, review → review-first), skip the generic workflow policy
-  // for this decision — injecting both was pure context noise (v0.13).
-  const profileHasWorkflow = (profile.policies ?? []).some((id) =>
-    id.startsWith("workflow."),
-  );
-  if (!profileHasWorkflow) {
-    if (decision.workflow === "quick") ordered.push("workflow.quick");
-    if (decision.workflow === "standard") ordered.push("workflow.standard");
-  }
-  if (decision.workflow === "strict") {
+  // v0.19 flow/rigor split: flow (how to work) derives from the task type,
+  // rigor (how strict) from risk/intent. Profiles carry behaviors only.
+  if (decision.flow) ordered.push(`flow.${decision.flow}`);
+  if (decision.rigor === "quick") ordered.push("rigor.quick");
+  if (decision.rigor === "standard") ordered.push("rigor.standard");
+  if (decision.rigor === "strict") {
     ordered.push("behavior.tool-discipline");
     ordered.push(
-      phase === "planning" ? "workflow.strict-plan" : "workflow.strict-execute",
+      phase === "planning" ? "rigor.strict-plan" : "rigor.strict-execute",
     );
   }
   for (const domain of decision.domains ?? []) {
@@ -290,7 +286,8 @@ export function renderPolicyBlock({
     "",
     `Task type: ${decision.taskType}`,
     `Risk: ${decision.risk}`,
-    `Workflow: ${decision.workflow}`,
+    `Rigor: ${decision.rigor}`,
+    `Flow: ${decision.flow ?? "default"}`,
     `Phase: ${phase}`,
     `Profile: ${decision.profile}`,
     `Domains: ${(decision.domains ?? []).join(", ") || "none"}`,

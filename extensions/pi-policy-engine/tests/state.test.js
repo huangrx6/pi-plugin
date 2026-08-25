@@ -29,7 +29,7 @@ import {
 const fakeDecision = {
   taskType: "coding",
   risk: "low",
-  workflow: "quick",
+  rigor: "quick",
   profile: "coding",
   confidence: 0.8,
 };
@@ -73,7 +73,7 @@ test("recordHistory ignores missing decision", () => {
 test("compareDecisions: identical → empty diff", () => {
   const previewObj = {
     decision: {
-      workflow: "strict",
+      rigor: "strict",
       taskType: "architecture",
       risk: "high",
       confidence: 0.9,
@@ -90,7 +90,7 @@ test("compareDecisions: identical → empty diff", () => {
 test("compareDecisions: differing fields", () => {
   const left = {
     decision: {
-      workflow: "strict",
+      rigor: "strict",
       taskType: "architecture",
       risk: "high",
       confidence: 0.9,
@@ -103,7 +103,7 @@ test("compareDecisions: differing fields", () => {
   };
   const right = {
     decision: {
-      workflow: "quick",
+      rigor: "quick",
       taskType: "documentation",
       risk: "low",
       confidence: 0.7,
@@ -119,7 +119,7 @@ test("compareDecisions: differing fields", () => {
   assert.ok(
     diffs.some(
       (d) =>
-        d.field === "workflow" && d.left === "strict" && d.right === "quick",
+        d.field === "rigor" && d.left === "strict" && d.right === "quick",
     ),
   );
   assert.ok(
@@ -144,7 +144,7 @@ test("compareDecisions: domain order matters (joined comparison)", () => {
 test("formatDiff: no differences message", () => {
   const previewObj = {
     decision: {
-      workflow: "quick",
+      rigor: "quick",
       taskType: "coding",
       risk: "low",
       confidence: 0.85,
@@ -170,7 +170,7 @@ test("formatDiff: no differences message", () => {
 test("formatDiff: differences with arrow separator", () => {
   const left = {
     decision: {
-      workflow: "strict",
+      rigor: "strict",
       taskType: "architecture",
       risk: "high",
       confidence: 0.9,
@@ -183,7 +183,7 @@ test("formatDiff: differences with arrow separator", () => {
   };
   const right = {
     decision: {
-      workflow: "quick",
+      rigor: "quick",
       taskType: "documentation",
       risk: "low",
       confidence: 0.7,
@@ -204,7 +204,7 @@ test("formatDiff: differences with arrow separator", () => {
   assert.match(text, /LEFT/);
   assert.match(text, /RIGHT/);
   assert.match(text, /Differences \(\d+\)/);
-  assert.match(text, /workflow: strict {2}→ {2}quick/);
+  assert.match(text, /rigor: strict {2}→ {2}quick/);
   assert.match(text, /risk: high {2}→ {2}low/);
 });
 
@@ -215,7 +215,7 @@ test("formatPreview: stable rendering with all key fields", () => {
       risk: "high",
       confidence: 0.92,
       domains: ["database", "kubernetes"],
-      workflow: "strict",
+      rigor: "strict",
       profile: "architecture",
       modelPolicy: "model.minimax-m3",
     },
@@ -236,7 +236,7 @@ test("formatPreview: stable rendering with all key fields", () => {
     },
   });
   assert.match(text, /# Policy preview/);
-  assert.match(text, /workflow: strict/);
+  assert.match(text, /rigor: strict/);
   assert.match(text, /would require approval: yes/);
   assert.match(text, /total budget = 4%/);
   assert.match(text, /core\.evidence-priority/);
@@ -248,7 +248,7 @@ test("formatPreview: stable rendering with all key fields", () => {
 test("formatPreview: null and empty inputs", () => {
   assert.match(formatPreview(null), /No preview available/);
   const empty = formatPreview({
-    decision: { workflow: "off" },
+    decision: { rigor: "off" },
     classification: { reasons: [] },
     policies: [],
     projectPolicies: [],
@@ -263,7 +263,7 @@ test("formatPreview: null and empty inputs", () => {
       budgetUsedPct: 0,
     },
   });
-  assert.match(empty, /workflow: off/);
+  assert.match(empty, /rigor: off/);
   assert.match(empty, /built-in 0 \+ project 0/);
 });
 
@@ -311,7 +311,7 @@ test("formatHistory: empty, limit, ordering, numbering", () => {
     prompt: `prompt ${i}`,
     task: "coding",
     risk: "low",
-    workflow: "quick",
+    rigor: "quick",
     profile: "coding",
     confidence: 0.8,
   }));
