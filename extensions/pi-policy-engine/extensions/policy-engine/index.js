@@ -25,9 +25,16 @@ export default function policyEngine(pi) {
   const state = createState();
 
   pi.registerCommand("policy", {
-    description: "Policy engine: mode / gate / profile / once / status / why / cancel / reset",
-    handler: createCommandHandler({ packageRoot: PACKAGE_ROOT, getState: () => state }),
+    description:
+      "Policy engine: mode / gate / profile / once / status / why / cancel / reset",
+    handler: createCommandHandler({
+      packageRoot: PACKAGE_ROOT,
+      getState: () => state,
+    }),
   });
 
-  registerLifecycleHandlers(pi, { packageRoot: PACKAGE_ROOT, getState: () => state });
+  registerLifecycleHandlers(pi, {
+    packageRoot: PACKAGE_ROOT,
+    getState: () => state,
+  });
 }

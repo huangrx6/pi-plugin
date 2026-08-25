@@ -46,14 +46,16 @@ const MUTATING_SHELL_PATTERNS = [
   {
     category: "git",
     label: "git commit/add/push/reset/...",
-    pattern: /^git\s+(add|commit|push|reset|checkout|switch|merge|rebase|clean|stash)\b/i,
+    pattern:
+      /^git\s+(add|commit|push|reset|checkout|switch|merge|rebase|clean|stash)\b/i,
   },
 
   // package managers
   {
     category: "package",
     label: "npm/pnpm/yarn/bun install|add|remove|...",
-    pattern: /^(?:npm|pnpm|yarn|bun)\s+(install|add|remove|uninstall|update|upgrade)\b/i,
+    pattern:
+      /^(?:npm|pnpm|yarn|bun)\s+(install|add|remove|uninstall|update|upgrade)\b/i,
   },
   { category: "package", label: "pip install", pattern: /^pip3?\s+install\b/i },
   {
@@ -257,7 +259,9 @@ export function shouldBlockTool(event, gate, pendingApproval, configGuard) {
 }
 
 export function isApprovalPrompt(prompt) {
-  const text = String(prompt ?? "").trim().toLowerCase();
+  const text = String(prompt ?? "")
+    .trim()
+    .toLowerCase();
   if (!text) return false;
   if (
     /(不批准|先别执行|不要执行|别执行|修改计划|调整计划|重新计划|继续分析|先分析|stop|hold|reject|revise)/i.test(
@@ -274,7 +278,9 @@ export function isApprovalPrompt(prompt) {
 }
 
 export function isPlanRevisionPrompt(prompt) {
-  const text = String(prompt ?? "").trim().toLowerCase();
+  const text = String(prompt ?? "")
+    .trim()
+    .toLowerCase();
   return /(不批准|先别执行|不要执行|修改计划|调整计划|重新计划|revise|change the plan|hold|stop)/i.test(
     text,
   );

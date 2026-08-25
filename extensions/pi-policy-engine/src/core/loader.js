@@ -14,7 +14,9 @@ function readText(path) {
 }
 
 export function loadManifest(packageRoot) {
-  return readJson(join(packageRoot, "policies", "manifest.json"), { policies: {} });
+  return readJson(join(packageRoot, "policies", "manifest.json"), {
+    policies: {},
+  });
 }
 
 export function loadProfile(packageRoot, id) {
@@ -39,7 +41,9 @@ export function loadPolicyById(packageRoot, manifest, id) {
 
 function walkMarkdown(dir, maxFiles, out = []) {
   if (!existsSync(dir) || out.length >= maxFiles) return out;
-  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
+  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   for (const entry of entries) {
     if (out.length >= maxFiles) break;
     const full = join(dir, entry.name);
@@ -53,7 +57,9 @@ export function loadProjectPolicies(cwd, config = {}) {
   const base = join(cwd, ".pi", "policies");
   const maxFiles = Number(config.projectPolicyMaxFiles ?? 12);
   const maxBytes = Number(config.projectPolicyMaxBytes ?? 24000);
-  const allowList = Array.isArray(config.projectPolicies) ? new Set(config.projectPolicies) : null;
+  const allowList = Array.isArray(config.projectPolicies)
+    ? new Set(config.projectPolicies)
+    : null;
 
   const files = walkMarkdown(base, maxFiles * 2);
   const result = [];
@@ -62,7 +68,13 @@ export function loadProjectPolicies(cwd, config = {}) {
   for (const full of files) {
     if (result.length >= maxFiles || used >= maxBytes) break;
     const rel = relative(base, full).replaceAll("\\", "/");
-    if (allowList && allowList.size > 0 && !allowList.has(rel) && !allowList.has(basename(rel))) continue;
+    if (
+      allowList &&
+      allowList.size > 0 &&
+      !allowList.has(rel) &&
+      !allowList.has(basename(rel))
+    )
+      continue;
     let size = 0;
     try {
       size = statSync(full).size;
@@ -72,7 +84,11 @@ export function loadProjectPolicies(cwd, config = {}) {
     if (size > maxBytes || used + size > maxBytes) continue;
     try {
       const content = readText(full);
-      result.push({ id: `project.${rel}`, source: `.pi/policies/${rel}`, content });
+      result.push({
+        id: `project.${rel}`,
+        source: `.pi/policies/${rel}`,
+        content,
+      });
       used += size;
     } catch {
       // Ignore unreadable project policy files.
@@ -82,7 +98,12 @@ export function loadProjectPolicies(cwd, config = {}) {
   return result;
 }
 
-export function composePolicies({ packageRoot, decision, config, phase = "executing" }) {
+export function composePolicies({
+  packageRoot,
+  decision,
+  config,
+  phase = "executing",
+}) {
   const manifest = loadManifest(packageRoot);
   const profile = loadProfile(packageRoot, decision.profile);
 
@@ -99,7 +120,9 @@ export function composePolicies({ packageRoot, decision, config, phase = "execut
   if (decision.workflow === "standard") ordered.push("workflow.standard");
   if (decision.workflow === "strict") {
     ordered.push("behavior.tool-discipline");
-    ordered.push(phase === "planning" ? "workflow.strict-plan" : "workflow.strict-execute");
+    ordered.push(
+      phase === "planning" ? "workflow.strict-plan" : "workflow.strict-execute",
+    );
   }
   for (const domain of decision.domains ?? []) {
     const id = `domain.${domain}`;
@@ -136,7 +159,13 @@ export function composePolicies({ packageRoot, decision, config, phase = "execut
   return { policies: loaded, truncated };
 }
 
-export function renderPolicyBlock({ decision, policies, projectPolicies, phase, truncated = [] }) {
+export function renderPolicyBlock({
+  decision,
+  policies,
+  projectPolicies,
+  phase,
+  truncated = [],
+}) {
   const summary = [
     "# Active Policy Runtime",
     "",
@@ -153,12 +182,17 @@ export function renderPolicyBlock({ decision, policies, projectPolicies, phase, 
   ];
 
   if (truncated.length > 0) {
-    summary.push("", `> Note: ${truncated.length} policy(s) were dropped by the byte budget: ${truncated.join(", ")}. Increase "policyMaxBytes" or use "excludePolicies" to make room.`);
+    summary.push(
+      "",
+      `> Note: ${truncated.length} policy(s) were dropped by the byte budget: ${truncated.join(", ")}. Increase "policyMaxBytes" or use "excludePolicies" to make room.`,
+    );
   }
 
   const chunks = [summary.join("\n")];
   for (const policy of [...policies, ...projectPolicies]) {
-    chunks.push(`\n## Policy: ${policy.id}\nSource: ${policy.source}\n\n${policy.content}`);
+    chunks.push(
+      `\n## Policy: ${policy.id}\nSource: ${policy.source}\n\n${policy.content}`,
+    );
   }
   return chunks.join("\n");
 }

@@ -27,7 +27,10 @@ function deepMerge(base, override) {
       // otherwise replace. This makes `includePolicies` / `excludePolicies`
       // declarative across config layers without dropping items from lower
       // priority sources.
-      if (Array.isArray(existing) && value.every((v) => isPlainObject(v) && typeof v.id === "string")) {
+      if (
+        Array.isArray(existing) &&
+        value.every((v) => isPlainObject(v) && typeof v.id === "string")
+      ) {
         // Dedupe by id with later-override. Priority order in mergeConfig
         // means later configs override earlier ones (defaults < global <
         // project < runtime), so when two configs both declare an item with
@@ -62,9 +65,16 @@ export function mergeConfig(...configs) {
   return out;
 }
 
-export function loadEffectiveConfig({ packageRoot, cwd, runtimeOverrides = {} }) {
+export function loadEffectiveConfig({
+  packageRoot,
+  cwd,
+  runtimeOverrides = {},
+}) {
   const defaults = safeJson(join(packageRoot, "config", "defaults.json"), {});
-  const globalConfig = safeJson(join(homedir(), ".pi", "agent", "policy-engine.json"), {});
+  const globalConfig = safeJson(
+    join(homedir(), ".pi", "agent", "policy-engine.json"),
+    {},
+  );
   const projectConfig = safeJson(join(cwd, ".pi", "policy-engine.json"), {});
   return mergeConfig(defaults, globalConfig, projectConfig, runtimeOverrides);
 }

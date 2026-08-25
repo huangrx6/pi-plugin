@@ -62,6 +62,9 @@ export function setStatus(ctx, text) {
  * and remaining tokens.
  */
 export function parsePolicyCommand(args) {
-  const parts = String(args ?? "").trim().split(/\s+/).filter(Boolean);
+  const parts = String(args ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
   return { action: (parts[0] ?? "status").toLowerCase(), rest: parts.slice(1) };
 }
