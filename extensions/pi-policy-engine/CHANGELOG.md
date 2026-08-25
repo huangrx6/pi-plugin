@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.12.0
+
+- **Removed the tool-call gate entirely**. The extension is now purely
+  model-behavior layer: strict planning injects a PLAN-ONLY instruction and
+  the model stops to ask for approval itself (like a skill that says "ask
+  the user here"). No `tool_call` handler exists. This makes the extension
+  fully independent of any permission extension — it neither blocks tools
+  nor depends on another extension's behavior.
+- Deleted `src/core/guard.js` (shouldBlockTool / previewGuard /
+  splitShellSegments / compileCustomPatterns / findMutatingShell); replaced
+  by `src/core/approval.js` (isApprovalPrompt / isPlanRevisionPrompt only).
+- Removed `/policy gate` and `/policy test-guard` commands; `gate` removed
+  from interactive selector, decision, config, format, defaults.
+- Removed `guard.customPatterns` / enabledCategories / disabledCategories
+  config and validation.
+- Removed the cross-extension coexistence matrix and interop harness (the
+  extension never references another extension now).
+- Known limitation (documented): PLAN-ONLY is a soft constraint — a model
+  that ignores it won't be mechanically stopped; that's the deliberate
+  price of clean layering.
+
 ## 0.11.1
 
 - **Fix (hard gate regression)**: `ls 2>/dev/null`, `grep … 2>/dev/null`,

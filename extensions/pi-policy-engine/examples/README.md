@@ -39,7 +39,6 @@ pi
 ```json
 {
   "mode": "auto",
-  "gate": "soft",
   "profile": "auto"
 }
 ```

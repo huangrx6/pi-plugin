@@ -174,7 +174,6 @@ export function renderPolicyBlock({
     `Workflow: ${decision.workflow}`,
     `Phase: ${phase}`,
     `Profile: ${decision.profile}`,
-    `Gate: ${decision.gate}`,
     `Domains: ${(decision.domains ?? []).join(", ") || "none"}`,
     `Model policy: ${decision.modelPolicy ?? "default"}`,
     "",

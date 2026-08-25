@@ -2,6 +2,17 @@
 
 个人 pi 扩展 monorepo。四个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
 
+## 扩展独立性（最高优先级约定）
+
+扩展之间**完全独立、互不感知**——没有例外：
+
+- **代码**：不得 import 另一扩展的任何模块，不得监听/依赖另一扩展注册的事件或命令。
+- **测试**：不得引用另一扩展的文件；跨扩展的行为验证不写进任何扩展的测试。
+- **文档**：扩展 README/DESIGN 不得链接或描述另一扩展（连“与 X 正交/配合”都不写——一旦写了，抽走一个扩展另一个就断）。职责边界只允许出现抽象表述，如“工具权限不在本扩展范围内”。
+- **仓库根**：根 README 只列扩展清单（每扩展一行定位 + 链接），不写扩展间的配合说明；根 `scripts/` 不存放跨扩展测试（要验证扩展组合行为，临时在仓库外写，不进 git）。
+
+违反例子（曾真实发生过，全部回滚）：policy-engine 的 README 写过“与 mode-switcher 正交/共存矩阵”、mode-switcher README 反向链接、根 `scripts/interop-check.mjs` 同时 import 两个扩展。
+
 ## 语言与结构
 
 - **语言选择**：import pi 运行时类型（`@earendil-works/*`）的扩展用 TypeScript；纯逻辑、不绑 pi namespace 的包用 plain JS（`pi-policy-engine` 先例，理由见其 `SOURCES.md`）。

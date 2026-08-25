@@ -1,10 +1,10 @@
 // pi-policy-engine extension entry point.
 //
 // Wires the four pieces of the extension together:
-//   - state: mutable runtime state (mode / gate / profile / decision / phase).
+//   - state: mutable runtime state (mode / profile / decision / phase).
 //   - commands: /policy subcommand + interactive selector.
 //   - lifecycle: pi event handlers (session_start, model_select,
-//                before_agent_start, tool_call, agent_end).
+//                before_agent_start, agent_end).
 //   - format / helpers / core: pure modules, no pi dependencies.
 //
 // Intent: keep this file as thin assembly so individual concerns can be
@@ -26,7 +26,7 @@ export default function policyEngine(pi) {
 
   pi.registerCommand("policy", {
     description:
-      "Policy engine: mode / gate / profile / once / status / why / cancel / reset",
+      "Policy engine: mode / profile / once / status / why / cancel / reset",
     handler: createCommandHandler({
       packageRoot: PACKAGE_ROOT,
       getState: () => state,

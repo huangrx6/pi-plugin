@@ -4,7 +4,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-import { compileCustomPatterns } from "../../src/core/guard.js";
 import { classifyTask } from "../../src/core/classifier.js";
 import {
   loadEffectiveConfig,
@@ -22,7 +21,6 @@ import { maybeSemanticClassify } from "../../src/core/semantic.js";
 export function createState() {
   return {
     runtimeMode: null,
-    runtimeGate: null,
     runtimeProfile: null,
     onceMode: null,
     lastDecision: null,
@@ -30,11 +28,6 @@ export function createState() {
     pendingApproval: false,
     phase: "idle",
     currentModel: null,
-    // Compiled custom mutating shell patterns (from guard.customPatterns).
-    // Refreshed on session_start; invalid patterns are surfaced to the user
-    // exactly once per session via state.customPatternWarningsEmitted.
-    customPatterns: [],
-    customPatternWarningsEmitted: false,
     // In-session routing history. Capped (oldest dropped first) so a long
     // session doesn't grow unbounded. Cleared on session_start.
     history: [],
@@ -64,7 +57,6 @@ export function recordHistory(state, { source, prompt, decision }) {
     risk: decision.risk,
     workflow: decision.workflow,
     profile: decision.profile,
-    gate: decision.gate,
     confidence: decision.confidence,
   });
   while (state.history.length > HISTORY_CAP) state.history.shift();
@@ -73,7 +65,6 @@ export function recordHistory(state, { source, prompt, decision }) {
 export function stateRuntimeOverrides(state) {
   const out = {};
   if (state.runtimeMode) out.mode = state.runtimeMode;
-  if (state.runtimeGate) out.gate = state.runtimeGate;
   if (state.runtimeProfile) out.profile = state.runtimeProfile;
   return out;
 }
@@ -128,7 +119,6 @@ export async function decide({
     mode,
     profile: config.profile ?? "auto",
     model,
-    gate: config.gate ?? "soft",
   });
   return { decision, config, classification };
 }
@@ -138,7 +128,6 @@ export async function decide({
  * files. Pure read — no state mutation. Used by `/policy validate`.
  *
  * Checks:
- *  - guard.customPatterns compile + have valid categories (errors).
  *  - includePolicies / excludePolicies reference manifest ids OR the
  *    built-in core.* / model.* namespaces (warnings otherwise).
  *  - profile.<name>.json entries reference valid ids (errors).
@@ -150,11 +139,7 @@ export function validateConfig({ config, packageRoot }) {
   const issues = [];
   const push = (severity, message) => issues.push({ severity, message });
 
-  // 1. customPatterns
-  const { warnings } = compileCustomPatterns(config.guard);
-  for (const w of warnings) push("error", `guard: ${w}`);
-
-  // 2. Reference checks against manifest + core.* + model.*
+  // Reference checks against manifest + core.* + model.*
   const manifest = loadManifest(packageRoot);
   const manifestIds = new Set(Object.keys(manifest?.policies ?? {}));
   const builtInPrefixes = ["core.", "model."];
@@ -231,7 +216,6 @@ export function compareDecisions(left, right) {
       (right?.decision?.domains ?? []).join(","),
     ],
     ["profile", left?.decision?.profile, right?.decision?.profile],
-    ["gate", left?.decision?.gate, right?.decision?.gate],
     [
       "model policy",
       left?.decision?.modelPolicy ?? "default",

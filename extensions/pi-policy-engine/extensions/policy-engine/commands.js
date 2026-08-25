@@ -1,25 +1,23 @@
 // /policy command handler.
 // Two entry points:
-//   - With no args: open an interactive ctx.ui.select() picker covering mode /
-//     gate / profile in sequence. This matches pi-mode-switcher's /mode UX.
+//   - With no args: open an interactive ctx.ui.select() picker covering
+//     mode / profile in sequence.
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
-import { previewGuard } from "../../src/core/guard.js";
-import {
-  appendHistory,
-  clearHistory,
-  resolveHistoryPath,
-} from "../../src/core/history-store.js";
 import {
   formatConfig,
   formatDecision,
   formatDiff,
-  formatGuardPreview,
   formatHistory,
   formatPreview,
   formatStatusSummary,
   formatValidation,
 } from "./format.js";
+import {
+  appendHistory,
+  clearHistory,
+  resolveHistoryPath,
+} from "../../src/core/history-store.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
 import {
   buildEffectiveConfig,
@@ -38,19 +36,6 @@ const MODE_OPTIONS = [
   },
   { key: "strict", description: "plan + 等批准 + 分 wave 执行" },
   { key: "off", description: "完全关闭策略注入（保留 model adaptation）" },
-];
-
-const GATE_OPTIONS = [
-  { key: "off", description: "不机械拦截，只靠 prompt 约束" },
-  {
-    key: "soft",
-    description: "拦截直接写文件工具（write / edit / apply_patch ...）",
-  },
-  {
-    key: "hard",
-    description:
-      "soft + 拦截 mutating shell（rm / git push / kubectl apply ...）",
-  },
 ];
 
 const PROFILE_OPTIONS = [
@@ -80,7 +65,6 @@ const PROFILE_OPTIONS = [
 ];
 
 const VALID_MODES = new Set(MODE_OPTIONS.map((o) => o.key));
-const VALID_GATES = new Set(GATE_OPTIONS.map((o) => o.key));
 
 function selectOptionLabel(options) {
   return options.map((o) => `${o.key} — ${o.description}`).join("\n");
@@ -151,18 +135,6 @@ export function createCommandHandler({ packageRoot, getState }) {
       }
       state.onceMode = mode;
       notify(ctx, `Next task policy mode: ${mode}`, "success");
-      return;
-    }
-
-    if (action === "gate") {
-      const gate = (rest[0] ?? "").toLowerCase();
-      if (!VALID_GATES.has(gate)) {
-        notify(ctx, "Usage: /policy gate off|soft|hard", "warning");
-        return;
-      }
-      state.runtimeGate = gate;
-      if (state.lastDecision) state.lastDecision.gate = gate;
-      notify(ctx, `Policy gate: ${gate}`, "success");
       return;
     }
 
@@ -311,32 +283,6 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
-    if (action === "test-guard" || action === "testguard") {
-      const cmd = rest.join(" ").trim();
-      if (!cmd) {
-        notify(
-          ctx,
-          "Usage: /policy test-guard <bash command>  (dry-run the gate against a sample command)",
-          "warning",
-        );
-        return;
-      }
-      const cfg = buildEffectiveConfig({
-        packageRoot,
-        cwd: ctx?.cwd ?? process.cwd(),
-        state,
-      });
-      const gate = state.runtimeGate ?? cfg.gate ?? "soft";
-      const result = previewGuard({
-        command: cmd,
-        gate,
-        configGuard: cfg.guard,
-        customPatterns: state.customPatterns,
-      });
-      notify(ctx, formatGuardPreview(result, { gate, command: cmd }), "info");
-      return;
-    }
-
     if (action === "why") {
       notify(ctx, formatDecision(state.lastDecision, state.phase), "info");
       return;
@@ -394,7 +340,6 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     if (action === "reset") {
       state.runtimeMode = null;
-      state.runtimeGate = null;
       state.runtimeProfile = null;
       state.onceMode = null;
       state.lastDecision = null;
@@ -406,21 +351,21 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|test-guard <cmd>|config|validate|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|config|validate|status|why|cancel|reset]",
       "info",
     );
   };
 }
 
 /**
- * Interactive picker: walk through mode / gate / profile in order, persist
+ * Interactive picker: walk through mode / profile in order, persist
  * any choices the user makes, fall back to notify() messages if the picker
  * UI is unavailable.
  */
 async function runInteractiveSelector(state, ctx) {
   const mode = await pickOne(
     ctx,
-    "Policy mode (current: " + (state.runtimeMode ?? "auto") + ")",
+    `Policy mode (current: ${state.runtimeMode ?? "auto"})`,
     MODE_OPTIONS,
   );
   if (mode) {
@@ -431,21 +376,15 @@ async function runInteractiveSelector(state, ctx) {
       state.phase = "idle";
     }
   }
-  const gate = await pickOne(
-    ctx,
-    "Policy gate (current: " + (state.runtimeGate ?? "soft") + ")",
-    GATE_OPTIONS,
-  );
-  if (gate) state.runtimeGate = gate;
   const profile = await pickOne(
     ctx,
-    "Policy profile (current: " + (state.runtimeProfile ?? "auto") + ")",
+    `Policy profile (current: ${state.runtimeProfile ?? "auto"})`,
     PROFILE_OPTIONS,
   );
   if (profile) state.runtimeProfile = profile;
   notify(
     ctx,
-    `Policy: mode=${mode ?? "unchanged"}, gate=${gate ?? "unchanged"}, profile=${profile ?? "unchanged"}`,
+    `Policy: mode=${mode ?? "unchanged"}, profile=${profile ?? "unchanged"}`,
     "info",
   );
 }

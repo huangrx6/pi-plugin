@@ -9,18 +9,9 @@
 | **pi-skill-inject** | prompt 里输入 `/skill-name` 把 skill 内容内联注入当前轮 | [README](./extensions/pi-skill-inject/README.md) |
 | **pi-mode-switcher** | 三级批准控制（ask / smart / full），纯 pi tool_call 拦截 | [README](./extensions/pi-mode-switcher/README.md) |
 | **pi-quota-status** | footer 显示 AI 订阅用量（OpenCode Go / 智谱 GLM），自动切数据源 | [README](./extensions/pi-quota-status/README.md) |
-| **pi-policy-engine** | 自动路由 workflow（quick/standard/strict）+ 任务级 plan-then-execute + 机械门禁 + preview/history/test-guard/config 调试命令 | [README](./extensions/pi-policy-engine/README.md) |
+| **pi-policy-engine** | 自动路由 workflow（quick/standard/strict）+ 任务级 plan-then-execute + preview/history/diff/validate 调试命令 | [README](./extensions/pi-policy-engine/README.md) |
 
-每个 `extensions/<name>/` 是独立可发布的 pi package——可单独 `pi install`，也可整库安装。
-
-> **扩展职责边界**：
->
-> - `pi-skill-inject` 管「怎么把 skill 喂给当前轮」
-> - `pi-mode-switcher` 管「每次工具调用的人工批准」
-> - `pi-policy-engine` 管「自动路由 workflow + 任务级 plan + 执行门禁」
-> - `pi-quota-status` 管「footer 状态显示」
->
-> `mode-switcher`（人工每次确认）和 `policy-engine`（任务级自动 plan-then-execute）正交，常一起用：mode-switcher 给总闸，policy-engine 在 strict 任务上加额外保险。
+每个 `extensions/<name>/` 是独立可发布的 pi package——可单独 `pi install`，也可整库安装。扩展之间**相互独立、互不感知**：不交叉引用、不交叉测试、不写配合说明（见 AGENTS.md「扩展独立性」）。
 
 ---
 

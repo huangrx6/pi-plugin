@@ -1,20 +1,26 @@
-# Design — pi-policy-engine v0.11
+# Design — pi-policy-engine v0.12
 
 ## 1. Design goal
 
-Provide a small policy layer for Pi without recreating a full agent runtime.
+Provide a small **task-flow policy layer** for Pi without recreating a full
+agent runtime. The extension works entirely at the **model-behavior layer**:
+it injects execution-discipline constraints into the system prompt and runs
+a strict-workflow state machine in `before_agent_start`. It does **not**
+intercept tool calls — tool permission is out of scope by design, so the
+extension composes with any permission extension (or none) without
+coordination.
 
 The extension owns:
 
 - classification (deterministic + opt-in semantic fallback);
 - policy composition (with byte-budget enforcement);
-- workflow selection;
-- strict approval state;
-- targeted mutation guards (categorized, structural-parsed, configurable, extensible via custom patterns);
-- explainability + introspection (`/policy preview`, `why`, `history`, `test-guard`, `config`).
+- workflow selection (quick / standard / strict);
+- strict approval state machine;
+- explainability + introspection (`/policy preview`, `why`, `diff`, `history`, `config`, `validate`).
 
 The extension intentionally does not own:
 
+- tool-call permission / approval dialogs (tool_call interception);
 - subagent orchestration;
 - DAG execution;
 - task queues;
@@ -27,8 +33,6 @@ The extension intentionally does not own:
 ```text
 session_start
     ├─ reset state (history, pendingApproval, etc.)
-    ├─ compile custom mutating patterns from guard.customPatterns
-    ├─ emit compile warnings once
     └─ set footer status
     ↓
 user prompt
@@ -45,13 +49,12 @@ before_agent_start
     ↓
 agent loop
     ↓
-tool_call
-    └─ if strict + awaiting approval: apply gate (per-category, with custom patterns)
-    ↓
 agent_end
 ```
 
 `model_select` updates the current model identity used by model-specific policy routing.
+
+No `tool_call` handler exists (v0.12+). See §6.
 
 ## 3. Policy layers + byte budget
 
@@ -89,7 +92,7 @@ The opt-in **semantic fallback** is available for users who hit keyword-matching
 - **Failure isolation**: any error — timeout, network, HTTP non-2xx, JSON parse failure, schema mismatch, missing API key — returns `null` and the deterministic result stands. The agent loop never blocks on this.
 - API key is read from an **environment variable name** (`apiKeyEnvVar`), never persisted to config files.
 
-Implementation: `src/core/semantic.js` (`maybeSemanticClassify`) wired into `state.js::decide()` (which is `async` for this purpose). `lifecycle.js::before_agent_start` already runs in an `async` context, so the extra `await` is invisible.
+Implementation: `src/core/semantic.js` (`maybeSemanticClassify`) wired into `state.js::decide()` (which is `async` for this purpose).
 
 Why opt-in rather than always-on:
 
@@ -112,71 +115,31 @@ idle
 
 Any non-approval follow-up during `pendingApproval` remains in planning. This avoids accidental downgrade caused by a short prompt such as "why?" or "change step 2".
 
-## 6. Gate semantics
+Approval recognition lives in `src/core/approval.js` (`isApprovalPrompt` / `isPlanRevisionPrompt`) — a small phrase whitelist, deliberately conservative so ambiguous follow-ups don't accidentally release the gate.
 
-```text
-gate=off   → no mechanical blocking (only prompt-level constraints)
-gate=soft  → block direct file mutation tools (write / edit / apply_patch …)
-gate=hard  → soft + categorized shell mutation patterns
-```
+## 6. No tool-call interception (v0.12)
 
-### Structural parsing (v0.3)
+Early versions shipped a mechanical gate (`soft`/`hard` tool_call blocking
+during `pendingApproval`). That put this extension on the same layer as
+permission extensions, creating overlap: when both were installed, both
+evaluated the same tool calls (OR-composition, first block short-circuits),
+and users had to reason about which one would win.
 
-`splitShellSegments` splits a command at `&&`, `||`, `;`, and `|` boundaries respecting single/double quotes and `$(...)` substitution. Each non-empty trimmed segment is matched independently against the pattern table; patterns are now segment-anchored (`^X`) so they don't need the `(^|[;&|])` prefix anymore.
+v0.12 removes the tool_call handler entirely:
 
-This fixes two classes of false positives the old flat regex produced:
+- Strict planning relies on the injected `strict-plan` policy instruction
+  ("This turn is PLAN-ONLY … Stop after the plan and ask for approval.")
+  — the model is expected to stop on its own, exactly like a skill that
+  says "ask the user here". No tool is invoked, so nothing needs blocking.
+- Whether any tool call is *permitted* is someone else's job — whatever
+  permission extension the user runs (if any). This extension neither knows
+  nor cares about that layer.
+- Consequence (documented as a known limitation): if a model ignores the
+  PLAN-ONLY instruction and issues a mutation anyway, nothing here stops it.
+  That's the deliberate price of clean layering.
 
-- `echo "rm -rf /"` is no longer flagged (the rm is inside a quoted string).
-- `kubectl apply -f x.yaml && sleep 5` is correctly flagged (segment header is `kubectl`).
-
-And one class of false negatives:
-
-- `echo $(rm -rf /tmp)` IS flagged — `findMutatingShell` shallow-extracts `$(...)` content and re-runs the matcher on the substitution body. Deeply nested `$($(...))` remains out of scope (documented as a known limitation).
-
-### Categorized patterns (v0.4)
-
-Built-in shell patterns are tagged with one of six categories:
-
-| Category | Examples |
-| --- | --- |
-| `file`   | `rm`, `mv`, `cp`, `mkdir`, `touch`, `chmod`, `chown`, `sed -i`, `perl -pi`, `>`, `tee` |
-| `git`    | `git add / commit / push / reset / checkout / switch / merge / rebase / clean / stash` |
-| `package`| `npm / pnpm / yarn / bun / pip / apt / yum / dnf / brew / docker` install/remove/upgrade |
-| `k8s`    | `kubectl apply / delete / patch / edit / scale / rollout / set / create / replace / label / annotate`, `helm install / upgrade / uninstall / rollback` |
-| `network`| (reserved; no built-in patterns yet) |
-| `disk`   | `mkfs.*`, `dd of=` |
-
-Each category can be independently enabled/disabled via `config.guard`:
-
-```json
-{
-  "guard": {
-    "enabledCategories": ["file", "git", "k8s"],
-    "disabledCategories": ["disk"]
-  }
-}
-```
-
-`shouldBlockTool` reason includes `[category: label]` and the offending segment (truncated to 120 chars) so the model can self-correct without guessing.
-
-### Custom patterns (v0.4)
-
-Users can add project/company-specific mutating shell patterns via `guard.customPatterns`:
-
-```json
-{
-  "guard": {
-    "customPatterns": [
-      { "category": "file", "label": "deploy-tool-prod", "regex": "deploy-tool\\s+prod" }
-    ]
-  }
-}
-```
-
-- `category` must be one of the 6 known buckets (participates in `enabledCategories` / `disabledCategories`).
-- `regex` is compiled with `new RegExp(str, "i")` once per session.
-- Misconfiguration (unknown category, empty label, unparseable regex) does NOT crash the agent: collected as warnings, surfaced once at `session_start` via `ctx.ui.notify`.
-- Custom patterns are tried before built-ins, so users can shadow labels.
+`src/core/approval.js` is the only remnant of the old guard module, kept
+because the strict state machine needs phrase recognition.
 
 ## 7. Project policy discovery
 
@@ -199,71 +162,39 @@ context growth:
 
 ## 9. Introspection commands
 
-These are read-only commands for tuning and debugging. They never mutate state, never invoke the agent, and never call the semantic fallback.
+Read-only commands for tuning and debugging. They never mutate state, never invoke the agent, and never call the semantic fallback (except `/policy preview` when the user has explicitly raised the confidence threshold — see README).
 
 ### `/policy preview <prompt>`
 
 Dry-runs the full routing + composition pipeline for a hypothetical prompt.
-Output includes classification, decision, loaded built-in policies (id + byte usage + % of budget), truncated ids, project policies (id + byte usage), and classification reasons.
-
-Pure read: runs `decide` with a **fresh** state (no runtime overrides applied) so the preview reflects defaults + global + project config, not any in-session overrides.
+Pure read: runs `decide` with a **fresh** state (no runtime overrides applied).
 
 ### `/policy why`
 
-Shows the last decision's full reasoning: workflow / phase / task / risk / profile / gate / domains / model policy / confidence, plus loaded policies, truncated policies, and classification reasons.
-
-### `/policy history [N]`
-
-Shows the last N routing decisions recorded in this session (default 5, cap 50). Each entry: 1-based index, HH:MM:SS timestamp, source (`decide` or `preview`), workflow, task/risk, confidence, and prompt summary (≤ 80 chars one-line).
-
-Entries are pushed by:
-
-- `before_agent_start` after each `decide` call (source: `decide`)
-- `/policy preview` handler after each preview run (source: `preview`)
-
-`session_start` resets the history array. No disk writes.
-
-### `/policy test-guard <bash command>`
-
-Simulates the gate against a sample command without entering strict mode. Pretends `pendingApproval=true` so the result matches what the agent would actually see during a strict workflow. Reports whether the command would block, plus matched category / label / segment / reason.
-
-Useful for verifying `guard.customPatterns` and `disabledCategories` without firing a real tool_call.
-
-### `/policy config`
-
-Prints the **resolved effective config** (defaults < global < project < runtime merged). Sections: routing / policies / guard / semanticFallback. Shows resolved values only, not which layer overrode which.
+Shows the last decision's full reasoning: workflow / phase / task / risk /
+profile / domains / model policy / confidence, plus loaded policies,
+truncated policies, and classification reasons.
 
 ### `/policy diff <promptA> || <promptB>`
 
-Runs the full preview pipeline for two prompts in parallel and shows the resulting decisions side by side, plus a Differences list of fields that changed. Pure read — no agent invocation, no state mutation, no semantic fallback HTTP call.
-
-Separator is `||` (no surrounding spaces required). Falls back to a usage warning if the separator is missing.
-
-Uses `compareDecisions(left, right)` from state.js and `formatDiff(...)` from format.js.
-
-### `/policy validate`
-
-Proactively checks the resolved config for common mistakes before they bite at runtime:
-
-- `guard.customPatterns`: unknown category / unparseable regex / empty label / empty regex → errors (reuses `compileCustomPatterns` from guard.js).
-- `includePolicies` / `excludePolicies`: ids not in the package manifest and not under `core.*` / `model.*` → warnings. The composer silently ignores unknown ids.
-- `policies/manifest.json`: each entry's path checked against the filesystem → errors when missing.
-- `profiles/*.json`: each entry checked against manifest + built-in prefixes → errors when unknown.
-
-Output: one-line verdict (`OK` / `OK (with warnings)` / `FAIL (N errors)`), Errors block, Warnings block.
-
-Pure read — safe to run in CI. Uses `validateConfig({ config, packageRoot })` from state.js and `formatValidation(...)` from format.js.
+Runs two previews in parallel and shows side-by-side decisions plus a
+Differences list. Uses `compareDecisions` / `formatDiff`.
 
 ### `/policy history [N]` / `/policy history clear-disk`
 
-In-memory routing history (default 5, cap 50). When `historyFile` is configured (default `~/.pi/agent/policy-engine/history.jsonl`), entries are also persisted to disk and reloaded at `session_start`:
+In-memory routing history (default 5, cap 50). When `historyFile` is
+configured (default `~/.pi/agent/policy-engine/history.jsonl`), entries are
+also persisted and reloaded at `session_start`. See `src/core/history-store.js`.
 
-- Append-only writes to a JSONL file (`{ts, source, prompt, task, risk, workflow, profile, gate, confidence}` per line).
-- On read: tail-scan the file for the most recent `historyMaxEntries` lines (default 500), parsed and reversed into chronological order.
-- Best-effort writes: any I/O failure (EACCES, ENOSPC) is swallowed; the in-memory history still works.
-- `clear-disk` truncates the file (also clears the in-memory list).
+### `/policy config`
 
-Wired in `lifecycle.js::session_start` (load) and after each `recordHistory()` call (append). The `/policy preview` handler also appends. Persistence module: `src/core/history-store.js`.
+Prints the **resolved effective config** (defaults < global < project <
+runtime merged). Sections: routing / policies / semanticFallback.
+
+### `/policy validate`
+
+Checks the resolved config: include/exclude policy references, manifest
+paths, profile entries. Pure read — safe to run in CI.
 
 ## 10. Extensibility
 
@@ -273,49 +204,36 @@ Global reusable policies use a manifest (`policies/manifest.json`) and profiles
 Routing keywords are data-driven in `config/routing.json`, allowing
 domain/task expansion without changing classifier code.
 
-Gate categories are data-driven in `src/core/guard.js` `MUTATING_SHELL_PATTERNS`. Adding a new category:
-
-1. Add the entry `{ category, label, pattern }` to the array.
-2. Add the category id to `ALL_CATEGORIES`.
-3. (Optional) Wire it into `config/defaults.json`.
-
-For project/company-specific patterns without forking: use `guard.customPatterns` (v0.4).
-
-## 11. Extension file layout (v0.11)
+## 11. Extension file layout (v0.12)
 
 ```text
 extensions/policy-engine/
 ├── index.js          # thin assembly: createState, register command + lifecycle
 ├── commands.js       # /policy command + interactive selector + all subcommands
-├── lifecycle.js      # pi event handlers + strict-workflow state machine + disk history
+├── lifecycle.js      # pi event handlers (no tool_call) + strict-workflow state machine
 ├── state.js          # createState + decide/preview/compareDecisions/validateConfig glue + history recording
-├── format.js         # formatDecision / formatStatusSummary / formatPreview /
-│                     #   formatHistory / formatGuardPreview / formatConfig /
-│                     #   formatDiff / formatValidation
+├── format.js         # all command output formatters
 └── helpers.js        # findPackageRoot / cleanModel / notify / setStatus / parsePolicyCommand
 
 src/core/             # pure modules, no pi import dependency — testable in isolation
 ├── classifier.js     # rule-based task/risk/domain classification
 ├── router.js         # buildDecision (workflow + profile + model policy selection)
 ├── loader.js         # loadManifest / loadProfile / loadProjectPolicies / composePolicies / renderPolicyBlock
-├── guard.js          # shouldBlockTool / previewGuard / splitShellSegments / compileCustomPatterns / findMutatingShell
+├── approval.js       # isApprovalPrompt / isPlanRevisionPrompt (strict state machine)
 ├── config.js         # loadEffectiveConfig / mergeConfig
 ├── semantic.js       # maybeSemanticClassify (opt-in OpenAI-compatible fallback)
-└── history-store.js  # appendHistory / readHistory / clearHistory / resolveHistoryPath (best-effort JSONL persistence)
+└── history-store.js  # appendHistory / readHistory / clearHistory / resolveHistoryPath
 ```
 
 ## 12. Non-goals
 
 If the extension evolves toward scheduler, DAG engine, worker pool, subagent
-graph, or generalized orchestration runtime, it has exceeded its intended
-boundary.
+graph, generalized orchestration runtime, or tool-permission enforcement,
+it has exceeded its intended boundary.
 
-## 13. Boundary with sibling extensions
+## 13. Independence from sibling extensions
 
-- `pi-mode-switcher` is **per-tool** human approval. This extension is
-  **per-task** automatic plan-then-execute. They are orthogonal and stack:
-  mode-switcher gates each tool, policy-engine gates the whole task.
-- `pi-skill-inject` injects skill content into the current turn. Policy
-  composes Markdown policies into the system prompt. Same injection plumbing,
-  different content source.
-- `pi-quota-status` is display-only. No policy interaction.
+Extensions in this monorepo are independent packages: no cross-imports, no
+cross-tests, no cross-doc links. This extension follows that rule — it never
+references another extension's existence in code, tests, or documentation
+beyond a generic "tool permission is out of scope" statement.

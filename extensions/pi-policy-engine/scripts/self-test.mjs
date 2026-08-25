@@ -11,15 +11,7 @@ import {
   loadProjectPolicies,
   renderPolicyBlock,
 } from "../src/core/loader.js";
-import {
-  compileCustomPatterns,
-  findMutatingShell,
-  isApprovalPrompt,
-  isMutatingShell,
-  previewGuard,
-  shouldBlockTool,
-  splitShellSegments,
-} from "../src/core/guard.js";
+import { isApprovalPrompt } from "../src/core/approval.js";
 import { mergeConfig } from "../src/core/config.js";
 import { createRequire as _createRequire } from "node:module";
 const require = _createRequire(import.meta.url);
@@ -38,7 +30,6 @@ import {
 import {
   formatConfig,
   formatDiff,
-  formatGuardPreview,
   formatHistory,
   formatPreview,
   formatValidation,
@@ -110,42 +101,10 @@ assert.equal(
 );
 assert.equal(modelPolicyId({ provider: "foo", id: "bar" }), null);
 
-assert.equal(isMutatingShell("git status"), false);
-assert.equal(isMutatingShell("rg TODO src"), false);
-assert.equal(isMutatingShell("git commit -am test"), true);
-assert.equal(isMutatingShell("kubectl apply -f deploy.yaml"), true);
-assert.equal(isMutatingShell("echo hello > file.txt"), true);
 assert.equal(isApprovalPrompt("开始执行，按这个计划做"), true);
 assert.equal(isApprovalPrompt("继续分析这个计划"), false);
-
-{
-  const x = shouldBlockTool({ toolName: "edit", input: {} }, "soft", true);
-  assert.equal(x.block, true);
-}
-{
-  const x = shouldBlockTool(
-    { toolName: "bash", input: { command: "git status" } },
-    "hard",
-    true,
-  );
-  assert.equal(x.block, false);
-}
-{
-  const x = shouldBlockTool(
-    { toolName: "bash", input: { command: "rm -rf tmp" } },
-    "hard",
-    true,
-  );
-  assert.equal(x.block, true);
-}
-{
-  const x = shouldBlockTool(
-    { toolName: "bash", input: { command: "rm -rf tmp" } },
-    "soft",
-    true,
-  );
-  assert.equal(x.block, false);
-}
+assert.equal(isApprovalPrompt("不批准，先改计划"), false);
+assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
 
 {
   const projectPolicies = loadProjectPolicies(
@@ -163,11 +122,11 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 // mergeConfig: deep merge of nested objects.
 {
   const merged = mergeConfig(
-    { gate: "soft", profile: "auto", nested: { a: 1, b: 2 } },
-    { gate: "hard", nested: { b: 99, c: 3 } },
+    { mode: "auto", profile: "auto", nested: { a: 1, b: 2 } },
+    { mode: "strict", nested: { b: 99, c: 3 } },
     { includePolicies: ["behavior.execution-discipline"] },
   );
-  assert.equal(merged.gate, "hard");
+  assert.equal(merged.mode, "strict");
   assert.equal(merged.profile, "auto");
   assert.deepEqual(merged.nested, { a: 1, b: 99, c: 3 });
 }
@@ -194,40 +153,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.equal(merged.items.find((i) => i.id === "y").v, 22);
 }
 
-// Categorized shell guard: findMutatingShell returns category+label.
-{
-  const rm = findMutatingShell("rm -rf tmp");
-  assert.equal(rm.category, "file");
-  assert.equal(rm.label, "rm");
-  const git = findMutatingShell("git push origin main");
-  assert.equal(git.category, "git");
-  const kubectl = findMutatingShell("kubectl apply -f x.yaml");
-  assert.equal(kubectl.category, "k8s");
-  assert.equal(findMutatingShell("git status"), null);
-}
-
-// Per-category enable/disable via config.guard.
-{
-  const git = findMutatingShell("git commit -m x");
-  assert.equal(git.category, "git");
-  // hard gate with k8s disabled
-  const blocked = shouldBlockTool(
-    { toolName: "bash", input: { command: "kubectl apply -f x" } },
-    "hard",
-    true,
-    { disabledCategories: ["k8s"] },
-  );
-  assert.equal(blocked.block, false);
-  const blockedFile = shouldBlockTool(
-    { toolName: "bash", input: { command: "rm -rf tmp" } },
-    "hard",
-    true,
-    { disabledCategories: ["k8s"] },
-  );
-  assert.equal(blockedFile.block, true);
-  assert.match(blockedFile.reason, /file: rm/);
-}
-
 // Byte budget: composePolicies drops low-priority policies when over budget.
 {
   const decision = {
@@ -239,7 +164,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     workflow: "strict",
     profile: "coding",
     modelPolicy: "model.minimax-m3",
-    gate: "soft",
     reasons: [],
   };
   const tight = composePolicies({
@@ -268,7 +192,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     workflow: "quick",
     profile: "coding",
     modelPolicy: null,
-    gate: "soft",
     reasons: [],
   };
   const block = renderPolicyBlock({
@@ -296,104 +219,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.deepEqual(c.rest, []);
 }
 
-// Structured shell parsing: splitShellSegments respects quotes and $().
-{
-  // Basic splitter
-  assert.deepEqual(splitShellSegments("ls && rm tmp"), ["ls", "rm tmp"]);
-  assert.deepEqual(splitShellSegments("a; b; c"), ["a", "b", "c"]);
-  assert.deepEqual(splitShellSegments("a || b"), ["a", "b"]);
-  // Pipes are split too (both sides can mutate independently).
-  assert.deepEqual(splitShellSegments("echo hi | sed -i s/x/y/"), [
-    "echo hi",
-    "sed -i s/x/y/",
-  ]);
-  // Quoted splitter characters do NOT split.
-  assert.deepEqual(splitShellSegments('echo "a && b"'), ['echo "a && b"']);
-  assert.deepEqual(splitShellSegments("echo 'rm -rf /'"), ["echo 'rm -rf /'"]);
-  // $(...) is opaque — splitter inside the substitution is not honored.
-  assert.deepEqual(splitShellSegments("echo $(rm -rf /tmp)"), [
-    "echo $(rm -rf /tmp)",
-  ]);
-  // Empty / whitespace-only inputs.
-  assert.deepEqual(splitShellSegments(""), []);
-  assert.deepEqual(splitShellSegments("   "), []);
-  assert.deepEqual(splitShellSegments(";"), []);
-}
-
-// Structured parsing should classify correctly even with quotes and pipes.
-{
-  // Quoted rm is NOT mutating.
-  assert.equal(findMutatingShell('echo "rm -rf /" | grep warn'), null);
-  // Unquoted rm IS mutating.
-  const r = findMutatingShell("echo hi; rm -rf tmp");
-  assert.equal(r?.category, "file");
-  assert.equal(r?.label, "rm");
-  assert.match(r?.segment ?? "", /^rm /);
-  // kubectl apply at the head of a multi-segment command.
-  const k = findMutatingShell("kubectl apply -f x.yaml && sleep 5");
-  assert.equal(k?.category, "k8s");
-  assert.match(k?.segment ?? "", /^kubectl /);
-  // Nested mutating inside $() — we DO classify this (it's still a deletion).
-  const s = findMutatingShell("echo $(rm -rf /etc/foo)");
-  assert.equal(s?.category, "file");
-  // last segment wins if earlier ones are clean.
-  assert.equal(
-    findMutatingShell("git status; sleep 1; kubectl delete pod x")?.label,
-    "kubectl apply|delete|patch|...",
-  );
-}
-
-// Redirect exemptions (v0.3 regression fixed): /dev/null and fd duplication
-// are NOT file mutations. `ls 2>/dev/null` is the single most common shell
-// idiom — blocking it under hard gate made the gate unusable in practice.
-{
-  const allow = [
-    "ls 2> /dev/null",
-    "grep foo bar.txt 2>/dev/null || true",
-    "cat config.json 2> /dev/null | head -5",
-    "echo done > /dev/null 2>&1",
-    "rg TODO src 2>/dev/null",
-    "find . -name x 2>/dev/null",
-    "echo x >> /dev/null",
-    "node script.js 2>&1",
-  ];
-  for (const cmd of allow) {
-    assert.equal(findMutatingShell(cmd), null, `should NOT match: ${cmd}`);
-  }
-  const block = [
-    "ls > /tmp/real-output.txt",
-    "echo hi >> /var/log/app.log",
-    "cat x > ~/backup.txt",
-  ];
-  for (const cmd of block) {
-    const hit = findMutatingShell(cmd);
-    assert.ok(hit, `should match: ${cmd}`);
-    assert.equal(hit.category, "file");
-    assert.equal(hit.label, "redirect");
-  }
-  // End-to-end under hard gate: silencing passes, real write blocks.
-  assert.equal(
-    shouldBlockTool(
-      { toolName: "bash", input: { command: "rg TODO src 2>/dev/null" } },
-      "hard",
-      true,
-      {},
-      [],
-    ).block,
-    false,
-  );
-  assert.equal(
-    shouldBlockTool(
-      { toolName: "bash", input: { command: "rg TODO src > /tmp/out" } },
-      "hard",
-      true,
-      {},
-      [],
-    ).block,
-    true,
-  );
-}
-
 // preview() must return config so the /policy preview handler's
 // historyFile append actually fires (v0.9 shipped the caller reading
 // result.config?.historyFile but the field was missing — preview history
@@ -414,18 +239,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     typeof result.config.historyFile === "string",
     "result.config.historyFile must be reachable (defaults provide a string)",
   );
-}
-
-// shouldBlockTool reason should include the offending segment (v0.3).
-{
-  const r = shouldBlockTool(
-    { toolName: "bash", input: { command: "echo hi && rm -rf /tmp" } },
-    "hard",
-    true,
-  );
-  assert.equal(r.block, true);
-  assert.match(r.reason, /file: rm/);
-  assert.match(r.reason, /rm -rf \/tmp/);
 }
 
 // Semantic fallback: pure helpers.
@@ -692,223 +505,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   delete process.env.PI_POLICY_TEST_KEY;
 }
 
-// compileCustomPatterns: valid config produces compiled entries.
-{
-  const { patterns, warnings } = compileCustomPatterns({
-    customPatterns: [
-      {
-        category: "file",
-        label: "mydeploy-apply",
-        regex: "mydeploy\\s+(apply|destroy)",
-      },
-      {
-        category: "package",
-        label: "internal-tool",
-        regex: "deploy-tool\\s+install",
-      },
-    ],
-  });
-  assert.equal(warnings.length, 0);
-  assert.equal(patterns.length, 2);
-  assert.equal(patterns[0].category, "file");
-  assert.equal(patterns[0].label, "mydeploy-apply");
-  assert.equal(patterns[0].pattern.flags, "i");
-  assert.match(patterns[0].pattern.source, /mydeploy/);
-}
-
-// compileCustomPatterns: missing / invalid entries produce warnings, not throws.
-{
-  const { patterns, warnings } = compileCustomPatterns({
-    customPatterns: [
-      null,
-      { category: "bogus", label: "x", regex: "x" },
-      { category: "file", label: "", regex: "x" },
-      { category: "file", label: "x", regex: "" },
-      { category: "file", label: "bad-re", regex: "[" },
-      { category: "file", label: "ok", regex: "okcmd" },
-    ],
-  });
-  assert.equal(patterns.length, 1);
-  assert.equal(patterns[0].label, "ok");
-  assert.equal(warnings.length, 5);
-  assert.ok(warnings.some((w) => w.includes("not an object")));
-  assert.ok(warnings.some((w) => w.includes("unknown category")));
-  assert.ok(warnings.some((w) => w.includes("label must be")));
-  assert.ok(warnings.some((w) => w.includes("regex must be")));
-  assert.ok(warnings.some((w) => w.includes("invalid regex")));
-}
-
-// compileCustomPatterns: empty / missing config returns empty arrays.
-{
-  assert.deepEqual(compileCustomPatterns({}), { patterns: [], warnings: [] });
-  assert.deepEqual(compileCustomPatterns(null), { patterns: [], warnings: [] });
-  assert.deepEqual(compileCustomPatterns({ customPatterns: "not-an-array" }), {
-    patterns: [],
-    warnings: [],
-  });
-}
-
-// Custom patterns participate in findMutatingShell: user pattern matches.
-{
-  const compiled = compileCustomPatterns({
-    customPatterns: [
-      { category: "file", label: "mydeploy-apply", regex: "mydeploy\\s+apply" },
-    ],
-  });
-  const hit = findMutatingShell("mydeploy apply -e prod", compiled.patterns);
-  assert.equal(hit?.category, "file");
-  assert.equal(hit?.label, "mydeploy-apply");
-  // Built-in patterns still work alongside custom ones.
-  const builtin = findMutatingShell(
-    "kubectl apply -f x.yaml",
-    compiled.patterns,
-  );
-  assert.equal(builtin?.category, "k8s");
-}
-
-// Custom patterns win ties (tried before built-ins).
-{
-  const compiled = compileCustomPatterns({
-    customPatterns: [
-      // Shadow the built-in `rm` label so user can see they overrode it.
-      { category: "audit", label: "custom-rm", regex: "^rm\\s+" },
-    ],
-  });
-  // Built-in `rm` is category "file"; user uses "audit" which is not a known
-  // category, so compileCustomPatterns will warn. Use a real category instead.
-  const compiled2 = compileCustomPatterns({
-    customPatterns: [
-      { category: "file", label: "shadowed-rm", regex: "^rm\\s+" },
-    ],
-  });
-  const hit = findMutatingShell("rm tmp", compiled2.patterns);
-  assert.equal(hit?.label, "shadowed-rm");
-  assert.equal(compiled.warnings.length, 1); // "audit" not in ALL_CATEGORIES
-}
-
-// previewGuard: dry-run the gate against a sample command.
-{
-  // hard gate blocks built-in rm
-  const rm = previewGuard({ command: "rm -rf tmp", gate: "hard" });
-  assert.equal(rm.wouldBlock, true);
-  assert.equal(rm.category, "file");
-  assert.equal(rm.label, "rm");
-
-  // hard gate with custom pattern matches
-  const compiled = compileCustomPatterns({
-    customPatterns: [
-      {
-        category: "file",
-        label: "deploy-tool-prod",
-        regex: "^deploy-tool\\s+prod",
-      },
-    ],
-  });
-  const prod = previewGuard({
-    command: "deploy-tool prod my-service",
-    gate: "hard",
-    customPatterns: compiled.patterns,
-  });
-  assert.equal(prod.wouldBlock, true);
-  assert.equal(prod.label, "deploy-tool-prod");
-  // staging does not match
-  const staging = previewGuard({
-    command: "deploy-tool staging my-service",
-    gate: "hard",
-    customPatterns: compiled.patterns,
-  });
-  assert.equal(staging.wouldBlock, false);
-
-  // hard gate respects disabledCategories
-  const disabled = previewGuard({
-    command: "kubectl apply -f x.yaml",
-    gate: "hard",
-    configGuard: { disabledCategories: ["k8s"] },
-  });
-  assert.equal(disabled.wouldBlock, false);
-
-  // soft gate does not block shell commands
-  const soft = previewGuard({ command: "rm -rf tmp", gate: "soft" });
-  assert.equal(soft.wouldBlock, false);
-
-  // off gate never blocks
-  const off = previewGuard({ command: "rm -rf tmp", gate: "off" });
-  assert.equal(off.wouldBlock, false);
-
-  // empty / null command is safe
-  assert.equal(previewGuard({ command: "", gate: "hard" }).wouldBlock, false);
-  assert.equal(previewGuard({ command: null, gate: "hard" }).wouldBlock, false);
-}
-
-// formatGuardPreview: block case shows all fields.
-{
-  const text = formatGuardPreview(
-    {
-      wouldBlock: true,
-      category: "file",
-      label: "rm",
-      segment: "rm -rf tmp",
-      reason: "blocked",
-    },
-    { gate: "hard", command: "rm -rf tmp" },
-  );
-  assert.match(text, /# Guard preview \(gate: hard\)/);
-  assert.match(text, /would block: yes/);
-  assert.match(text, /category: file/);
-  assert.match(text, /label: rm/);
-  assert.match(text, /segment: rm -rf tmp/);
-}
-
-// formatGuardPreview: non-blocking cases explain why.
-{
-  const offText = formatGuardPreview(
-    { wouldBlock: false, reason: null },
-    { gate: "off", command: "ls" },
-  );
-  assert.match(offText, /gate is off/);
-  const softText = formatGuardPreview(
-    { wouldBlock: false, reason: null },
-    { gate: "soft", command: "rm -rf tmp" },
-  );
-  assert.match(softText, /soft gate blocks direct mutation tools/);
-  const cleanText = formatGuardPreview(
-    { wouldBlock: false, reason: null },
-    { gate: "hard", command: "ls -la" },
-  );
-  assert.match(cleanText, /no built-in or custom pattern matched/);
-}
-
-// Custom patterns honored by shouldBlockTool.
-{
-  const compiled = compileCustomPatterns({
-    customPatterns: [
-      {
-        category: "file",
-        label: "company-deploy",
-        regex: "^deploy-tool\\s+prod",
-      },
-    ],
-  });
-  const blocked = shouldBlockTool(
-    { toolName: "bash", input: { command: "deploy-tool prod my-service" } },
-    "hard",
-    true,
-    {},
-    compiled.patterns,
-  );
-  assert.equal(blocked.block, true);
-  assert.match(blocked.reason, /file: company-deploy/);
-  // Same pattern but category disabled → not blocked.
-  const allowed = shouldBlockTool(
-    { toolName: "bash", input: { command: "deploy-tool prod my-service" } },
-    "hard",
-    true,
-    { disabledCategories: ["file"] },
-    compiled.patterns,
-  );
-  assert.equal(allowed.block, false);
-}
-
 // preview: dry-run classification + composition without mutating state.
 {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -963,7 +559,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       domains: ["database", "kubernetes"],
       workflow: "strict",
       profile: "architecture",
-      gate: "hard",
       modelPolicy: "model.minimax-m3",
     },
     classification: {
@@ -1024,7 +619,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     risk: "low",
     workflow: "quick",
     profile: "coding",
-    gate: "soft",
     confidence: 0.8,
   };
   for (let i = 0; i < HISTORY_CAP + 5; i += 1) {
@@ -1054,7 +648,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       risk: "low",
       workflow: "quick",
       profile: "coding",
-      gate: "soft",
       confidence: 0.7,
     },
   });
@@ -1080,7 +673,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     confidence: 0.9,
     domains: ["database"],
     profile: "architecture",
-    gate: "soft",
     modelPolicy: "model.minimax-m3",
     analysisOnly: false,
   };
@@ -1101,7 +693,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       confidence: 0.9,
       domains: ["database"],
       profile: "architecture",
-      gate: "soft",
       modelPolicy: null,
       analysisOnly: false,
     },
@@ -1115,7 +706,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       confidence: 0.7,
       domains: [],
       profile: "coding",
-      gate: "soft",
       modelPolicy: null,
       analysisOnly: false,
     },
@@ -1160,7 +750,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     confidence: 0.85,
     domains: [],
     profile: "coding",
-    gate: "soft",
     modelPolicy: null,
     analysisOnly: false,
   };
@@ -1187,7 +776,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       confidence: 0.9,
       domains: ["database"],
       profile: "architecture",
-      gate: "soft",
       modelPolicy: "model.minimax-m3",
       analysisOnly: false,
     },
@@ -1201,7 +789,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       confidence: 0.7,
       domains: [],
       profile: "coding",
-      gate: "soft",
       modelPolicy: null,
       analysisOnly: false,
     },
@@ -1230,25 +817,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   });
   assert.equal(result.ok, true);
   assert.deepEqual(result.issues, []);
-}
-
-// validateConfig: invalid customPattern category -> error.
-{
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const result = validateConfig({
-    config: {
-      guard: {
-        customPatterns: [{ category: "bogus", label: "x", regex: "x" }],
-      },
-    },
-    packageRoot: root,
-  });
-  assert.equal(result.ok, false);
-  assert.ok(
-    result.issues.some(
-      (i) => i.severity === "error" && i.message.includes("bogus"),
-    ),
-  );
 }
 
 // validateConfig: includePolicies with unknown id -> warning (not error).
@@ -1480,38 +1048,24 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const text = formatConfig({});
   assert.match(text, /# Resolved policy-engine config/);
   assert.match(text, /mode: auto/);
-  assert.match(text, /gate: soft/);
   assert.match(text, /profile: auto/);
   assert.match(text, /showStatus: true/);
   assert.match(text, /projectPolicyMaxFiles: 12/);
   assert.match(text, /projectPolicyMaxBytes: 24000/);
   assert.match(text, /policyMaxBytes: 24000/);
-  assert.match(text, /customPatterns: 0 configured/);
   assert.match(text, /semanticFallback/);
   assert.match(text, /enabled: false/);
 }
 
-// formatConfig: real-world config with customPatterns and semantic fallback enabled.
+// formatConfig: real-world config with semantic fallback enabled.
 {
   const text = formatConfig({
     mode: "strict",
-    gate: "hard",
     profile: "debugging",
     projectPolicyMaxFiles: 20,
     policyMaxBytes: 30000,
     domainHints: ["backend", "database"],
     includePolicies: ["behavior.execution-discipline"],
-    guard: {
-      enabledCategories: ["file", "git", "k8s"],
-      disabledCategories: ["package"],
-      customPatterns: [
-        {
-          category: "file",
-          label: "deploy-tool-prod",
-          regex: "^deploy-tool\\s+prod",
-        },
-      ],
-    },
     semanticFallback: {
       enabled: true,
       endpoint: "https://api.example.test/v1/chat/completions",
@@ -1522,14 +1076,10 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     },
   });
   assert.match(text, /mode: strict/);
-  assert.match(text, /gate: hard/);
   assert.match(text, /profile: debugging/);
   assert.match(text, /projectPolicyMaxFiles: 20/);
   assert.match(text, /policyMaxBytes: 30000/);
   assert.match(text, /domainHints: \["backend","database"\]/);
-  assert.match(text, /customPatterns: 1 configured/);
-  assert.match(text, /enabledCategories: \["file","git","k8s"\]/);
-  assert.match(text, /disabledCategories: \["package"\]/);
   assert.match(text, /enabled: true/);
   assert.match(text, /endpoint: https:\/\/api\.example\.test/);
   assert.match(text, /confidenceThreshold: 0.6/);
@@ -1555,7 +1105,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       risk: "low",
       workflow: "quick",
       profile: "coding",
-      gate: "soft",
       confidence: 0.8,
     });
   }
@@ -1583,7 +1132,6 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     risk: "low",
     workflow: "quick",
     profile: "coding",
-    gate: "soft",
     confidence: 0.8,
   }));
   const out = formatHistory(entries, NaN);

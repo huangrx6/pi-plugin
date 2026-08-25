@@ -1,12 +1,13 @@
 // Event handler registration: session_start, model_select, before_agent_start,
-// tool_call, agent_end. Owns the strict-workflow state machine.
+// agent_end. Owns the strict-workflow state machine.
+//
+// v0.12: no tool_call handler on purpose — this extension works entirely at
+// the model-behavior (prompt) layer. Tool permission is out of scope.
 
 import {
-  compileCustomPatterns,
   isApprovalPrompt,
   isPlanRevisionPrompt,
-  shouldBlockTool,
-} from "../../src/core/guard.js";
+} from "../../src/core/approval.js";
 import {
   composePolicies,
   loadProjectPolicies,
@@ -17,7 +18,7 @@ import {
   readHistory,
   resolveHistoryPath,
 } from "../../src/core/history-store.js";
-import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
+import { cleanModel, modelKey, setStatus } from "./helpers.js";
 import {
   HISTORY_CAP,
   buildEffectiveConfig,
@@ -37,7 +38,6 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     state.phase = "idle";
     state.lastDecision = null;
     state.lastPrompt = null;
-    state.customPatternWarningsEmitted = false;
     state.history = [];
     state.currentModel = cleanModel(ctx?.model) ?? state.currentModel;
     const cfg = buildEffectiveConfig({
@@ -45,18 +45,6 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
-
-    // Compile user-supplied custom mutating shell patterns once per session.
-    // Invalid entries are warned about exactly once (dedup via state flag)
-    // so a broken pattern doesn't spam on every tool call.
-    const compiled = compileCustomPatterns(cfg.guard);
-    state.customPatterns = compiled.patterns;
-    if (compiled.warnings.length > 0 && !state.customPatternWarningsEmitted) {
-      for (const w of compiled.warnings) {
-        notify(ctx, `Policy Engine guard config: ${w}`, "warning");
-      }
-      state.customPatternWarningsEmitted = true;
-    }
 
     // Load persisted history (if configured). Best-effort: file missing or
     // unreadable is fine; we just continue with an empty in-memory history.
@@ -113,10 +101,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       state.pendingApproval = false;
       state.phase = "executing";
       const config = buildEffectiveConfig({ packageRoot, cwd, state });
-      const decision = {
-        ...state.lastDecision,
-        gate: config.gate ?? state.lastDecision.gate,
-      };
+      const decision = { ...state.lastDecision };
       state.lastDecision = decision;
       const { policies, truncated } = composePolicies({
         packageRoot,
@@ -146,10 +131,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     // Non-approval follow-up while a strict plan is pending: stay in planning.
     if (state.pendingApproval && state.lastDecision) {
       const config = buildEffectiveConfig({ packageRoot, cwd, state });
-      const decision = {
-        ...state.lastDecision,
-        gate: config.gate ?? state.lastDecision.gate,
-      };
+      const decision = { ...state.lastDecision };
       state.lastDecision = decision;
       state.phase = "planning";
       state.pendingApproval = true;
@@ -240,30 +222,6 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (config.showStatus !== false)
       setStatus(ctx, `policy:${decision.workflow}/${state.phase}`);
     return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
-  });
-
-  pi.on("tool_call", async (event, ctx) => {
-    const state = getState();
-    if (!state.lastDecision || state.lastDecision.workflow !== "strict")
-      return undefined;
-
-    const config = buildEffectiveConfig({
-      packageRoot,
-      cwd: ctx?.cwd ?? process.cwd(),
-      state,
-    });
-    const gate = config.gate ?? state.lastDecision.gate ?? "soft";
-    const result = shouldBlockTool(
-      event,
-      gate,
-      state.pendingApproval,
-      config.guard,
-      state.customPatterns,
-    );
-    if (!result.block) return undefined;
-
-    notify(ctx, result.reason, "warning");
-    return { block: true, reason: result.reason };
   });
 
   pi.on("agent_end", async (_event, ctx) => {

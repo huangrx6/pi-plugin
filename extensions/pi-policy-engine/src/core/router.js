@@ -8,13 +8,19 @@ const PROFILE_BY_TASK = {
 };
 
 export function chooseWorkflow(classification, requestedMode = "auto") {
-  if (["off", "quick", "standard", "strict"].includes(requestedMode) && requestedMode !== "auto") {
+  if (
+    ["off", "quick", "standard", "strict"].includes(requestedMode) &&
+    requestedMode !== "auto"
+  ) {
     return requestedMode;
   }
 
   if (classification.analysisOnly) {
     if (classification.risk === "high") return "standard";
-    return classification.taskType === "research" || classification.taskType === "review" ? "quick" : "standard";
+    return classification.taskType === "research" ||
+      classification.taskType === "review"
+      ? "quick"
+      : "standard";
   }
 
   if (classification.risk === "high") return "strict";
@@ -32,14 +38,17 @@ export function modelPolicyId(model) {
   const id = String(model?.id ?? model?.name ?? "").toLowerCase();
   const all = `${provider}/${id}`;
 
-  if (all.includes("minimax") && (all.includes("m3") || all.includes("minimax-m3"))) {
+  if (
+    all.includes("minimax") &&
+    (all.includes("m3") || all.includes("minimax-m3"))
+  ) {
     return "model.minimax-m3";
   }
   if (all.includes("deepseek")) return "model.deepseek";
   return null;
 }
 
-export function buildDecision({ classification, mode, profile, model, gate }) {
+export function buildDecision({ classification, mode, profile, model }) {
   const workflow = chooseWorkflow(classification, mode);
   const selectedProfile = chooseProfile(classification, profile);
   const modelPolicy = modelPolicyId(model);
@@ -53,7 +62,6 @@ export function buildDecision({ classification, mode, profile, model, gate }) {
     workflow,
     profile: selectedProfile,
     modelPolicy,
-    gate,
     reasons: classification.reasons,
   };
 }

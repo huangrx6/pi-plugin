@@ -1,33 +1,5 @@
 // Human-readable formatters for decisions and status rows. Pure functions;
 // consumed by commands.js and lifecycle.js.
-
-/**
- * Render a `/policy test-guard` result as human-readable text.
- */
-export function formatGuardPreview(result, { gate, command }) {
-  const lines = [
-    `# Guard preview (gate: ${gate ?? "?"})`,
-    "",
-    `command: ${command ?? ""}`,
-    `would block: ${result.wouldBlock ? "yes" : "no"}`,
-  ];
-  if (result.wouldBlock) {
-    lines.push(`category: ${result.category ?? "?"}`);
-    lines.push(`label: ${result.label ?? "?"}`);
-    lines.push(`segment: ${result.segment ?? ""}`);
-    lines.push(`reason: ${result.reason ?? ""}`);
-  } else if (gate === "off") {
-    lines.push("(gate is off — nothing is mechanically blocked)");
-  } else if (gate === "soft") {
-    lines.push(
-      "(soft gate blocks direct mutation tools like write / edit; shell commands need hard gate to be blocked)",
-    );
-  } else {
-    lines.push("(no built-in or custom pattern matched this command)");
-  }
-  return lines.join("\n");
-}
-
 export function formatHistory(entries, n = 5) {
   if (!entries || entries.length === 0) {
     return "No routing history yet. Use /policy preview <prompt> to dry-run, or send a prompt to record one.";
@@ -69,7 +41,6 @@ export function formatDecision(decision, phase) {
     `task: ${decision.taskType}`,
     `risk: ${decision.risk}`,
     `profile: ${decision.profile}`,
-    `gate: ${decision.gate}`,
     `domains: ${(decision.domains ?? []).join(", ") || "none"}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `confidence: ${decision.confidence}`,
@@ -92,7 +63,6 @@ export function formatDecision(decision, phase) {
 export function formatStatusSummary({ config, phase, pendingApproval, model }) {
   return [
     `mode: ${config.mode ?? "auto"}`,
-    `gate: ${config.gate ?? "soft"}`,
     `profile: ${config.profile ?? "auto"}`,
     `phase: ${phase}`,
     `pending approval: ${pendingApproval ? "yes" : "no"}`,
@@ -130,9 +100,7 @@ export function formatDiff({
     `  domains: ${(left?.decision?.domains ?? []).join(",") || "none"}`,
   );
   lines.push(`  confidence: ${left?.decision?.confidence ?? "?"}`);
-  lines.push(
-    `  profile / gate: ${left?.decision?.profile ?? "?"} / ${left?.decision?.gate ?? "?"}`,
-  );
+  lines.push(`  profile: ${left?.decision?.profile ?? "?"}`);
   lines.push(
     `  would require approval: ${left?.wouldRequireApproval ? "yes" : "no"}`,
   );
@@ -146,9 +114,7 @@ export function formatDiff({
     `  domains: ${(right?.decision?.domains ?? []).join(",") || "none"}`,
   );
   lines.push(`  confidence: ${right?.decision?.confidence ?? "?"}`);
-  lines.push(
-    `  profile / gate: ${right?.decision?.profile ?? "?"} / ${right?.decision?.gate ?? "?"}`,
-  );
+  lines.push(`  profile: ${right?.decision?.profile ?? "?"}`);
   lines.push(
     `  would require approval: ${right?.wouldRequireApproval ? "yes" : "no"}`,
   );
@@ -215,7 +181,7 @@ export function formatConfig(config) {
   const lines = ["# Resolved policy-engine config", ""];
   lines.push("routing");
   lines.push(`  mode: ${config.mode ?? "auto"}`);
-  lines.push(`  gate: ${config.gate ?? "soft"}`);
+  lines.push(`  profile: ${config.profile ?? "auto"}`);
   lines.push(`  profile: ${config.profile ?? "auto"}`);
   lines.push(`  showStatus: ${config.showStatus !== false}`);
   lines.push(`  domainHints: ${JSON.stringify(config.domainHints ?? [])}`);
@@ -232,18 +198,6 @@ export function formatConfig(config) {
   lines.push(
     `  excludePolicies: ${JSON.stringify(config.excludePolicies ?? [])}`,
   );
-  const customCount = Array.isArray(config?.guard?.customPatterns)
-    ? config.guard.customPatterns.length
-    : 0;
-  lines.push("");
-  lines.push("guard");
-  lines.push(
-    `  enabledCategories: ${JSON.stringify(config.guard?.enabledCategories ?? "(default: all)")}`,
-  );
-  lines.push(
-    `  disabledCategories: ${JSON.stringify(config.guard?.disabledCategories ?? [])}`,
-  );
-  lines.push(`  customPatterns: ${customCount} configured`);
   lines.push("");
   lines.push("semanticFallback");
   const sf = config.semanticFallback ?? {};
@@ -283,7 +237,6 @@ export function formatPreview(preview) {
     `workflow: ${decision.workflow}`,
     `phase: ${previewPhaseLabel(decision.workflow)}`,
     `profile: ${decision.profile}`,
-    `gate: ${decision.gate}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `would require approval: ${wouldRequireApproval ? "yes" : "no"}`,
     "",
