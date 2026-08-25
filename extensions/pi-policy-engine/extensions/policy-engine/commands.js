@@ -35,7 +35,7 @@ const MODE_OPTIONS = [
     description: "中等：Task Contract → Inspect → Plan → Execute → Verify",
   },
   { key: "strict", description: "plan + 等批准 + 分 wave 执行" },
-  { key: "off", description: "完全关闭策略注入（保留 model adaptation）" },
+  { key: "off", description: "完全关闭策略注入（含 model adaptation）" },
 ];
 
 const PROFILE_OPTIONS = [
@@ -120,7 +120,6 @@ export function createCommandHandler({ packageRoot, getState }) {
       state.runtimeMode = action;
       state.onceMode = null;
       if (action === "off") {
-        state.pendingApproval = false;
         state.phase = "idle";
       }
       notify(ctx, `Policy mode: ${action}`, "success");
@@ -299,7 +298,6 @@ export function createCommandHandler({ packageRoot, getState }) {
         formatStatusSummary({
           config: cfg,
           phase: state.phase,
-          pendingApproval: state.pendingApproval,
           model: modelKey(ctx?.model ?? state.currentModel),
         }),
         "info",
@@ -332,7 +330,6 @@ export function createCommandHandler({ packageRoot, getState }) {
     }
 
     if (action === "cancel") {
-      state.pendingApproval = false;
       state.phase = "idle";
       notify(ctx, "Pending strict plan cancelled.", "success");
       return;
@@ -343,7 +340,6 @@ export function createCommandHandler({ packageRoot, getState }) {
       state.runtimeProfile = null;
       state.onceMode = null;
       state.lastDecision = null;
-      state.pendingApproval = false;
       state.phase = "idle";
       notify(ctx, "Policy runtime overrides reset.", "success");
       return;
@@ -372,7 +368,6 @@ async function runInteractiveSelector(state, ctx) {
     state.runtimeMode = mode;
     state.onceMode = null;
     if (mode === "off") {
-      state.pendingApproval = false;
       state.phase = "idle";
     }
   }

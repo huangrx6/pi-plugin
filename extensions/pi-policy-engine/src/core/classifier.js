@@ -1,37 +1,41 @@
 // Deterministic task/domain classifier.
 //
-// v0.13 design goals (post noise-audit):
-//   - Domains load on STRONG evidence, not on any single keyword hit.
-//     A bare "组件" must not drag in the whole frontend policy; it needs a
-//     co-occurring frame term ("React", "Vue") or a second weak hit.
+// v0.16 design (Intent beats mention, fully wired):
+//   - Task scoring runs through signal groups (matcher.js): word forms
+//     (debug/debugging/debugged) and translations (api/接口/endpoint) are
+//     aliases of ONE signal; distinct groups are independent evidence.
+//   - The intent frame (intent.js::extractIntentFrame) locates the clause
+//     the user is actually ACTING in. Groups matched inside the frame
+//     count double; groups matched elsewhere count as mention evidence
+//     (half weight). The task the frame anchors gets a +2 bonus.
+//       "README 里记录了架构拆分失败的原因，现在帮我把这段文档改准确"
+//     → documentation (frame: 修改+文档), not architecture (background).
+//   - Domains load on STRONG evidence (one strong group) or 2+ distinct
+//     weak groups; same-group aliases never stack ("api"+"接口" = 1 weak).
 //   - Confidence reflects CANDIDATE DISPERSION, not just the top score.
-//     Three task types scoring 7/6/6 is not 95% confident — it's a coin toss.
 //   - Domain count is capped (default 2). 宁可少而准，不要把模型重新淹没在
 //     Policy 里 — the whole point of this extension is to reduce context
 //     noise for drift-prone models; the classifier must not manufacture it.
 //
-// routing.json domainRules supports two formats:
-//   legacy:  { "database": ["postgres", "sql", ...] }
-//            → every term is STRONG (any match triggers). Preserves the old
-//              behavior byte-for-byte for user-authored configs.
-//   current: { "database": { "strong": [...], "weak": [...] } }
-//            → strong match triggers immediately;
-//              weak matches only trigger when their combined weight
-//              reaches TRIGGER_SCORE (i.e. 2+ distinct weak terms).
+// routing.json taskRules/domainRules support two formats (matcher.js::
+// toSignalGroups): flat string arrays (legacy — each term its own group)
+// and { "group": "...", "terms": [...] } alias groups (current).
 
+const IN_FRAME_SCORE = 2;
+const MENTION_SCORE = 1;
+const FRAME_ANCHOR_BONUS = 2;
 const STRONG_SCORE = 2;
 const WEAK_SCORE = 0.5;
 const TRIGGER_SCORE = 1.0;
 
-function normalize(text) {
-  return String(text ?? "").trim().toLowerCase();
-}
+import { matchSignalGroups, matchedTerms, toSignalGroups } from "./matcher.js";
+import { extractExecutionIntent, extractIntentFrame } from "./intent.js";
 
-// v0.14: keyword matching now goes through matcher.js (word boundary +
-// longest-match-wins). Fixes the substring nesting bug family:
-//   "reproduction steps" matched risk:high via production → prod.
-import { matchedTerms } from "./matcher.js";
-import { extractExecutionIntent } from "./intent.js";
+function normalize(text) {
+  return String(text ?? "")
+    .trim()
+    .toLowerCase();
+}
 
 /** Accept both legacy array rules and the current {strong, weak} shape. */
 function parseDomainRule(rule) {
@@ -40,34 +44,61 @@ function parseDomainRule(rule) {
 }
 
 /**
- * Score one domain against the prompt.
+ * Score one domain against the prompt using signal groups.
  * Returns null when not triggered, else { score, evidence[] } where
- * evidence explains exactly why (strong hits / accumulated weak hits).
+ * evidence explains exactly why (strong groups / accumulated weak groups).
  */
 function scoreDomain(text, rule) {
   const { strong, weak } = parseDomainRule(rule);
-  const strongHits = matchedTerms(text, strong);
-  if (strongHits.length > 0) {
+  const strongHit = matchSignalGroups(text, toSignalGroups(strong));
+  if (strongHit.score > 0) {
     return {
-      score: strongHits.length * STRONG_SCORE,
-      evidence: [`strong: ${strongHits.slice(0, 3).join(", ")}`],
+      score: strongHit.score * STRONG_SCORE,
+      evidence: [`strong: ${strongHit.hits.map((h) => h.id).slice(0, 3).join(", ")}`],
     };
   }
-  const weakHits = matchedTerms(text, weak);
-  if (weakHits.length === 0) return null;
-  const score = weakHits.length * WEAK_SCORE;
+  const weakHit = matchSignalGroups(text, toSignalGroups(weak));
+  if (weakHit.score === 0) return null;
+  const score = weakHit.score * WEAK_SCORE;
   if (score < TRIGGER_SCORE) {
     return {
       score,
       triggered: false,
       evidence: [
-        `weak-only: ${weakHits.slice(0, 3).join(", ")} (score ${score} < ${TRIGGER_SCORE}, needs a frame term or a second signal)`,
+        `weak-only: ${weakHit.hits.map((h) => h.id).slice(0, 3).join(", ")} (score ${score} < ${TRIGGER_SCORE}; same-group aliases never stack, needs a second distinct group)`,
       ],
     };
   }
   return {
     score,
-    evidence: [`weak×${weakHits.length}: ${weakHits.slice(0, 3).join(", ")}`],
+    evidence: [`weak×${weakHit.score}: ${weakHit.hits.map((h) => h.id).slice(0, 3).join(", ")}`],
+  };
+}
+
+/**
+ * Score one task's signal groups with intent-frame weighting.
+ * Returns { score, ids, frameIds } — frameIds are the groups matched
+ * inside the imperative clause (intent), the rest are mention evidence.
+ */
+function scoreTask(text, terms, frame) {
+  const groups = toSignalGroups(terms);
+  const all = matchSignalGroups(text, groups);
+  if (all.score === 0) return { score: 0, ids: [], frameIds: [] };
+  const frameIds = frame.frameFound
+    ? new Set(
+        matchSignalGroups(frame.frameClause, groups)
+          .hits.map((h) => h.id),
+      )
+    : new Set();
+  let score = 0;
+  for (const hit of all.hits) {
+    score += frameIds.has(hit.id) ? IN_FRAME_SCORE : MENTION_SCORE;
+  }
+  if (frameIds.size > 0) score += FRAME_ANCHOR_BONUS;
+  return {
+    score,
+    ids: all.hits.map((h) => h.id),
+    frameIds: [...frameIds],
   };
 }
 
@@ -75,27 +106,33 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   const maxDomains = Math.max(1, Number(options.maxDomains ?? 2));
   const text = normalize(prompt);
   const reasons = [];
+  const frame = extractIntentFrame(prompt);
+  if (frame.frameFound) {
+    reasons.push(
+      `frame:${frame.action} "${frame.frameClause.slice(0, 30)}"`,
+    );
+  }
   const scores = {
     documentation: 0,
     debugging: 0,
     review: 0,
     research: 0,
     architecture: 0,
-    coding: 1,
+    // Base 0.5, not 1: coding is the DEFAULT guess when nothing matched.
+    // A single real task-group hit (score 1) must beat it honestly instead
+    // of relying on tie-break order.
+    coding: 0.5,
   };
 
   for (const [task, terms] of Object.entries(routing.taskRules ?? {})) {
-    const matches = matchedTerms(text, terms);
-    if (matches.length > 0) {
-      scores[task] = (scores[task] ?? 0) + matches.length * 2;
-      reasons.push(`task:${task} matched ${matches.slice(0, 3).join(", ")}`);
+    const { score, ids, frameIds } = scoreTask(text, terms, frame);
+    if (score > 0) {
+      scores[task] = (scores[task] ?? 0) + score;
+      reasons.push(
+        `task:${task} matched ${ids.join(", ")}${frameIds.length > 0 ? ` (frame: ${frameIds.join(", ")})` : ""}`,
+      );
     }
   }
-
-  // Prefer debugging over documentation when the user is fixing broken docs tooling,
-  // and prefer architecture when explicit design/migration language is present.
-  if (scores.architecture > 1) scores.architecture += 2;
-  if (scores.debugging > 1) scores.debugging += 1;
 
   const ranked = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const taskType = ranked[0][0];
@@ -117,7 +154,9 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     }
     triggered.push({ domain, score: result.score, evidence: result.evidence });
   }
-  triggered.sort((a, b) => b.score - a.score || a.domain.localeCompare(b.domain));
+  triggered.sort(
+    (a, b) => b.score - a.score || a.domain.localeCompare(b.domain),
+  );
 
   const domains = new Set(hints);
   for (const t of triggered) {
@@ -152,7 +191,9 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     reasons.push(`risk:high matched ${highMatches.slice(0, 3).join(", ")}`);
   } else if (taskType === "architecture") {
     risk = "high";
-    reasons.push("risk:high because architecture/design migration work is broad by default");
+    reasons.push(
+      "risk:high because architecture/design migration work is broad by default",
+    );
   } else if (mediumMatches.length > 0) {
     risk = "medium";
     reasons.push(`risk:medium matched ${mediumMatches.slice(0, 3).join(", ")}`);
@@ -161,7 +202,9 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     reasons.push(`risk:low for ${taskType} task`);
   } else if (simpleMatches.length > 0 && text.length < 500) {
     risk = "low";
-    reasons.push(`risk:low matched simple hint ${simpleMatches.slice(0, 2).join(", ")}`);
+    reasons.push(
+      `risk:low matched simple hint ${simpleMatches.slice(0, 2).join(", ")}`,
+    );
   }
 
   if (executionIntent === "read-only" && risk === "high") {
@@ -181,9 +224,10 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   else if (topScore >= 2) confidence = 0.75;
   else confidence = 0.65;
   const dominance = topScore > 0 ? (topScore - runnerUpScore) / topScore : 0;
-  // Quadratic curve: a runaway winner pays ~nothing, a near-tie pays the
-  // full 0.35. Penalties under 0.05 aren't worth surfacing in reasons.
-  const dispersionPenalty = Math.round(Math.pow(1 - dominance, 2) * 35) / 100;
+  // Quadratic curve (v0.16 ×50): a runaway winner pays ~nothing, a 6-vs-4
+  // split pays ~0.22, a near-tie pays the full 0.5 to the 0.35 floor.
+  // Penalties under 0.05 aren't worth surfacing in reasons.
+  const dispersionPenalty = Math.round((1 - dominance) ** 2 * 50) / 100;
   if (dispersionPenalty >= 0.05) {
     confidence = Math.max(0.35, confidence - dispersionPenalty);
     reasons.push(

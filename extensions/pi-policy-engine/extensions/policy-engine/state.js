@@ -25,7 +25,8 @@ export function createState() {
     onceMode: null,
     lastDecision: null,
     lastPrompt: null,
-    pendingApproval: false,
+    // Single source of truth for the strict-workflow state machine:
+    // idle / planning / awaiting_approval / executing.
     phase: "idle",
     currentModel: null,
     // In-session routing history. Capped (oldest dropped first) so a long
@@ -79,7 +80,10 @@ export function buildEffectiveConfig({ packageRoot, cwd, state }) {
 
 function resolvePreviewPhase(decision) {
   if (decision.workflow === "off") return "idle";
-  if (decision.workflow === "strict" && decision.executionIntent !== "read-only")
+  if (
+    decision.workflow === "strict" &&
+    decision.executionIntent !== "read-only"
+  )
     return "planning";
   return "executing";
 }

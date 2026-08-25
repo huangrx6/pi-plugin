@@ -5,12 +5,15 @@
 //   "不要只分析，直接修改代码" → analysisOnly = true   (WRONG — it says mutate)
 //   "批准，但是不要改数据库"     → released execution   (WRONG — constraint added)
 //
-// Design (v1.0 P0-2):
+// Design (v1.0 P0-2, hardened in v0.16):
 //   1. Split the prompt into clauses (punctuation + sequencing words).
 //   2. Per clause, find mutation / read-only / ambiguous verbs using the
 //      shared matcher (word boundaries for Latin, free for CJK).
 //   3. A verb is NEGATED when a negator (不要/别/先别/don't …) appears in
-//      the same clause shortly before it. Negated verbs are dead evidence.
+//      the same clause shortly before it, allowing only interstitial words
+//      (只/先/just/only/…) between them. Negated verbs are dead evidence.
+//      v0.16 fix: the interstitial window now tolerates spaces, so
+//      "do not fix", "dont fix", and "不要 修改" are all recognized.
 //   4. Decision:
 //        any live mutation clause          → "mutate"
 //        else any live read-only clause    → "read-only"
@@ -24,46 +27,162 @@ import { findTerms } from "./matcher.js";
 
 const MUTATION_VERBS = [
   // EN
-  "fix", "implement", "refactor", "deploy", "migrate", "modify", "update",
-  "patch", "rewrite", "bump", "install", "uninstall",
-  // ZH
-  "修改", "改动", "更改", "重构", "实现", "编写", "写", "写一个", "写个",
-  "新增", "添加", "删除", "去掉", "创建", "更新", "升级", "部署", "迁移",
-  "修复", "解决", "改成", "换成", "加上", "补上", "优化", "完善", "落地",
+  "fix",
+  "implement",
+  "refactor",
+  "deploy",
+  "migrate",
+  "modify",
+  "update",
+  "patch",
+  "rewrite",
+  "bump",
+  "install",
+  "uninstall",
+  "write",
+  "create",
+  "add",
+  "remove",
+  "delete",
+  // ZH (bare 改/删 are safe: longest-match-wins subsumes 修改/改动/删库 …)
+  "改",
+  "修改",
+  "改动",
+  "更改",
+  "重构",
+  "实现",
+  "编写",
+  "写",
+  "写一个",
+  "写个",
+  "新增",
+  "添加",
+  "删除",
+  "删",
+  "去掉",
+  "创建",
+  "更新",
+  "升级",
+  "部署",
+  "迁移",
+  "修复",
+  "解决",
+  "调整",
+  "改成",
+  "换成",
+  "加上",
+  "补上",
+  "优化",
+  "完善",
+  "落地",
 ];
 
 const READONLY_VERBS = [
   // EN
-  "analyze", "analyse", "review", "explain", "investigate", "evaluate",
-  "assess", "audit", "research", "compare", "summarize", "document",
+  "analyze",
+  "analyse",
+  "review",
+  "explain",
+  "investigate",
+  "evaluate",
+  "assess",
+  "audit",
+  "research",
+  "compare",
+  "summarize",
+  "document",
   // ZH
-  "分析", "审查", "评审", "解释", "解读", "调研", "研究", "评估", "对比",
-  "检查", "排查", "定位", "审阅", "梳理", "总结",
+  "分析",
+  "审查",
+  "评审",
+  "解释",
+  "解读",
+  "调研",
+  "研究",
+  "评估",
+  "对比",
+  "检查",
+  "排查",
+  "定位",
+  "审阅",
+  "梳理",
+  "总结",
 ];
 
 // Ambiguous verbs ("帮我看看这个") yield NO signal → intent becomes
 // "unclear". Deliberately not read-only: 看看 often precedes a fix request.
 const AMBIGUOUS_VERBS = [
-  "看看", "看下", "看一下", "瞧瞧", "试试", "试下",
-  "look at", "check out", "take a look",
+  "看看",
+  "看下",
+  "看一下",
+  "瞧瞧",
+  "试试",
+  "试下",
+  "look at",
+  "check out",
+  "take a look",
 ];
 
 const NEGATORS = [
-  "不要", "先别", "别", "不用", "无需", "不必", "不能", "不可以", "禁止",
-  "切勿", "不准", "don't", "do not", "cannot", "can't", "no need to",
+  // ZH
+  "不要",
+  "先别",
+  "别",
+  "不用",
+  "不需要",
+  "无须",
+  "无需",
+  "不必",
+  "不能",
+  "不可以",
+  "禁止",
+  "切勿",
+  "不准",
+  // EN (apostrophe and split forms both; "dont" for lazy typers)
+  "don't",
+  "dont",
+  "do not",
+  "cannot",
+  "can't",
+  "can not",
+  "should not",
+  "shouldn't",
+  "must not",
+  "mustn't",
+  "will not",
+  "won't",
+  "no need to",
+  "never",
   "avoid",
 ];
 
-// Chars allowed between a negator and its verb (只分析 / 先改 / 直接动手).
-const INTERSTITIAL_RE = /^[只先再直接马上立即顺便帮]{0,6}$/;
+// CJK chars allowed between a negator and its verb (只分析 / 先改 / 直接动手).
+const INTERSTITIAL_CJK_RE = /^[只先再直接马上立即顺便帮的]{0,6}$/;
 
-const CLAUSE_SPLIT_RE = /[，。；、！？!?,;\n\r]+|\s+(?:然后|接着|再|and then|but)\s+/i;
+// EN words allowed between a negator and its verb ("don't JUST fix").
+const INTERSTITIAL_EN_RE =
+  /^(?:just|only|directly|please|simply|then|now|go|and|to|it)(?:\s+(?:just|only|directly|please|simply|then|now|go|and|to|it))*$/i;
+
+const CLAUSE_SPLIT_RE =
+  /[，。；、！？!?,;\n\r]+|\s+(?:然后|接着|再|and then|but)\s+/i;
 
 function splitClauses(text) {
   return String(text ?? "")
     .split(CLAUSE_SPLIT_RE)
     .map((c) => c.trim())
     .filter(Boolean);
+}
+
+/**
+ * True when the gap between a negator and its verb consists only of
+ * interstitial words/particles (spaces tolerated since v0.16).
+ */
+function isInterstitial(gapRaw) {
+  const g = gapRaw.trim().replace(/[\s,、]+/g, (m) => (m.includes("\n") ? "\n" : " "));
+  const compact = g.replace(/\s+/g, "");
+  if (!compact) return true;
+  if (INTERSTITIAL_CJK_RE.test(compact)) return true;
+  return INTERSTITIAL_EN_RE.test(g);
 }
 
 /** True when a negator sits within the interstitial window before idx. */
@@ -73,26 +192,36 @@ function isNegated(clause, verbIdx) {
     const at = prefix.toLowerCase().lastIndexOf(neg);
     if (at === -1) continue;
     const gap = prefix.slice(at + neg.length);
-    if (gap.length <= 8 && INTERSTITIAL_RE.test(gap)) return true;
+    if (gap.length <= 16 && isInterstitial(gap)) return true;
   }
   return false;
 }
 
 // When a mutation verb is immediately followed by one of these,
-// it's a TOPIC MENTION / NARRATION ("迁移方案的风险", "README 里写了什么")
-// not an action request — per "Intent beats mention":
+// it's a TOPIC MENTION / NARRATION ("迁移方案的风险") not an action
+// request — per "Intent beats mention":
 //   分析一下迁移方案的风险 ≠ 帮我做迁移
-//   README 里写了什么       ≠ 帮我写
+// v0.16: narrowed to the VERIFIED bug family (方案/计划 compound nouns).
+// Object-nouns like 文档 ("更新文档" = update the docs) must stay LIVE —
+// the old list killed them and broke the intent frame.
 const NOUN_SUFFIXES = [
-  "方案", "计划", "文档", "记录", "说明", "报告", "清单", "列表",
-  "流程", "日志", "历史", "指南", "手册",
-  "plan", "report", "doc", "notes", "list", "guide",
+  "方案",
+  "计划",
+  "plan",
+  "report",
 ];
 
 function isTopicMention(lower, hit) {
   const after = lower.slice(hit.end, hit.end + 8);
-  // Completed-aspect marker: verb+了 / verb+过 narrates existing state.
-  if (after.startsWith("了") || after.startsWith("过")) return true;
+  // Completed/copicula markers: verb+了 / verb+过 / verb+的是 narrate
+  // existing state, they don't request it.
+  if (
+    after.startsWith("了") ||
+    after.startsWith("过") ||
+    after.startsWith("的是")
+  ) {
+    return true;
+  }
   return NOUN_SUFFIXES.some((s) => after.startsWith(s));
 }
 
@@ -127,14 +256,13 @@ function classifyClause(clause) {
  *
  * @returns {"read-only" | "mutate" | "unclear"}
  *
- * Examples (all verified in self-test):
+ * Examples (all verified in tests/regression-corpus.json):
  *   只分析，不要修改            → read-only
  *   不要只分析，直接修改代码     → mutate      (negation scoping fixed)
+ *   don't fix it, just analyze  → read-only   (v0.16 space-gap fix)
  *   帮我修复这个 bug           → mutate
  *   先分析问题，然后修改         → mutate      (later clause wins)
  *   帮我看看这个                → unclear     (ambiguous verb)
- *   批准，但是不要改数据库       → mutate*     (*see approval.js for the
- *                                            plan-response classifier)
  */
 export function extractExecutionIntent(prompt) {
   const clauses = splitClauses(prompt);
@@ -147,39 +275,136 @@ export function extractExecutionIntent(prompt) {
   return sawReadonly ? "read-only" : "unclear";
 }
 
+// ---------------------------------------------------------------------------
+// Intent frame (v0.16: multi-clause, imperative-first)
+// ---------------------------------------------------------------------------
+
+// Clauses carrying one of these read as an explicit REQUEST, not narration.
+const IMPERATIVE_MARKER_RE =
+  /(帮我|帮忙|请|麻烦|现在|需要|我要|我想|能不能|可不可以|给我|let's|please|now|need to|i want|i need|can you)/i;
+
+const FRAME_ACTIONS = [
+  {
+    id: "debug",
+    terms: [
+      "排查",
+      "定位",
+      "修复",
+      "修 bug",
+      "debug",
+      "fix",
+      "为什么",
+      "troubleshoot",
+    ],
+  },
+  {
+    id: "modify",
+    terms: [
+      "改",
+      "修改",
+      "改动",
+      "更改",
+      "更新",
+      "重构",
+      "调整",
+      "改成",
+      "换成",
+      "优化",
+      "完善",
+      "修复",
+      "modify",
+      "update",
+      "change",
+      "refactor",
+      "fix",
+      "patch",
+    ],
+  },
+  {
+    id: "create",
+    terms: [
+      "新建",
+      "创建",
+      "编写",
+      "写",
+      "写一个",
+      "写个",
+      "加一个",
+      "新增",
+      "添加",
+      "create",
+      "add",
+      "write",
+      "implement",
+    ],
+  },
+  { id: "review", terms: ["审查", "评审", "review", "reviewing"] },
+  {
+    id: "research",
+    terms: [
+      "调研",
+      "研究",
+      "分析",
+      "对比",
+      "compare",
+      "investigate",
+      "research",
+      "analyze",
+    ],
+  },
+  { id: "explain", terms: ["解释", "讲讲", "explain", "how does"] },
+];
+
 /**
- * Imperative-frame extraction (v1.0 P0-4 companion): what ACTION is the
- * user requesting, and about WHAT? Used by the classifier to weight
- * "user asks to do X" far above "prompt mentions X".
+ * Imperative-frame extraction: what ACTION is the user requesting, and
+ * about WHAT? Used by the classifier to weight "user asks to do X" far
+ * above "prompt mentions X" (Intent beats mention).
  *
- * Returns { action, targetHint } where action ∈
- *   "modify" | "create" | "debug" | "review" | "research" | "explain" | null
- * and targetHint is the ~10 chars right after the action verb (raw text,
- * for domain/task correlation), or null.
+ * v0.16: scans ALL clauses instead of just the first. Real prompts front-
+ * load background ("README 里以前写的是……，现在帮我把这段文档改准确") —
+ * the imperative frame lives later. Selection order:
+ *   1. clauses with an imperative marker (帮我/请/需要/please …)
+ *   2. among equals, the LAST one wins (corrections supersede earlier asks)
+ *   3. negated / topic-mention verbs never form a frame
  *
- * Only the FIRST clause is inspected: the imperative frame lives where the
- * request starts, not in background narration.
+ * @returns { action, targetHint, frameFound, frameClause }
+ *   action ∈ "modify" | "create" | "debug" | "review" | "research" |
+ *            "explain" | null
  */
 export function extractIntentFrame(prompt) {
   const clauses = splitClauses(prompt);
-  const first = clauses[0] ?? "";
-  const lower = first.toLowerCase();
+  const candidates = [];
 
-  const FRAME_ACTIONS = [
-    { id: "debug", terms: ["排查", "定位", "修 bug", "修这个 bug", "debug", "why does ... fail"] },
-    { id: "modify", terms: ["修改", "改动", "更改", "更新", "重构", "改成", "换成", "优化", "完善", "modify", "update", "change", "refactor", "fix"] },
-    { id: "create", terms: ["新建", "创建", "编写", "写一个", "加一个", "新增", "添加", "create", "add", "write", "implement"] },
-    { id: "review", terms: ["审查", "评审", "review"] },
-    { id: "research", terms: ["调研", "研究", "对比", "compare", "investigate", "research"] },
-    { id: "explain", terms: ["解释", "说明", "讲讲", "explain", "how does"] },
-  ];
+  clauses.forEach((clause, i) => {
+    const lower = clause.toLowerCase();
+    for (const { id, terms } of FRAME_ACTIONS) {
+      const hits = findTerms(lower, terms);
+      if (hits.length === 0) continue;
+      const hit = hits[0];
+      if (isNegated(clause, hit.idx)) continue;
+      if (isTopicMention(lower, hit)) continue;
+      candidates.push({
+        action: id,
+        targetHint: lower.slice(hit.end, hit.end + 20).trim() || null,
+        frameClause: lower,
+        clauseIdx: i,
+        imperative: IMPERATIVE_MARKER_RE.test(clause),
+      });
+      break; // first live action verb in this clause
+    }
+  });
 
-  for (const { id, terms } of FRAME_ACTIONS) {
-    const hits = findTerms(lower, terms);
-    if (hits.length === 0) continue;
-    const hit = hits[0];
-    const targetHint = lower.slice(hit.end, hit.end + 20).trim() || null;
-    return { action: id, targetHint, frameFound: true };
+  if (candidates.length === 0) {
+    return { action: null, targetHint: null, frameFound: false, frameClause: null };
   }
-  return { action: null, targetHint: null, frameFound: false };
+  const imperative = candidates.filter((c) => c.imperative);
+  const pick = imperative.length > 0
+    ? imperative[imperative.length - 1]
+    : candidates[candidates.length - 1];
+  return {
+    action: pick.action,
+    targetHint: pick.targetHint,
+    frameFound: true,
+    frameClause: pick.frameClause,
+  };
 }

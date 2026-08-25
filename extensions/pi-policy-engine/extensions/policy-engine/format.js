@@ -60,12 +60,12 @@ export function formatDecision(decision, phase) {
   return lines.join("\n");
 }
 
-export function formatStatusSummary({ config, phase, pendingApproval, model }) {
+export function formatStatusSummary({ config, phase, model }) {
   return [
     `mode: ${config.mode ?? "auto"}`,
     `profile: ${config.profile ?? "auto"}`,
     `phase: ${phase}`,
-    `pending approval: ${pendingApproval ? "yes" : "no"}`,
+    `awaiting approval: ${phase === "awaiting_approval" ? "yes" : "no"}`,
     `model: ${model}`,
   ].join("\n");
 }
@@ -181,7 +181,6 @@ export function formatConfig(config) {
   const lines = ["# Resolved policy-engine config", ""];
   lines.push("routing");
   lines.push(`  mode: ${config.mode ?? "auto"}`);
-  lines.push(`  profile: ${config.profile ?? "auto"}`);
   lines.push(`  profile: ${config.profile ?? "auto"}`);
   lines.push(`  showStatus: ${config.showStatus !== false}`);
   lines.push(`  domainHints: ${JSON.stringify(config.domainHints ?? [])}`);

@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  isApprovalPrompt,
-  isPlanRevisionPrompt,
-} from "../src/core/approval.js";
+import { classifyPlanResponse } from "../src/core/approval.js";
 import policyEngine from "../extensions/policy-engine/index.js";
 
 const handlers = new Map();
@@ -65,7 +62,12 @@ assert.match(strict.systemPrompt, /Workflow: strict/);
 assert.match(strict.systemPrompt, /Phase: planning/);
 assert.match(strict.systemPrompt, /PLAN-ONLY/);
 
-// Non-approval follow-up stays in planning (no downgrade).
+// The plan turn ends: planning -> awaiting_approval (real pi fires
+// agent_end here; the smoke must mirror that or the next prompt would be
+// treated as a brand-new task).
+await handlers.get("agent_end")({}, ctx);
+
+// Non-approval question about the plan: discuss — answer, stay awaiting.
 const planFollowUp = await handlers.get("before_agent_start")(
   {
     prompt: "为什么第二步要这样做？",
@@ -73,10 +75,10 @@ const planFollowUp = await handlers.get("before_agent_start")(
   },
   ctx,
 );
-assert.match(planFollowUp.systemPrompt, /Phase: planning/);
+assert.match(planFollowUp.systemPrompt, /Phase: awaiting_approval/);
 assert.match(
   planFollowUp.systemPrompt,
-  /do not execute until explicit approval/i,
+  /do not start implementation/i,
 );
 
 // Approval transitions to executing.
@@ -90,12 +92,15 @@ const approved = await handlers.get("before_agent_start")(
 assert.match(approved.systemPrompt, /Phase: executing/);
 assert.match(approved.systemPrompt, /plan has been approved/i);
 
-// Approval-phrase helpers behave as documented.
-assert.equal(isApprovalPrompt("开始执行，按这个计划做"), true);
-assert.equal(isApprovalPrompt("继续分析这个计划"), false);
-assert.equal(isApprovalPrompt("不批准，先改计划"), false);
-assert.equal(isPlanRevisionPrompt("修改计划，第二步不行"), true);
-assert.equal(isPlanRevisionPrompt("为什么这样设计？"), false);
+// Plan-response classifier: pure approval vs constraint-bearing revise.
+assert.equal(classifyPlanResponse("开始执行，按这个计划做"), "approve");
+assert.equal(
+  classifyPlanResponse("批准，但是不要改数据库"),
+  "revise",
+  "'批准，但是…' must never release execution",
+);
+assert.equal(classifyPlanResponse("为什么这么设计？"), "discuss");
+assert.equal(classifyPlanResponse("先别做了"), "cancel");
 
 await commands.get("policy").handler("why", ctx);
 assert.ok(notices.some((n) => String(n.message).includes("workflow: strict")));

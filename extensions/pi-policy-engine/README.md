@@ -456,7 +456,8 @@ pi-policy-engine/
 │   ├── defaults.json
 │   └── routing.json                 # 路由关键词（数据驱动）
 ├── examples/                        # 可试用的小例子
-└── scripts/                         # self-test + smoke-extension
+├── scripts/                         # smoke-extension（生命周期级冒烟）
+└── tests/                           # node:test 单测 + regression-corpus.json
 ```
 
 ### 事件流（一次 strict 任务的完整链路）

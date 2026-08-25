@@ -6,14 +6,24 @@
 // keyword matching is too coarse (e.g., "我们现在的 deploy 经常失败" doesn't
 // match any debug keyword but semantically is debugging).
 //
+// v0.16 CONSERVATIVE MERGE — the semantic model arbitrates AMBIGUITY, it
+// can never override deterministic hard evidence (principle #3):
+//   taskType         semantic may arbitrate (it only runs below threshold)
+//   domains          deterministic always kept; semantic may ADD extras,
+//                    enum-validated, capped at max(2, deterministic count)
+//   risk             max(deterministic, semantic) — can only go UP
+//   executionIntent  locked unless deterministic said "unclear"
+//   confidence       deterministic value kept — the model does not get to
+//                    self-report confidence; the engine keeps its own number
+//
 // Behavior contract:
 //   - disabled (default): never invoked, returns null. Zero behavior change.
 //   - enabled + confidence >= threshold: returns null. No call made.
 //   - enabled + confidence < threshold: invokes the configured endpoint,
-//     parses JSON response, merges with the deterministic classification
-//     (semantic wins on each field). On ANY error (timeout / network /
-//     parse / schema mismatch): returns null and lets the deterministic
-//     classification stand. We never block the agent loop on this.
+//     parses JSON response, conservative-merges with the deterministic
+//     classification. On ANY error (timeout / network / parse / schema
+//     mismatch): returns null and the deterministic classification stands.
+//     We never block the agent loop on this.
 //
 // Configuration:
 //   semanticFallback: {
@@ -28,6 +38,28 @@
 // Testing:
 //   Pass `fetcher` in opts to override the HTTP call (returns the raw Response-
 //   shaped object). Pass `now` to override Date.now for timeout logic.
+
+const DOMAIN_ENUM = [
+  "database",
+  "kubernetes",
+  "security",
+  "backend",
+  "frontend",
+  "documentation",
+];
+
+const TASK_ENUM = [
+  "documentation",
+  "debugging",
+  "review",
+  "research",
+  "architecture",
+  "coding",
+];
+
+const RISK_ENUM = ["low", "medium", "high"];
+const INTENT_ENUM = ["read-only", "mutate", "unclear"];
+const RISK_RANK = { low: 0, medium: 1, high: 2 };
 
 const SCHEMA_INSTRUCTIONS = `You are a task classifier for a coding agent.
 
@@ -48,7 +80,6 @@ export function buildSemanticPrompt(prompt, deterministic) {
       risk: deterministic.risk,
       domains: deterministic.domains,
       executionIntent: deterministic.executionIntent,
-      confidence: deterministic.confidence,
     },
   });
 }
@@ -65,42 +96,79 @@ export function buildSemanticRequestBody(model, userJsonPayload) {
   };
 }
 
+/**
+ * Schema-validate the parsed model response. Unknown enum values are fatal;
+ * domains are filtered to the known enum (an LLM hallucinating "made-up"
+ * domains must not reach the merge).
+ */
 function validateSemanticResponse(parsed) {
   if (!parsed || typeof parsed !== "object") return null;
-  const validTask = [
-    "documentation",
-    "debugging",
-    "review",
-    "research",
-    "architecture",
-    "coding",
-  ];
-  const validRisk = ["low", "medium", "high"];
-  if (!validTask.includes(parsed.taskType)) return null;
-  if (!validRisk.includes(parsed.risk)) return null;
+  if (!TASK_ENUM.includes(parsed.taskType)) return null;
+  if (!RISK_ENUM.includes(parsed.risk)) return null;
   if (!Array.isArray(parsed.domains)) return null;
-  for (const d of parsed.domains) {
-    if (typeof d !== "string") return null;
-  }
-  const validIntents = ["read-only", "mutate", "unclear"];
-  if (
+  const domains = [
+    ...new Set(parsed.domains.filter((d) => DOMAIN_ENUM.includes(d))),
+  ];
+  const executionIntent =
     parsed.executionIntent !== undefined &&
-    !validIntents.includes(parsed.executionIntent)
-  )
-    return null;
-  const result = {
-    taskType: parsed.taskType,
-    risk: parsed.risk,
-    domains: parsed.domains,
-    confidence:
-      typeof parsed.confidence === "number" ? parsed.confidence : 0.85,
+    INTENT_ENUM.includes(parsed.executionIntent)
+      ? parsed.executionIntent
+      : undefined;
+  return { taskType: parsed.taskType, risk: parsed.risk, domains, executionIntent };
+}
+
+/**
+ * Conservative merge: semantic resolves ambiguity, never hard evidence.
+ * See module header for the per-field rules.
+ */
+function conservativeMerge(deterministic, semantic) {
+  const reasons = [...(deterministic.reasons ?? [])];
+  const notes = [`semantic-fallback: taskType=${semantic.taskType} risk=${semantic.risk}`];
+
+  const merged = {
+    ...deterministic,
+    taskType: semantic.taskType,
   };
-  // Only override intent when the model actually asserted one; otherwise
-  // the spread-merge keeps the deterministic executionIntent untouched.
-  if (parsed.executionIntent !== undefined) {
-    result.executionIntent = parsed.executionIntent;
+  if (semantic.taskType !== deterministic.taskType) {
+    notes.push(`taskType arbitrated ${deterministic.taskType} → ${semantic.taskType}`);
   }
-  return result;
+
+  // Risk can only go UP.
+  const risk =
+    RISK_RANK[semantic.risk] > RISK_RANK[deterministic.risk]
+      ? semantic.risk
+      : deterministic.risk;
+  if (risk !== deterministic.risk) {
+    notes.push(`risk raised ${deterministic.risk} → ${risk} (never lowered)`);
+  }
+  merged.risk = risk;
+
+  // Domains: deterministic always kept; semantic adds enum-valid extras
+  // up to the cap. Never drops a deterministic domain.
+  const cap = Math.max(2, deterministic.domains?.length ?? 0);
+  const domains = [...new Set([...(deterministic.domains ?? []), ...semantic.domains])];
+  const capped = domains.slice(0, cap);
+  if (capped.length > (deterministic.domains?.length ?? 0)) {
+    notes.push(
+      `domains extended by semantic: ${capped
+        .filter((d) => !(deterministic.domains ?? []).includes(d))
+        .join(", ")}`,
+    );
+  }
+  merged.domains = capped;
+
+  // Intent is locked unless deterministic was unclear.
+  if (deterministic.executionIntent === "unclear" && semantic.executionIntent) {
+    merged.executionIntent = semantic.executionIntent;
+    notes.push(`executionIntent resolved unclear → ${semantic.executionIntent}`);
+  } else {
+    merged.executionIntent = deterministic.executionIntent;
+  }
+
+  // Confidence stays the engine's own (deterministic) number.
+  merged.confidence = deterministic.confidence;
+  merged.reasons = [...reasons, notes.join("; ")];
+  return merged;
 }
 
 /**
@@ -165,16 +233,7 @@ export async function maybeSemanticClassify(
     const validated = validateSemanticResponse(parsed);
     if (!validated) return null;
 
-    // Semantic result wins on each field; we preserve the deterministic
-    // `reasons` so /policy why remains auditable.
-    return {
-      ...classification,
-      ...validated,
-      reasons: [
-        ...(classification.reasons ?? []),
-        `semantic-fallback: taskType=${validated.taskType} risk=${validated.risk} confidence=${validated.confidence}`,
-      ],
-    };
+    return conservativeMerge(classification, validated);
   } catch {
     return null;
   } finally {

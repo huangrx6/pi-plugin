@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.12
+# Design — pi-policy-engine v0.16
 
 ## 1. Design goal
 
@@ -32,7 +32,7 @@ The extension intentionally does not own:
 
 ```text
 session_start
-    ├─ reset state (history, pendingApproval, etc.)
+    ├─ reset state (history, phase, etc.)
     └─ set footer status
     ↓
 user prompt
@@ -88,7 +88,13 @@ The opt-in **semantic fallback** is available for users who hit keyword-matching
 
 - Disabled by default. Any user who doesn't configure `semanticFallback.enabled: true` gets pure deterministic routing.
 - When enabled, only invokes a one-shot HTTP call to an OpenAI-compatible endpoint when deterministic `confidence < confidenceThreshold` (default 0.7).
-- The semantic result is **merged** on top of the deterministic classification (semantic wins per-field), and the merge is recorded in `decision.reasons` so `/policy why` shows it.
+- v0.16 **conservative merge** — the semantic model arbitrates ambiguity, it can never override deterministic hard evidence:
+  - `taskType`: semantic may arbitrate (it only runs below the confidence threshold).
+  - `risk`: `max(deterministic, semantic)` — can only go UP.
+  - `executionIntent`: locked unless deterministic said `unclear`.
+  - `domains`: deterministic always kept; semantic may ADD enum-validated extras up to the cap (an LLM hallucinating unknown domains is filtered before the merge).
+  - `confidence`: the engine keeps its own number; the model does not self-report confidence, and the deterministic hint sent to the model no longer includes it.
+- The merge is recorded in `decision.reasons` so `/policy why` shows exactly what was arbitrated.
 - **Failure isolation**: any error — timeout, network, HTTP non-2xx, JSON parse failure, schema mismatch, missing API key — returns `null` and the deterministic result stands. The agent loop never blocks on this.
 - API key is read from an **environment variable name** (`apiKeyEnvVar`), never persisted to config files.
 
@@ -101,26 +107,42 @@ Why opt-in rather than always-on:
 3. **Cost**: even cheap models cost money; we shouldn't incur it without consent.
 4. **Determinism contract**: deterministic routing is what users rely on for reproducibility. Making the fallback optional keeps that contract.
 
-## 5. Strict workflow state
+## 5. Strict workflow state machine
+
+`phase` is the single source of truth (the pre-0.15 `pendingApproval` boolean
+described the same state with a second field and allowed invalid combos).
 
 ```text
 idle
-  ↓ high-risk task
-planning + pendingApproval
-  ↓ explicit approval
+  ↓ strict task classified (mutate intent)
+planning                ← model produces the plan this turn
+  ↓ agent_end
+awaiting_approval
+  ├─ approve (pure) → executing
+  ├─ revise         → planning (plan updated; re-approval required)
+  ├─ discuss        → awaiting_approval (question answered)
+  ├─ cancel         → idle
+  └─ unknown        → awaiting_approval (+ explicit reminder injected)
 executing
   ↓ agent_end
 idle
 ```
 
-Any non-approval follow-up during `pendingApproval` remains in planning. This avoids accidental downgrade caused by a short prompt such as "why?" or "change step 2".
+Response routing lives in `src/core/approval.js::classifyPlanResponse` —
+five-way classification with one core principle: **only a pure approval
+releases execution**. Any constraint signal (但是/不过/只/先/不要改X/but/
+only/except) makes the response a REVISE regardless of approval flavor.
+Confirmed empirically before the fix: "批准，但是不要改数据库" used to
+release execution as an approval.
 
-Approval recognition lives in `src/core/approval.js` (`isApprovalPrompt` / `isPlanRevisionPrompt`) — a small phrase whitelist, deliberately conservative so ambiguous follow-ups don't accidentally release the gate.
+A "verifying" phase (post-execution verification pass) is planned but
+requires wave tracking that does not exist yet; executing currently
+returns to idle at agent_end.
 
 ## 6. No tool-call interception (v0.12)
 
 Early versions shipped a mechanical gate (`soft`/`hard` tool_call blocking
-during `pendingApproval`). That put this extension on the same layer as
+while `pendingApproval` was set). That put this extension on the same layer as
 permission extensions, creating overlap: when both were installed, both
 evaluated the same tool calls (OR-composition, first block short-circuits),
 and users had to reason about which one would win.
@@ -219,7 +241,7 @@ src/core/             # pure modules, no pi import dependency — testable in is
 ├── classifier.js     # rule-based task/risk/domain classification
 ├── router.js         # buildDecision (workflow + profile + model policy selection)
 ├── loader.js         # loadManifest / loadProfile / loadProjectPolicies / composePolicies / renderPolicyBlock
-├── approval.js       # isApprovalPrompt / isPlanRevisionPrompt (strict state machine)
+├── approval.js       # classifyPlanResponse (approve/revise/discuss/cancel/unknown)
 ├── config.js         # loadEffectiveConfig / mergeConfig
 ├── semantic.js       # maybeSemanticClassify (opt-in OpenAI-compatible fallback)
 └── history-store.js  # appendHistory / readHistory / clearHistory / resolveHistoryPath

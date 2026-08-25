@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.16.0
+
+Pure classification-correctness release (v1.0 P0 batch complete). No new
+features.
+
+- **Intent Frame wired into the classifier** (P0-3/P0-4, "Intent beats
+  mention"). `extractIntentFrame()` now scans ALL clauses (not just the
+  first), prefers imperative-marked ones (帮我/请/需要/please…), and the
+  last correction wins. Task scoring weights groups matched inside the
+  frame double, mention evidence half, plus a +2 frame anchor:
+  "README 里记录了之前架构拆分失败的原因，现在帮我把这段文档改准确"
+  now routes to documentation/low/mutate (was architecture/high — the
+  background 架构/拆分 mention outweighed the actual request).
+- **English / spaced negation fixed** (P0-1). The interstitial window
+  between negator and verb now tolerates spaces and English particles
+  (just/only/directly/please/simply), and the negator table gained
+  dont / can not / should not / must not / will not / won't / never /
+  不需要 / 无须. "don't fix it, just analyze" → read-only (was mutate).
+- **Signal groups in routing.json + classifier** (P0-5). Task rules and
+  domain rules now use alias groups via `matchSignalGroups`: word forms
+  (debug/debugging/debugged, error/errors) and translations (api/接口/
+  endpoint) are ONE signal; distinct groups are independent evidence.
+  Fixes the word-boundary word-form gap ("debugging issue in parser"
+  fell back to coding) and the api+接口 double-count that loaded the
+  backend policy from one concept. coding base score lowered 1 → 0.5 so
+  a single real task group beats the default honestly.
+- **Pure Approval grammar** (P0-6). classifyPlanResponse now strips a
+  whitelist of approval phrases and inspects the REMAINDER instead of
+  enumerating revise markers: empty/filler → approve, question → discuss,
+  anything left → revise. "批准，执行前先备份数据库" / "批准，别忘了
+  跑测试" are now revise (were approve); "批准，先执行吧" is approve
+  again (v0.15 SCOPE_LIMIT false positive — 先 here means "you may
+  start"); bare "继续" stays unknown (never releases).
+- **Semantic conservative merge** (P0-7). risk can only go UP
+  (max-rank), executionIntent locked unless deterministic=unclear,
+  domains enum-validated + capped with deterministic domains never
+  dropped, and the model no longer self-reports confidence (the engine
+  keeps its own number; the hint payload no longer includes it).
+- NOUN_SUFFIXES narrowed to the verified 方案/计划 family — object nouns
+  like 文档 ("更新文档" = update the docs) are live mutations, not topic
+  mentions.
+- Confidence dispersion curve tightened (×35 → ×50): a 6-vs-4 split now
+  reports ~0.73 instead of ~0.79.
+- **Test suite split** into `tests/*.test.js` (node:test, 101 cases)
+  plus `tests/regression-corpus.json` — every real misclassification
+  found in this extension is frozen as an expectation. New-bug workflow:
+  reproduce → fix → add a corpus entry. self-test.mjs retired.
+- history-store: parent directory auto-created (0o700) before first
+  append — the default ~/.pi path silently failed to persist when the
+  directory didn't exist; file created 0o600; fsync comment corrected.
+- `/policy off` description aligned with behavior (model adaptation is
+  also off); formatConfig duplicate `profile:` line removed; DESIGN
+  header version fixed.
+
+## 0.15.0
+
+- **classifyPlanResponse replaces isApprovalPrompt** (v1.0 P0-3). Five-way
+  plan-response classification: approve / revise / discuss / cancel /
+  unknown. Core principle: only a PURE approval releases execution —
+  "批准，但是不要改数据库" and "可以执行，不过只先做第一步" are now REVISE
+  (constraint-bearing responses previously released execution as approvals;
+  confirmed empirically before this fix).
+- State machine formalized (single source of truth = `phase`, the
+  pendingApproval boolean removed):
+  idle → planning → (agent_end) → awaiting_approval →
+    approve → executing → (agent_end) → idle
+    revise  → planning (re-approval required)
+    discuss → awaiting_approval
+    cancel / unknown → awaiting_approval / idle
+- awaiting_approval branch routes every follow-up through the classifier;
+  unknown responses now inject an explicit "still awaiting approval"
+  reminder instead of silently falling through to a fresh classification
+  (which previously let casual prompts like 继续 downgrade the workflow).
+- QUESTION detection widened (什么/哪些) so plan questions classify as
+  discuss rather than unknown.
+
 ## 0.14.0
 
 - **executionIntent replaces analysisOnly** (v1.0 P0-2). The old boolean

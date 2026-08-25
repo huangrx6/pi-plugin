@@ -9,15 +9,19 @@
 //   {"ts":1700000001000,"source":"preview","prompt":"...","task":"debugging",...}\n
 //
 // Operational notes:
-// - Writes are append + fsync. Append is atomic on POSIX for small writes
-//   (< PIPE_BUF); we don't expect to hit that limit per-entry.
+// - Writes are appends via fs.promises.appendFile (buffered, not fsync'd —
+//   a crash may lose the last entry, which is acceptable for routing
+//   history). Appends are atomic on POSIX for small writes (< PIPE_BUF).
+// - The parent directory is created (recursive, 0o700) and the file is
+//   created 0o600: history contains prompt excerpts, treat it as private.
 // - Reads scan from the end (tail-style) so a 5000-line file is cheap.
 // - Read failures (missing file, permission denied) are non-fatal: the
 //   in-memory history still works.
 // - Writes never throw to the caller; errors are swallowed so an append
 //   failure (disk full, permissions) doesn't break the agent loop.
 
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -40,14 +44,25 @@ export function defaultHistoryPath(cwd = process.cwd()) {
 
 /**
  * Append a single entry as a JSONL line. Best-effort: never throws.
+ * Creates the parent directory (0o700) and the file (0o600) if missing —
+ * without this, the default ~/.pi/... path silently failed to persist.
  *
- * Accepts optional `fs` override for testing (must implement appendFile).
+ * Accepts optional `fs` override for testing (must implement appendFile,
+ * mkdir, and optionally chmod).
  */
 export async function appendHistory(filePath, entry, fs = null) {
   if (!filePath || !entry) return { ok: false, reason: "missing args" };
   const lib = fs ?? (await import("node:fs/promises"));
   try {
-    await lib.appendFile(filePath, JSON.stringify(entry) + "\n", "utf8");
+    try {
+      await lib.mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+    } catch {
+      // mkdir failure falls through to appendFile, which reports it.
+    }
+    await lib.appendFile(filePath, JSON.stringify(entry) + "\n", {
+      encoding: "utf8",
+      mode: 0o600,
+    });
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: err?.message ?? String(err) };
