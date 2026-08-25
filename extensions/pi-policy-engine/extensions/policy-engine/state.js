@@ -2,8 +2,12 @@
 // Single instance per extension load; reset on session_start.
 
 import { classifyTask } from "../../src/core/classifier.js";
-import { loadEffectiveConfig, loadRoutingConfig } from "../../src/core/config.js";
+import {
+  loadEffectiveConfig,
+  loadRoutingConfig,
+} from "../../src/core/config.js";
 import { buildDecision } from "../../src/core/router.js";
+import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
 export function createState() {
   return {
@@ -38,12 +42,37 @@ export function buildEffectiveConfig({ packageRoot, cwd, state }) {
 /**
  * Pure classifier -> router glue. Loads the package routing config, calls
  * `classifyTask`, then `buildDecision` with the resolved mode + profile.
+ *
+ * Async because the optional `semanticFallback` may issue a one-shot HTTP
+ * call to a small LLM when the deterministic confidence is low (DESIGN §4).
+ * Any fallback failure is swallowed and the deterministic decision stands.
  */
-export function decide({ packageRoot, cwd, prompt, state, model, explicitMode = null }) {
+export async function decide({
+  packageRoot,
+  cwd,
+  prompt,
+  state,
+  model,
+  explicitMode = null,
+  fetcher,
+}) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
   const routing = loadRoutingConfig(packageRoot);
-  const classification = classifyTask(prompt, routing, config.domainHints ?? []);
+  let classification = classifyTask(
+    prompt,
+    routing,
+    config.domainHints ?? [],
+  );
   const mode = explicitMode ?? state.onceMode ?? config.mode ?? "auto";
+
+  // Optional semantic fallback (DESIGN §4). Disabled by default. Any
+  // failure (network / timeout / schema) returns null and we keep the
+  // deterministic result.
+  const merged = await maybeSemanticClassify(prompt, classification, config, {
+    fetcher,
+  });
+  if (merged) classification = merged;
+
   const decision = buildDecision({
     classification,
     mode,
@@ -51,5 +80,5 @@ export function decide({ packageRoot, cwd, prompt, state, model, explicitMode = 
     model,
     gate: config.gate ?? "soft",
   });
-  return { decision, config };
+  return { decision, config, classification };
 }

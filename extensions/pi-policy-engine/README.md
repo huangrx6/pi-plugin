@@ -158,6 +158,34 @@ my-project/
 
 不写 `projectPolicies` 就自动扫 `.pi/policies/**/*.md`（上限默认 12 文件 / 24 KB）。
 
+### 可选：语义兜底（semanticFallback）
+
+V0.x 确定性分类器在隐晦提示下可能不准。可选启用一个 OpenAI 兼容的语义重分类器作为兜底：
+
+- **默认关闭**——需要联网 + API key，按需启用
+- 仅在确定性结果 `confidence < confidenceThreshold`（默认 0.7）时调用
+- 任意失败（超时 / 网络 / 响应 schema 不匹配）→ 静默回退到确定性结果，**不会阻塞 agent**
+- 启用后在 `decision.reasons` 里看到 `semantic-fallback: ...`，可以通过 `/policy why` 验证它是否生效
+
+配置示例（`~/.pi/agent/policy-engine.json` 或项目级）：
+
+```json
+{
+  "semanticFallback": {
+    "enabled": true,
+    "endpoint": "https://api.openai.com/v1/chat/completions",
+    "model": "gpt-4o-mini",
+    "apiKeyEnvVar": "OPENAI_API_KEY",
+    "confidenceThreshold": 0.7,
+    "timeoutMs": 4000
+  }
+}
+```
+
+API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件里。换 provider 时改 `endpoint` + `model` + `apiKeyEnvVar` 即可——不限于 OpenAI，DeepSeek / GLM / 自部署 vLLM 都可。
+
+> 提示：这个功能主要是为了解决”关键词匹配不出但语义明确“的任务场景。绝大多数 prompt 确定性分类已经足够，不建议一开始就打开。
+
 ### 完整命令表
 
 | 命令 | 作用 |
@@ -174,7 +202,7 @@ my-project/
 
 ### 已知限制
 
-- V0.x classifier 是规则式不是语义模型，复杂隐晦任务路由可能不完美 → 用 `/policy once ...` 覆盖
+- V0.x classifier 默认是规则式不是语义模型；可选启用 `semanticFallback`（OpenAI 兼容 HTTP 调用）在确定性置信度低时调小模型重分类。默认关闭，任何失败回退到确定性结果。需要 API key + 网络，不适合离线场景。
 - shell mutation guard 用正则不是完整 shell AST，`hard` 模式应先在工作流测试
 - runtime `/policy` override 只在当前 Pi 进程；持久化请写 global/project `policy-engine.json`
 - strict approval 依赖明确批准语句（白名单）；刻意设计，避免模糊语句意外放开修改门禁

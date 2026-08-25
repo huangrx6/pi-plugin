@@ -18,6 +18,11 @@ import {
   splitShellSegments,
 } from "../src/core/guard.js";
 import { mergeConfig } from "../src/core/config.js";
+import {
+  buildSemanticPrompt,
+  buildSemanticRequestBody,
+  maybeSemanticClassify,
+} from "../src/core/semantic.js";
 import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -321,6 +326,219 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.equal(r.block, true);
   assert.match(r.reason, /file: rm/);
   assert.match(r.reason, /rm -rf \/tmp/);
+}
+
+// Semantic fallback: pure helpers.
+{
+  const body = buildSemanticRequestBody(
+    "gpt-4o-mini",
+    '{"prompt":"x","deterministic":{"taskType":"coding"}}',
+  );
+  assert.equal(body.model, "gpt-4o-mini");
+  assert.equal(body.messages.length, 2);
+  assert.equal(body.messages[0].role, "system");
+  assert.match(body.messages[1].content, /deterministic/);
+  const userPayload = buildSemanticPrompt("hi", {
+    taskType: "coding",
+    risk: "low",
+    domains: [],
+    analysisOnly: false,
+    confidence: 0.6,
+    reasons: [],
+  });
+  let parsed;
+  try {
+    parsed = JSON.parse(userPayload);
+  } catch (error) {
+    throw new Error(`buildSemanticPrompt produced invalid JSON: ${error.message}`);
+  }
+  assert.equal(parsed.prompt, "hi");
+  assert.equal(parsed.deterministic.taskType, "coding");
+}
+
+// Semantic fallback: disabled by default — never makes a network call.
+{
+  const calls = [];
+  const fetcher = (url) => {
+    calls.push(url);
+    return Promise.resolve({ ok: true, json: () => ({}) });
+  };
+  const result = await maybeSemanticClassify(
+    "修个 typo",
+    { taskType: "documentation", risk: "low", domains: [], analysisOnly: false, confidence: 0.5 },
+    { semanticFallback: { enabled: false } },
+    { fetcher },
+  );
+  assert.equal(result, null);
+  assert.equal(calls.length, 0);
+}
+
+// Semantic fallback: enabled but confidence is high — not invoked.
+{
+  const calls = [];
+  const fetcher = () => {
+    calls.push(1);
+    return Promise.resolve({ ok: true });
+  };
+  const result = await maybeSemanticClassify(
+    "fix a bug",
+    { taskType: "debugging", risk: "low", domains: [], analysisOnly: false, confidence: 0.95 },
+    { semanticFallback: { enabled: true, endpoint: "https://x", model: "m", apiKeyEnvVar: "K" } },
+    { fetcher },
+  );
+  assert.equal(result, null);
+  assert.equal(calls.length, 0);
+}
+
+// Semantic fallback: low confidence + enabled + stub fetcher — parses response.
+{
+  process.env.PI_POLICY_TEST_KEY = "sk-test";
+  let lastBody;
+  const fetcher = async (_url, init) => {
+    try {
+      lastBody = JSON.parse(init.body);
+    } catch (error) {
+      throw new Error(`fetcher received invalid JSON body: ${error.message}`);
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                taskType: "architecture",
+                risk: "high",
+                domains: ["database", "kubernetes"],
+                analysisOnly: false,
+                confidence: 0.9,
+              }),
+            },
+          },
+        ],
+      }),
+    };
+  };
+  const merged = await maybeSemanticClassify(
+    "我们线上 deploy 经常回滚，schema 也跟不上",
+    {
+      taskType: "coding",
+      risk: "medium",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.5,
+      reasons: ["task:coding matched ..."],
+    },
+    {
+      semanticFallback: {
+        enabled: true,
+        endpoint: "https://example.test/v1/chat/completions",
+        model: "test-model",
+        apiKeyEnvVar: "PI_POLICY_TEST_KEY",
+        confidenceThreshold: 0.7,
+      },
+    },
+    { fetcher },
+  );
+  assert.ok(merged);
+  assert.equal(merged.taskType, "architecture");
+  assert.equal(merged.risk, "high");
+  assert.deepEqual(merged.domains, ["database", "kubernetes"]);
+  assert.equal(merged.analysisOnly, false);
+  assert.equal(merged.confidence, 0.9);
+  assert.ok(merged.reasons.some((r) => r.startsWith("semantic-fallback:")));
+  assert.equal(lastBody.model, "test-model");
+  assert.equal(lastBody.temperature, 0);
+  assert.equal(lastBody.response_format.type, "json_object");
+  delete process.env.PI_POLICY_TEST_KEY;
+}
+
+// Semantic fallback: fetcher throws — returns null (deterministic stands).
+{
+  process.env.PI_POLICY_TEST_KEY = "sk-test";
+  const fetcher = async () => {
+    throw new Error("network down");
+  };
+  const merged = await maybeSemanticClassify(
+    "x",
+    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      semanticFallback: {
+        enabled: true,
+        endpoint: "https://example.test",
+        model: "m",
+        apiKeyEnvVar: "PI_POLICY_TEST_KEY",
+      },
+    },
+    { fetcher },
+  );
+  assert.equal(merged, null);
+  delete process.env.PI_POLICY_TEST_KEY;
+}
+
+// Semantic fallback: missing API key — returns null.
+{
+  delete process.env.PI_POLICY_TEST_KEY;
+  const merged = await maybeSemanticClassify(
+    "x",
+    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      semanticFallback: {
+        enabled: true,
+        endpoint: "https://example.test",
+        model: "m",
+        apiKeyEnvVar: "PI_POLICY_TEST_KEY",
+      },
+    },
+  );
+  assert.equal(merged, null);
+}
+
+// Semantic fallback: response not ok — returns null.
+{
+  process.env.PI_POLICY_TEST_KEY = "sk-test";
+  const fetcher = async () => ({ ok: false, status: 401, json: async () => ({}) });
+  const merged = await maybeSemanticClassify(
+    "x",
+    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      semanticFallback: {
+        enabled: true,
+        endpoint: "https://example.test",
+        model: "m",
+        apiKeyEnvVar: "PI_POLICY_TEST_KEY",
+      },
+    },
+    { fetcher },
+  );
+  assert.equal(merged, null);
+  delete process.env.PI_POLICY_TEST_KEY;
+}
+
+// Semantic fallback: response schema invalid — returns null.
+{
+  process.env.PI_POLICY_TEST_KEY = "sk-test";
+  const fetcher = async () => ({
+    ok: true,
+    json: async () => ({
+      choices: [{ message: { content: JSON.stringify({ taskType: "wrong" }) } }],
+    }),
+  });
+  const merged = await maybeSemanticClassify(
+    "x",
+    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      semanticFallback: {
+        enabled: true,
+        endpoint: "https://example.test",
+        model: "m",
+        apiKeyEnvVar: "PI_POLICY_TEST_KEY",
+      },
+    },
+    { fetcher },
+  );
+  assert.equal(merged, null);
+  delete process.env.PI_POLICY_TEST_KEY;
 }
 
 process.stdout.write("self-test: OK\n");

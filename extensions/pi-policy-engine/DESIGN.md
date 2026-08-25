@@ -72,11 +72,28 @@ semantic units). Dropped ids surface via `/policy why` and `decision.truncatedPo
 
 Priority order (high → low): core > profile behaviors > workflow > domain > model > project.
 
-## 4. Why deterministic routing first
+## 4. Classification: deterministic first, semantic as opt-in fallback
 
-The main failure mode being addressed is unreliable execution discipline. Allowing the same model to decide which constraints it should receive creates a circular dependency.
+The main failure mode being addressed is unreliable execution discipline. Allowing the same model to decide which constraints it should receive creates a circular dependency, so the routing decision itself is **always** deterministic.
 
-V0.2 still uses transparent deterministic classification. A future semantic classifier can be added as a fallback for low-confidence cases without changing the contract.
+V0.3 keeps deterministic classification as the only contract. An opt-in **semantic fallback** is available for users who hit keyword-matching blind spots:
+
+- Disabled by default. Any user who doesn't configure `semanticFallback.enabled: true` gets pure deterministic routing, identical to v0.2.
+- When enabled, only invokes a one-shot HTTP call to an OpenAI-compatible endpoint when deterministic `confidence < confidenceThreshold` (default 0.7).
+- The semantic result is **merged** on top of the deterministic classification (semantic wins per-field), and the merge is recorded in `decision.reasons` so `/policy why` shows it.
+- **Failure isolation**: any error — timeout, network, HTTP non-2xx, JSON parse failure, schema mismatch, missing API key — returns `null` and the deterministic result stands. The agent loop never blocks on this.
+- API key is read from an **environment variable name** (`apiKeyEnvVar`), never persisted to config files.
+
+The implementation lives in `src/core/semantic.js` (`maybeSemanticClassify`) and is wired into `state.js::decide()` (made `async` for this purpose). `lifecycle.js::before_agent_start` already runs in an `async` context, so the extra `await` is invisible.
+
+Why opt-in rather than always-on:
+
+1. **Privacy / offline**: many users run pi against private codebases and won't accept an extra outbound call by default.
+2. **Latency**: even a 4 s timeout is a long time to wait for a routing decision that usually takes <1 ms.
+3. **Cost**: even cheap models cost money; we shouldn't incur it without consent.
+4. **Determinism contract**: deterministic routing is what users rely on for reproducibility (`/policy why` is a deterministic function of the prompt). Making the fallback optional keeps that contract.
+
+
 
 ## 5. Strict workflow state
 

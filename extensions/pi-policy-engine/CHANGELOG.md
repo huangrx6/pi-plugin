@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+- **Structural shell parsing**: `splitShellSegments` splits a command at
+  `&&`, `||`, `;`, `|` boundaries respecting quotes and `$(...)`. Patterns
+  are now segment-anchored. Fixes false positives like `echo "rm -rf /"`
+  and false negatives like `kubectl apply -f x && sleep 5`. `$(...)`
+  contents are shallow-extracted and re-matched, so `echo $(rm /tmp)` is
+  still flagged as a deletion.
+- **Semantic fallback (opt-in)**: `semanticFallback` config block enables
+  an OpenAI-compatible HTTP call when deterministic confidence is below
+  threshold. Disabled by default; any failure silently falls back to
+  deterministic. API key read from env var name, never stored in config.
+  `decide()` is now `async`.
+- Block reason now includes the offending segment (truncated to 120 chars)
+  so the model can self-correct.
+
 ## 0.2.0
 
 - README rewritten as quickstart-first; DESIGN moves to dedicated doc.

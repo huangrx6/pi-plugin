@@ -5,7 +5,16 @@
   "showStatus": true,
   "projectPolicyMaxFiles": 12,
   "projectPolicyMaxBytes": 24000,
+  "policyMaxBytes": 24000,
   "includePolicies": [],
   "excludePolicies": [],
-  "domainHints": []
+  "domainHints": [],
+  "semanticFallback": {
+    "enabled": false,
+    "endpoint": "https://api.openai.com/v1/chat/completions",
+    "model": "gpt-4o-mini",
+    "apiKeyEnvVar": "OPENAI_API_KEY",
+    "confidenceThreshold": 0.7,
+    "timeoutMs": 4000
+  }
 }
