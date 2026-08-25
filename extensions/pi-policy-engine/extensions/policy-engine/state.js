@@ -103,7 +103,9 @@ export async function decide({
 }) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
   const routing = loadRoutingConfig(packageRoot);
-  let classification = classifyTask(prompt, routing, config.domainHints ?? []);
+  let classification = classifyTask(prompt, routing, config.domainHints ?? [], {
+    maxDomains: config.maxDomains,
+  });
   const mode = explicitMode ?? state.onceMode ?? config.mode ?? "auto";
 
   // Optional semantic fallback (DESIGN §4). Disabled by default. Any

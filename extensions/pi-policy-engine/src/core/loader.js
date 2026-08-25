@@ -116,8 +116,16 @@ export function composePolicies({
     "core.verification",
     ...(profile.policies ?? []),
   ];
-  if (decision.workflow === "quick") ordered.push("workflow.quick");
-  if (decision.workflow === "standard") ordered.push("workflow.standard");
+  // If the profile already carries a workflow.* policy (e.g. debugging →
+  // debug-first, review → review-first), skip the generic workflow policy
+  // for this decision — injecting both was pure context noise (v0.13).
+  const profileHasWorkflow = (profile.policies ?? []).some((id) =>
+    id.startsWith("workflow."),
+  );
+  if (!profileHasWorkflow) {
+    if (decision.workflow === "quick") ordered.push("workflow.quick");
+    if (decision.workflow === "standard") ordered.push("workflow.standard");
+  }
   if (decision.workflow === "strict") {
     ordered.push("behavior.tool-discipline");
     ordered.push(

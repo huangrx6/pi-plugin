@@ -116,6 +116,26 @@ Policy Router
 
 为什么用规则不用 LLM？**让模型自己决定该给自己什么约束是循环依赖**。规则路由快、可解释、不会因为模型分心而漏判。
 
+### Domain 降噪（v0.13）
+
+早期版本"关键词命中就全收"：一个 `组件` 就加载整个 frontend policy，一个 `权限` 就加载 security——模型还没开始干活，先被塞了 13 条规则。**本扩展为了减少上下文噪声而存在，自己不能制造噪声**。
+
+现在的规则：
+
+- 领域关键词分 **strong / weak** 两档（`config/routing.json`）：
+  - strong（`postgres`、`react`、`jwt`、`kubectl` …）：命中即加载该领域
+  - weak（`组件`、`api`、`权限`、`sql` …）：单独出现**不触发**；同领域凑满 2 个弱信号，或搭配一个框架词（`React` + `组件`）才触发
+- 触发的领域按得分排序，最多加载 `maxDomains` 个（默认 2），其余在 reasons 里写明裁剪原因
+- confidence 计入候选分散度：多个 task type 打平时置信度主动下调（最高 -0.35），碾压级胜出不受影响——不再出现"三个候选打平还给 0.95"的虚假数字
+
+每个裁剪/降权决定都写进 `/policy why` 的 reasons，可审计：
+
+```text
+domain:backend dropped (weak-only: 接口 (score 0.5 < 1, needs a frame term or a second signal))
+domain:security dropped (capped at 2; weaker than database, frontend)
+confidence penalized: candidates dispersed (top=6, runner-up=6, dominance=0.00)
+```
+
 ### Strict 审批（纯任务行为层）
 
 strict 的 plan 批准**不是工具拦截**，而是注入给模型的明确指令：
@@ -231,6 +251,7 @@ policies
   projectPolicyMaxFiles: 12
   projectPolicyMaxBytes: 24000
   policyMaxBytes: 24000
+  maxDomains: 2
   includePolicies: ["behavior.execution-discipline"]
   excludePolicies: []
 

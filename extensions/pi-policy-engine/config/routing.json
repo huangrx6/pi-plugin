@@ -17,21 +17,51 @@
     ]
   },
   "domainRules": {
-    "database": [
-      "database", "postgres", "postgresql", "mysql", "oracle", "sql", "schema", "migration", "transaction", "index", "数据库", "数据表", "表结构", "索引", "事务", "迁移"
-    ],
-    "kubernetes": [
-      "kubernetes", "k8s", "helm", "deployment", "statefulset", "daemonset", "pod", "ingress", "configmap", "secret", "hostpath", "volumemount", "volume", "kubectl", "容器编排", "挂载"
-    ],
-    "security": [
-      "security", "auth", "authentication", "authorization", "oauth", "jwt", "permission", "credential", "secret", "password", "安全", "认证", "鉴权", "授权", "权限", "密钥", "密码"
-    ],
-    "backend": [
-      "spring", "java", "controller", "service", "repository", "api", "backend", "microservice", "后端", "接口", "服务层"
-    ],
-    "frontend": [
-      "react", "vue", "angular", "frontend", "css", "dom", "browser", "前端", "页面", "组件", "样式"
-    ]
+    "database": {
+      "strong": [
+        "postgres", "postgresql", "oracle", "schema", "transaction", "事务",
+        "表结构", "迁移方案", "数据迁移", "分库分表"
+      ],
+      "weak": [
+        "sql", "数据库", "索引", "index", "migration", "迁移", "回滚", "rollback", "主从"
+      ]
+    },
+    "kubernetes": {
+      "strong": [
+        "kubernetes", "k8s", "helm", "kubectl", "deployment", "statefulset",
+        "daemonset", "ingress", "configmap", "容器编排"
+      ],
+      "weak": [
+        "pod", "volume", "hostpath", "挂载", "volumemount", "滚动更新"
+      ]
+    },
+    "security": {
+      "strong": [
+        "oauth", "jwt", "鉴权", "认证体系", "credential", "密钥轮换",
+        "secret rotation", "权限模型", "oauth2", "sso"
+      ],
+      "weak": [
+        "auth", "authentication", "authorization", "安全", "权限", "密钥",
+        "password", "permission", "secret", "认证", "授权", "加密"
+      ]
+    },
+    "backend": {
+      "strong": [
+        "spring", "controller", "rest api", "restful", "微服务", "microservice",
+        "spring mvc", "后端服务", "grpc"
+      ],
+      "weak": [
+        "java", "api", "接口", "service", "服务层", "backend", "后端", "rpc", "中间件"
+      ]
+    },
+    "frontend": {
+      "strong": [
+        "react", "vue", "angular", "jsx", "tsx", "next.js", "前端页面", "组件库"
+      ],
+      "weak": [
+        "css", "dom", "browser", "浏览器", "前端", "页面", "组件", "样式", "frontend", "布局"
+      ]
+    }
   },
   "highRisk": [
     "production", "prod", "线上", "生产", "breaking change", "破坏性变更", "drop table", "drop database", "删库", "schema migration", "数据库迁移", "数据迁移", "权限模型", "认证体系", "支付", "payment", "资金", "credential", "secret rotation", "密钥轮换"

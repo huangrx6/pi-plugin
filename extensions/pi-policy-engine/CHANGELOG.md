@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.13.0
+
+- **Classifier noise reduction** (宁可不加载，不要加载错):
+  - Domain keywords split into `strong` / `weak` tiers in routing.json.
+    Strong hits (postgres, react, jwt, kubectl …) trigger a domain
+    immediately; weak hits (组件, api, 权限, sql …) need co-occurrence —
+    2+ distinct weak terms in the same domain, or a strong frame term.
+    A bare "组件" no longer drags in the whole frontend policy.
+  - Domains are ranked by score and capped at `maxDomains` (default 2).
+    Dropped domains are logged in reasons with the exact cause:
+    weak-only / capped-at-N.
+  - Confidence now accounts for candidate dispersion: dominance =
+    (top − runner-up) / top; near-ties pay up to 0.35 penalty, runaway
+    winners pay ~nothing. A 7/6/6 task split now reports ~0.60 instead of
+    the old dishonest 0.95.
+  - Legacy array-form domainRules keep the old any-match-triggers behavior
+    for user-authored configs (backward compatible).
+  - profiles that already carry a workflow.* policy no longer get the
+    generic workflow.standard injected alongside it (debugging profile was
+    loading debug-first AND standard simultaneously).
+- New config: `maxDomains` (default 2).
+- `/policy why` reasons now explain every domain drop and every confidence
+  adjustment.
+
 ## 0.12.0
 
 - **Removed the tool-call gate entirely**. The extension is now purely

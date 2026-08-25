@@ -91,6 +91,47 @@ function c(prompt) {
   assert.equal(chooseWorkflow(x, "auto"), "standard");
 }
 
+// v0.13 noise reduction: weak keywords need co-occurrence; strong hits fire alone.
+{
+  // Single weak term (组件) must NOT drag in frontend policy.
+  const one = c("帮我看看这个业务组件的实现逻辑");
+  assert.ok(!one.domains.includes("frontend"), `weak-only should not trigger: ${one.domains}`);
+  assert.ok(one.reasons.some((r) => r.includes("domain:frontend dropped (weak-only")));
+
+  // Two weak terms in the same domain = enough signal.
+  const two = c("数据库和索引优化一下");
+  assert.ok(two.domains.includes("database"), `2 weak should trigger: ${two.domains}`);
+
+  // A single strong term fires immediately.
+  const strong = c("postgres 的连接池怎么配");
+  assert.ok(strong.domains.includes("database"));
+}
+
+// v0.13: domain count is capped (default 2), ranked by score.
+{
+  // Hits database + kubernetes + security strongly, plus backend weak×2.
+  const x = c("postgres schema 迁移，k8s deployment 调整，还要加 jwt 鉴权，涉及后端接口和微服务");
+  assert.ok(x.domains.length <= 2, `capped: ${x.domains}`);
+  assert.ok(x.domains.includes("database")); // strongest (multiple strong hits)
+  assert.ok(x.reasons.some((r) => r.includes("dropped (capped at 2")));
+}
+
+// v0.13: confidence reflects candidate dispersion.
+{
+  // Near-tie across task types → honest low confidence.
+  const tie = c(
+    "文档 docs markdown 里有个错误要定位，顺便架构拆分一下",
+  );
+  assert.ok(tie.confidence <= 0.75, `dispersed should be penalized: ${tie.confidence}`);
+  assert.ok(tie.reasons.some((r) => r.startsWith("confidence penalized")));
+
+  // Clear winner → stays high.
+  const clear = c("修复这个 bug：接口报错 exception，定位到失败原因");
+  assert.ok(clear.taskType === "debugging");
+  assert.ok(clear.confidence >= 0.8, `clear winner should stay high: ${clear.confidence}`);
+  assert.ok(!clear.reasons.some((r) => r.startsWith("confidence penalized")));
+}
+
 assert.equal(
   modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M3" }),
   "model.minimax-m3",
