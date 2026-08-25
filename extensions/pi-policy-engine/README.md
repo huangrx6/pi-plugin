@@ -1,8 +1,51 @@
-# pi-policy-engine
+<!-- markdownlint-disable MD013 MD033 MD036 MD041 -->
+<div align="center">
 
-给 Pi Coding Agent 加一个**任务流程策略层**：在 prompt 进来时自动根据任务类型、风险、领域、模型选一套工作流（quick / standard / strict），把执行纪律约束注入 system prompt；strict 流程下，模型被指示先出 plan、停下等你批准、再分 wave 执行。
+# 🛠️ pi-policy-engine
 
-**职责边界**：本扩展只作用于**模型行为层**（system prompt 注入 + 流程状态机），不拦截任何工具调用。某个工具调用是否被允许、是否需要人工确认，不是本扩展的事——那是权限类扩展（如果有）的职责。因此本扩展与任何权限扩展相互独立、互不感知，装上就能用，不要求也不假设别的东西存在。
+**任务流程铁律层 — 注入"严格流程"指令到 system prompt，模型自己遵守、自己停下问**
+
+</div>
+
+---
+
+## 它做什么
+
+在 prompt 进来时，根据任务类型/风险/领域/模型自动选一套工作流（quick / standard / strict），把**任务铁律**注入 system prompt。strict 流程下，模型得到的指令明确写："this turn is PLAN-ONLY… stop after the plan and ask for approval"。**模型自己读、自己遵守、自己停下问用户**——和 skill 里写"这里必须让用户确认"是一回事。
+
+**职责边界**：本扩展只作用于**任务行为层**（system prompt 注入 + 流程状态机）。任何工具调用是否被允许、是否需要人工弹框——不是本扩展的事，是权限类扩展的职责。两者完全独立、互不感知，**装上就用，不要求也不假设别的东西存在**。
+
+## 一个完整例子
+
+你发了一条 prompt：
+
+```text
+设计生产环境 PostgreSQL schema 迁移方案并实施
+```
+
+**1. Classifier（确定性规则，无 LLM 调用）判定** risk=high → workflow=strict。
+
+**2. `before_agent_start` 把这段话注入 system prompt**（节选）：
+
+```text
+# Active Policy Runtime
+Workflow: strict
+Phase: planning
+
+## Policy: workflow.strict-plan
+This turn is PLAN-ONLY. Do not mutate files, configuration, infrastructure,
+or external state. Produce a concise but explicit Task Contract and
+Constraint Ledger. ... Stop after the plan and ask for approval. Do not
+start implementation in the same turn.
+```
+
+**3. 模型看到指令 → 输出 Task Contract + Constraint Ledger + plan，然后停下**。它**不会**发任何 tool_call（因为指令明确写"Do not mutate"）。
+
+**4. 你回** "开始执行，按这个计划做"。`before_agent_start` 检测到是批准语句，状态从 planning 切到 executing，注入 `strict-execute` policy，模型分 wave 执行。
+
+如果中途你回 "为什么第二步要这样做？"——非批准追问，状态保持 planning，追加 "do not execute until explicit approval" 提示，**不会意外降级**。
+
+> 注意：本扩展**不监听 `tool_call`**。如果模型不遵守 PLAN-ONLY 指令自己改文件，本扩展不会拦它——那是权限层的事。这个分工是刻意的。
 
 ## 快速开始
 
@@ -52,8 +95,8 @@ pi install git:github.com/huangrx6/pi-plugin/extensions/pi-policy-engine
 ### 看到效果
 
 - footer 状态行多一栏：`policy:strict/planning` 或 `policy:standard/executing` 等
-- strict 下模型先出 plan，**停下来等你回「执行」/「批准」/「开始执行」才动手**——这是模型行为，就像 skill 里写着"这里需要用户确认"一样，模型自己停下
-- 如果你用某个权限扩展（如按需人工确认的），它独立工作，本扩展不干预它的任何决定
+- strict 下模型先出 plan，**自己停下等你回「执行」/「批准」/「开始执行」才动手**——这是任务行为，不是工具拦截
+- 工具权限层（如果你用的话）独立工作，本扩展不干预它的任何决定
 
 ## 行为细节
 
@@ -73,7 +116,7 @@ Policy Router
 
 为什么用规则不用 LLM？**让模型自己决定该给自己什么约束是循环依赖**。规则路由快、可解释、不会因为模型分心而漏判。
 
-### Strict 审批（模型行为层）
+### Strict 审批（纯任务行为层）
 
 strict 的 plan 批准**不是工具拦截**，而是注入给模型的明确指令：
 
@@ -83,6 +126,15 @@ strict 的 plan 批准**不是工具拦截**，而是注入给模型的明确指
 - 批准前你的非批准追问（「为什么第二步要这样做？」）→ 状态机保持 planning，追加 "do not execute until explicit approval"，**不会意外降级**
 
 注意：这是**软约束**——它依赖模型遵守指令。如果模型在 PLAN-ONLY 阶段仍然发起了写工具调用，本扩展不会拦它；是否拦截取决于你运行的其他权限工具。这是刻意设计：流程纪律归本扩展，工具权限归权限扩展，两者不重叠。
+
+#### 确认短语白名单
+
+```text
+「执行」/「开始执行」/「批准」/「通过」/「可以执行」/「继续执行」
+「approve」/「approved」/「proceed」/「go ahead」/「do it」
+```
+
+模糊用语（"差不多就改吧"、"好像可以"）**不会**触发批准切换——避免误操作。
 
 ### 调试命令
 
