@@ -114,7 +114,12 @@ function validateSemanticResponse(parsed) {
     INTENT_ENUM.includes(parsed.executionIntent)
       ? parsed.executionIntent
       : undefined;
-  return { taskType: parsed.taskType, risk: parsed.risk, domains, executionIntent };
+  return {
+    taskType: parsed.taskType,
+    risk: parsed.risk,
+    domains,
+    executionIntent,
+  };
 }
 
 /**
@@ -123,14 +128,18 @@ function validateSemanticResponse(parsed) {
  */
 function conservativeMerge(deterministic, semantic) {
   const reasons = [...(deterministic.reasons ?? [])];
-  const notes = [`semantic-fallback: taskType=${semantic.taskType} risk=${semantic.risk}`];
+  const notes = [
+    `semantic-fallback: taskType=${semantic.taskType} risk=${semantic.risk}`,
+  ];
 
   const merged = {
     ...deterministic,
     taskType: semantic.taskType,
   };
   if (semantic.taskType !== deterministic.taskType) {
-    notes.push(`taskType arbitrated ${deterministic.taskType} → ${semantic.taskType}`);
+    notes.push(
+      `taskType arbitrated ${deterministic.taskType} → ${semantic.taskType}`,
+    );
   }
 
   // Risk can only go UP.
@@ -146,7 +155,9 @@ function conservativeMerge(deterministic, semantic) {
   // Domains: deterministic always kept; semantic adds enum-valid extras
   // up to the cap. Never drops a deterministic domain.
   const cap = Math.max(2, deterministic.domains?.length ?? 0);
-  const domains = [...new Set([...(deterministic.domains ?? []), ...semantic.domains])];
+  const domains = [
+    ...new Set([...(deterministic.domains ?? []), ...semantic.domains]),
+  ];
   const capped = domains.slice(0, cap);
   if (capped.length > (deterministic.domains?.length ?? 0)) {
     notes.push(
@@ -160,7 +171,9 @@ function conservativeMerge(deterministic, semantic) {
   // Intent is locked unless deterministic was unclear.
   if (deterministic.executionIntent === "unclear" && semantic.executionIntent) {
     merged.executionIntent = semantic.executionIntent;
-    notes.push(`executionIntent resolved unclear → ${semantic.executionIntent}`);
+    notes.push(
+      `executionIntent resolved unclear → ${semantic.executionIntent}`,
+    );
   } else {
     merged.executionIntent = deterministic.executionIntent;
   }

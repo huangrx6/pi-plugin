@@ -54,7 +54,12 @@ function scoreDomain(text, rule) {
   if (strongHit.score > 0) {
     return {
       score: strongHit.score * STRONG_SCORE,
-      evidence: [`strong: ${strongHit.hits.map((h) => h.id).slice(0, 3).join(", ")}`],
+      evidence: [
+        `strong: ${strongHit.hits
+          .map((h) => h.id)
+          .slice(0, 3)
+          .join(", ")}`,
+      ],
     };
   }
   const weakHit = matchSignalGroups(text, toSignalGroups(weak));
@@ -65,13 +70,23 @@ function scoreDomain(text, rule) {
       score,
       triggered: false,
       evidence: [
-        `weak-only: ${weakHit.hits.map((h) => h.id).slice(0, 3).join(", ")} (score ${score} < ${TRIGGER_SCORE}; same-group aliases never stack, needs a second distinct group)`,
+        `weak-only: ${weakHit.hits
+          .map((h) => h.id)
+          .slice(0, 3)
+          .join(
+            ", ",
+          )} (score ${score} < ${TRIGGER_SCORE}; same-group aliases never stack, needs a second distinct group)`,
       ],
     };
   }
   return {
     score,
-    evidence: [`weak×${weakHit.score}: ${weakHit.hits.map((h) => h.id).slice(0, 3).join(", ")}`],
+    evidence: [
+      `weak×${weakHit.score}: ${weakHit.hits
+        .map((h) => h.id)
+        .slice(0, 3)
+        .join(", ")}`,
+    ],
   };
 }
 
@@ -86,8 +101,7 @@ function scoreTask(text, terms, frame) {
   if (all.score === 0) return { score: 0, ids: [], frameIds: [] };
   const frameIds = frame.frameFound
     ? new Set(
-        matchSignalGroups(frame.frameClause, groups)
-          .hits.map((h) => h.id),
+        matchSignalGroups(frame.frameClause, groups).hits.map((h) => h.id),
       )
     : new Set();
   let score = 0;
@@ -108,9 +122,7 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   const reasons = [];
   const frame = extractIntentFrame(prompt);
   if (frame.frameFound) {
-    reasons.push(
-      `frame:${frame.action} "${frame.frameClause.slice(0, 30)}"`,
-    );
+    reasons.push(`frame:${frame.action} "${frame.frameClause.slice(0, 30)}"`);
   }
   const scores = {
     documentation: 0,
