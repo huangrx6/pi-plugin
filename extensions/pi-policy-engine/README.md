@@ -87,6 +87,26 @@ strict + pending approval 时按 gate 等级阻止：
 
 shell 判断是**保守正则规则集**，不是完整 shell AST。`hard` 模式先在项目里跑跑。`/policy gate` 无参弹交互选择器，可按分类勾选。
 
+#### 自定义 mutating patterns
+
+内置 pattern 覆盖常见场景。如果你有公司/项目专属的危险命令（例如自家 `deploy-tool`），可以在 `guard.customPatterns` 里加，无需改代码：
+
+```json
+{
+  "guard": {
+    "customPatterns": [
+      { "category": "file", "label": "deploy-tool-prod", "regex": "deploy-tool\\s+(prod|prod-)" },
+      { "category": "package", "label": "internal-install", "regex": "^intl-tool\\s+install" }
+    ]
+  }
+}
+```
+
+- `category` 必须是 `file` / `git` / `package` / `k8s` / `network` / `disk` 其中之一（会在现有 `enabledCategories` / `disabledCategories` 里走同样逻辑）
+- `regex` 字符串会以 `new RegExp(str, "i")` 编译
+- **配置错误不会阻塞 agent**：分类无效、regex 编译失败都会被跳过并产生警告，在 session 启动时通过 notify 一次性提示（不会刷屏）
+- 自定义 pattern 比内置优先，相同 segment 上自定义胜出
+
 ### Policy 层叠加
 
 每次启动按需叠加 5 类 policy Markdown：

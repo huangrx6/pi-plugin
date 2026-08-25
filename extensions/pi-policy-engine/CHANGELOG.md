@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- **Config-driven custom mutating patterns**: `guard.customPatterns`
+  lets users add project/company-specific mutating shell patterns
+  without editing source code. Each entry is `{ category, label, regex }`;
+  invalid entries (unknown category, empty label, unparseable regex) are
+  collected as warnings and surfaced once at session_start rather than
+  crashing the agent. Custom patterns are tried before built-ins, so users
+  can shadow labels.
+
 ## 0.3.0
 
 - **Structural shell parsing**: `splitShellSegments` splits a command at

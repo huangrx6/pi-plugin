@@ -2,6 +2,7 @@
 // tool_call, agent_end. Owns the strict-workflow state machine.
 
 import {
+  compileCustomPatterns,
   isApprovalPrompt,
   isPlanRevisionPrompt,
   shouldBlockTool,
@@ -26,12 +27,26 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     state.phase = "idle";
     state.lastDecision = null;
     state.lastPrompt = null;
+    state.customPatternWarningsEmitted = false;
     state.currentModel = cleanModel(ctx?.model) ?? state.currentModel;
     const cfg = buildEffectiveConfig({
       packageRoot,
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
+
+    // Compile user-supplied custom mutating shell patterns once per session.
+    // Invalid entries are warned about exactly once (dedup via state flag)
+    // so a broken pattern doesn't spam on every tool call.
+    const compiled = compileCustomPatterns(cfg.guard);
+    state.customPatterns = compiled.patterns;
+    if (compiled.warnings.length > 0 && !state.customPatternWarningsEmitted) {
+      for (const w of compiled.warnings) {
+        notify(ctx, `Policy Engine guard config: ${w}`, "warning");
+      }
+      state.customPatternWarningsEmitted = true;
+    }
+
     if (cfg.showStatus !== false)
       setStatus(ctx, `policy:${cfg.mode ?? "auto"}`);
   });
@@ -201,6 +216,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       gate,
       state.pendingApproval,
       config.guard,
+      state.customPatterns,
     );
     if (!result.block) return undefined;
 

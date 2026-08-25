@@ -11,6 +11,7 @@ import {
   renderPolicyBlock,
 } from "../src/core/loader.js";
 import {
+  compileCustomPatterns,
   findMutatingShell,
   isApprovalPrompt,
   isMutatingShell,
@@ -539,6 +540,116 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   );
   assert.equal(merged, null);
   delete process.env.PI_POLICY_TEST_KEY;
+}
+
+// compileCustomPatterns: valid config produces compiled entries.
+{
+  const { patterns, warnings } = compileCustomPatterns({
+    customPatterns: [
+      { category: "file", label: "mydeploy-apply", regex: "mydeploy\\s+(apply|destroy)" },
+      { category: "package", label: "internal-tool", regex: "deploy-tool\\s+install" },
+    ],
+  });
+  assert.equal(warnings.length, 0);
+  assert.equal(patterns.length, 2);
+  assert.equal(patterns[0].category, "file");
+  assert.equal(patterns[0].label, "mydeploy-apply");
+  assert.equal(patterns[0].pattern.flags, "i");
+  assert.match(patterns[0].pattern.source, /mydeploy/);
+}
+
+// compileCustomPatterns: missing / invalid entries produce warnings, not throws.
+{
+  const { patterns, warnings } = compileCustomPatterns({
+    customPatterns: [
+      null,
+      { category: "bogus", label: "x", regex: "x" },
+      { category: "file", label: "", regex: "x" },
+      { category: "file", label: "x", regex: "" },
+      { category: "file", label: "bad-re", regex: "[" },
+      { category: "file", label: "ok", regex: "okcmd" },
+    ],
+  });
+  assert.equal(patterns.length, 1);
+  assert.equal(patterns[0].label, "ok");
+  assert.equal(warnings.length, 5);
+  assert.ok(warnings.some((w) => w.includes("not an object")));
+  assert.ok(warnings.some((w) => w.includes("unknown category")));
+  assert.ok(warnings.some((w) => w.includes("label must be")));
+  assert.ok(warnings.some((w) => w.includes("regex must be")));
+  assert.ok(warnings.some((w) => w.includes("invalid regex")));
+}
+
+// compileCustomPatterns: empty / missing config returns empty arrays.
+{
+  assert.deepEqual(compileCustomPatterns({}), { patterns: [], warnings: [] });
+  assert.deepEqual(compileCustomPatterns(null), { patterns: [], warnings: [] });
+  assert.deepEqual(
+    compileCustomPatterns({ customPatterns: "not-an-array" }),
+    { patterns: [], warnings: [] },
+  );
+}
+
+// Custom patterns participate in findMutatingShell: user pattern matches.
+{
+  const compiled = compileCustomPatterns({
+    customPatterns: [
+      { category: "file", label: "mydeploy-apply", regex: "mydeploy\\s+apply" },
+    ],
+  });
+  const hit = findMutatingShell("mydeploy apply -e prod", compiled.patterns);
+  assert.equal(hit?.category, "file");
+  assert.equal(hit?.label, "mydeploy-apply");
+  // Built-in patterns still work alongside custom ones.
+  const builtin = findMutatingShell("kubectl apply -f x.yaml", compiled.patterns);
+  assert.equal(builtin?.category, "k8s");
+}
+
+// Custom patterns win ties (tried before built-ins).
+{
+  const compiled = compileCustomPatterns({
+    customPatterns: [
+      // Shadow the built-in `rm` label so user can see they overrode it.
+      { category: "audit", label: "custom-rm", regex: "^rm\\s+" },
+    ],
+  });
+  // Built-in `rm` is category "file"; user uses "audit" which is not a known
+  // category, so compileCustomPatterns will warn. Use a real category instead.
+  const compiled2 = compileCustomPatterns({
+    customPatterns: [
+      { category: "file", label: "shadowed-rm", regex: "^rm\\s+" },
+    ],
+  });
+  const hit = findMutatingShell("rm tmp", compiled2.patterns);
+  assert.equal(hit?.label, "shadowed-rm");
+  assert.equal(compiled.warnings.length, 1); // "audit" not in ALL_CATEGORIES
+}
+
+// Custom patterns honored by shouldBlockTool.
+{
+  const compiled = compileCustomPatterns({
+    customPatterns: [
+      { category: "file", label: "company-deploy", regex: "^deploy-tool\\s+prod" },
+    ],
+  });
+  const blocked = shouldBlockTool(
+    { toolName: "bash", input: { command: "deploy-tool prod my-service" } },
+    "hard",
+    true,
+    {},
+    compiled.patterns,
+  );
+  assert.equal(blocked.block, true);
+  assert.match(blocked.reason, /file: company-deploy/);
+  // Same pattern but category disabled → not blocked.
+  const allowed = shouldBlockTool(
+    { toolName: "bash", input: { command: "deploy-tool prod my-service" } },
+    "hard",
+    true,
+    { disabledCategories: ["file"] },
+    compiled.patterns,
+  );
+  assert.equal(allowed.block, false);
 }
 
 process.stdout.write("self-test: OK\n");

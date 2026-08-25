@@ -119,6 +119,56 @@ function resolveEnabledCategories(gate, configGuard) {
   return enabled;
 }
 
+/**
+ * Compile user-supplied patterns from `configGuard.customPatterns` into the
+ * same `{ category, label, pattern }` shape as the built-in table. Invalid
+ * entries are collected as warnings rather than thrown — misconfiguration
+ * shouldn't crash the agent loop.
+ *
+ * Config example:
+ *   guard: {
+ *     customPatterns: [
+ *       { category: "file", label: "mydeploy-apply", regex: "mydeploy\\s+(apply|destroy)" }
+ *     ]
+ *   }
+ */
+export function compileCustomPatterns(configGuard) {
+  const result = { patterns: [], warnings: [] };
+  const list = Array.isArray(configGuard?.customPatterns)
+    ? configGuard.customPatterns
+    : [];
+  for (let i = 0; i < list.length; i += 1) {
+    const entry = list[i];
+    if (!entry || typeof entry !== "object") {
+      result.warnings.push(`customPatterns[${i}]: not an object`);
+      continue;
+    }
+    const { category, label, regex } = entry;
+    if (!ALL_CATEGORIES.includes(category)) {
+      result.warnings.push(
+        `customPatterns[${i}]: unknown category "${category}" (expected one of ${ALL_CATEGORIES.join(", ")})`,
+      );
+      continue;
+    }
+    if (typeof label !== "string" || !label) {
+      result.warnings.push(`customPatterns[${i}]: label must be a non-empty string`);
+      continue;
+    }
+    if (typeof regex !== "string" || !regex) {
+      result.warnings.push(`customPatterns[${i}]: regex must be a non-empty string`);
+      continue;
+    }
+    try {
+      result.patterns.push({ category, label, pattern: new RegExp(regex, "i") });
+    } catch (err) {
+      result.warnings.push(
+        `customPatterns[${i}]: invalid regex /${regex}/i: ${err?.message ?? err}`,
+      );
+    }
+  }
+  return result;
+}
+
 export function isDirectMutationTool(toolName) {
   const name = String(toolName ?? "").toLowerCase();
   if (DIRECT_MUTATION_TOOLS.has(name)) return true;
@@ -186,9 +236,14 @@ export function splitShellSegments(command) {
 
 /**
  * Match a segment against the mutation pattern table. Returns the first hit
- * (category + label) or null. Patterns are segment-anchored.
+ * (category + label) or null. Patterns are segment-anchored. `extraPatterns`
+ * (typically user-supplied via `guard.customPatterns`) are tried before the
+ * built-ins so user overrides win ties.
  */
-function matchSegment(segment) {
+function matchSegment(segment, extraPatterns = []) {
+  for (const entry of extraPatterns) {
+    if (entry.pattern.test(segment)) return entry;
+  }
   for (const entry of MUTATING_SHELL_PATTERNS) {
     if (entry.pattern.test(segment)) return entry;
   }
@@ -198,7 +253,8 @@ function matchSegment(segment) {
 /**
  * Find the first mutating segment in a command. Returns
  * `{ category, label, segment }` or null. `segment` is the offending slice
- * (useful for diagnostics).
+ * (useful for diagnostics). `extraPatterns` are appended to the built-in
+ * table (see `compileCustomPatterns`).
  *
  * After matching plain segments we also probe `$(...)` substitution
  * contents — a command like `echo $(rm -rf /tmp)` is a real deletion even
@@ -206,13 +262,13 @@ function matchSegment(segment) {
  * deeply nested `$(rm $(echo /tmp))` is out of scope and remains a known
  * limitation, matching the project's "conservative regex" posture.
  */
-export function findMutatingShell(command) {
+export function findMutatingShell(command, extraPatterns = []) {
   for (const segment of splitShellSegments(command)) {
-    const hit = matchSegment(segment);
+    const hit = matchSegment(segment, extraPatterns);
     if (hit) return { ...hit, segment };
     const subMatches = segment.matchAll(/\$\(([^()]*)\)/g);
     for (const m of subMatches) {
-      const subHit = matchSegment(m[1]);
+      const subHit = matchSegment(m[1], extraPatterns);
       if (subHit) return { ...subHit, segment: `$(...) → ${m[1]}` };
     }
   }
@@ -222,13 +278,20 @@ export function findMutatingShell(command) {
 export function isMutatingShell(
   command,
   enabledCategories = new Set(ALL_CATEGORIES),
+  extraPatterns = [],
 ) {
-  const hit = findMutatingShell(command);
+  const hit = findMutatingShell(command, extraPatterns);
   if (!hit) return false;
   return enabledCategories.has(hit.category);
 }
 
-export function shouldBlockTool(event, gate, pendingApproval, configGuard) {
+export function shouldBlockTool(
+  event,
+  gate,
+  pendingApproval,
+  configGuard,
+  extraPatterns = [],
+) {
   if (!pendingApproval || gate === "off") return { block: false };
 
   const toolName = String(event?.toolName ?? "").toLowerCase();
@@ -243,7 +306,7 @@ export function shouldBlockTool(event, gate, pendingApproval, configGuard) {
   if (gate === "hard" && toolName === "bash") {
     const enabled = resolveEnabledCategories(gate, configGuard);
     const command = event?.input?.command ?? "";
-    const hit = findMutatingShell(command);
+    const hit = findMutatingShell(command, extraPatterns);
     if (hit && enabled.has(hit.category)) {
       return {
         block: true,
@@ -292,4 +355,5 @@ export const __test = {
   resolveEnabledCategories,
   splitShellSegments,
   matchSegment,
+  compileCustomPatterns,
 };

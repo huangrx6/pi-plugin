@@ -20,6 +20,11 @@ export function createState() {
     pendingApproval: false,
     phase: "idle",
     currentModel: null,
+    // Compiled custom mutating shell patterns (from guard.customPatterns).
+    // Refreshed on session_start; invalid patterns are surfaced to the user
+    // exactly once per session via state.customPatternWarningsEmitted.
+    customPatterns: [],
+    customPatternWarningsEmitted: false,
   };
 }
 
