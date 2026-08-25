@@ -4,9 +4,9 @@
 //     gate / profile in sequence. This matches pi-mode-switcher's /mode UX.
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
-import { formatDecision, formatStatusSummary } from "./format.js";
+import { formatDecision, formatPreview, formatStatusSummary } from "./format.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
-import { buildEffectiveConfig } from "./state.js";
+import { buildEffectiveConfig, preview } from "./state.js";
 
 const MODE_OPTIONS = [
   { key: "auto", description: "按 prompt 内容自动路由 workflow（默认）" },
@@ -161,6 +161,34 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
+    if (action === "preview") {
+      const rawPrompt = rest.join(" ").trim();
+      if (!rawPrompt) {
+        notify(
+          ctx,
+          "Usage: /policy preview <prompt...>  (dry-run classification + policy composition for the given prompt)",
+          "warning",
+        );
+        return;
+      }
+      try {
+        const result = await preview({
+          packageRoot,
+          cwd: ctx?.cwd ?? process.cwd(),
+          prompt: rawPrompt,
+          model: ctx?.model ?? state.currentModel,
+        });
+        notify(ctx, formatPreview(result), "info");
+      } catch (err) {
+        notify(
+          ctx,
+          `preview failed: ${err instanceof Error ? err.message : String(err)}`,
+          "warning",
+        );
+      }
+      return;
+    }
+
     if (action === "why") {
       notify(ctx, formatDecision(state.lastDecision, state.phase), "info");
       return;
@@ -206,7 +234,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|status|why|cancel|reset]",
       "info",
     );
   };

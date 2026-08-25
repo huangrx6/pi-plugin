@@ -24,6 +24,8 @@ import {
   buildSemanticRequestBody,
   maybeSemanticClassify,
 } from "../src/core/semantic.js";
+import { formatPreview } from "../extensions/policy-engine/format.js";
+import { preview } from "../extensions/policy-engine/state.js";
 import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -650,6 +652,112 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     compiled.patterns,
   );
   assert.equal(allowed.block, false);
+}
+
+// preview: dry-run classification + composition without mutating state.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const result = await preview({
+    packageRoot: root,
+    cwd: root,
+    prompt: "修一个 PG migration bug，线上回滚",
+    model: { provider: "minimax-cn", id: "MiniMax-M3" },
+  });
+  assert.ok(result.decision);
+  assert.equal(result.decision.workflow, "strict");
+  assert.ok(result.decision.domains.includes("database"));
+  assert.ok(result.wouldRequireApproval);
+  assert.ok(Array.isArray(result.policies));
+  assert.ok(result.policies.some((p) => p.id === "core.evidence-priority"));
+  assert.ok(result.policies.some((p) => p.id === "model.minimax-m3"));
+  assert.ok(result.stats.builtInBytes > 0);
+  assert.ok(result.stats.budget > 0);
+  assert.ok(result.stats.budgetUsedPct >= 0 && result.stats.budgetUsedPct <= 100);
+}
+
+// preview: pure read — does NOT mutate any shared state.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const before = await preview({
+    packageRoot: root,
+    cwd: root,
+    prompt: "low-risk readme typo",
+    model: null,
+  });
+  const after = await preview({
+    packageRoot: root,
+    cwd: root,
+    prompt: "high-risk 生产 PG schema 迁移",
+    model: null,
+  });
+  assert.equal(before.decision.workflow, "quick");
+  assert.equal(after.decision.workflow, "strict");
+  // Two independent runs with different prompts, no shared mutation.
+  assert.notEqual(before.decision.workflow, after.decision.workflow);
+}
+
+// formatPreview: stable, includes all key fields.
+{
+  const previewObj = {
+    decision: {
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.92,
+      domains: ["database", "kubernetes"],
+      workflow: "strict",
+      profile: "architecture",
+      gate: "hard",
+      modelPolicy: "model.minimax-m3",
+    },
+    classification: { reasons: ["risk:high matched prod", "task:architecture"] },
+    policies: [
+      { id: "core.evidence-priority" },
+      { id: "domain.database" },
+    ],
+    projectPolicies: [],
+    truncated: ["domain.kubernetes"],
+    wouldRequireApproval: true,
+    stats: {
+      builtInCount: 2,
+      builtInBytes: 1024,
+      projectCount: 0,
+      projectBytes: 0,
+      budget: 24000,
+      budgetUsedPct: 4,
+    },
+  };
+  const text = formatPreview(previewObj);
+  assert.match(text, /# Policy preview/);
+  assert.match(text, /workflow: strict/);
+  assert.match(text, /would require approval: yes/);
+  assert.match(text, /budget = 4%/);
+  assert.match(text, /core\.evidence-priority/);
+  assert.match(text, /truncated by byte budget:/);
+  assert.match(text, /domain\.kubernetes/);
+  assert.match(text, /classification reasons:/);
+}
+
+// formatPreview: null / empty input returns graceful message.
+{
+  assert.match(formatPreview(null), /No preview available/);
+  const empty = formatPreview({
+    decision: { workflow: "off" },
+    classification: { reasons: [] },
+    policies: [],
+    projectPolicies: [],
+    truncated: [],
+    wouldRequireApproval: false,
+    stats: {
+      builtInCount: 0,
+      builtInBytes: 0,
+      projectCount: 0,
+      projectBytes: 0,
+      budget: 24000,
+      budgetUsedPct: 0,
+    },
+  });
+  assert.match(empty, /workflow: off/);
+  assert.match(empty, /built-in policies \(0 loaded/);
 }
 
 process.stdout.write("self-test: OK\n");

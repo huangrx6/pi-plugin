@@ -107,6 +107,49 @@ shell 判断是**保守正则规则集**，不是完整 shell AST。`hard` 模�
 - **配置错误不会阻塞 agent**：分类无效、regex 编译失败都会被跳过并产生警告，在 session 启动时通过 notify 一次性提示（不会刷屏）
 - 自定义 pattern 比内置优先，相同 segment 上自定义胜出
 
+#### Dry-run 预览：`/policy preview <prompt>`
+
+不发 prompt 给 agent，直接看给定 prompt 会走哪条路由、加载哪些 policies、byte 预算使用多少：
+
+```text
+/policy preview 设计生产环境 PG schema 迁移方案
+```
+
+输出（节选）：
+
+```text
+# Policy preview (dry run; nothing is executed)
+
+task: architecture
+risk: high
+confidence: 0.9
+domains: database, kubernetes
+workflow: strict
+phase: planning
+profile: architecture
+gate: soft
+model policy: model.minimax-m3
+would require approval: yes
+
+built-in policies (8 loaded, 3542 bytes / 24000 budget = 14%):
+  - core.evidence-priority
+  - core.constraint-retention
+  - ...
+truncated by byte budget:
+  - (none)
+
+project policies (0 loaded, 0 bytes):
+  - (none)
+```
+
+适用场景：
+- 调 `config.routing.json` 关键词后看新 prompt 路由是否如预期
+- 写新 policy 后看是否被 byte 预算裁掉
+- 加新 custom pattern 后看是否被加载
+- 调高 `domainHints` 后看 domain 是否被命中
+
+preview 是**纯读**：不动 session state、不发请求给 agent、不发请求给 semantic fallback（除非用户另外调高决定性 confidence 阈值）。
+
 ### Policy 层叠加
 
 每次启动按需叠加 5 类 policy Markdown：
@@ -215,6 +258,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 | `/policy once <mode>` | 仅下一轮用指定 mode |
 | `/policy gate off\|soft\|hard` | 切换 gate 等级 |
 | `/policy profile <name>` | 切 profile（auto / coding / debugging / documentation / architecture / review / research） |
+| `/policy preview <prompt>` | 不触发 agent，直接看路由结果（classification + 加载的 policies + byte 预算使用） |
 | `/policy status` | 当前 mode / gate / profile / phase / 模型 |
 | `/policy why` | 上一轮的完整路由决策（含命中规则） |
 | `/policy cancel` | 取消 pending strict plan |

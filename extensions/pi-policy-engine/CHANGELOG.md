@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- **Dry-run preview**: `/policy preview <prompt...>` runs the full routing
+  + policy composition pipeline for the given prompt without touching
+  the agent loop, mutating state, or calling the semantic fallback.
+  Useful for tuning config/routing.json keywords, verifying new policies
+  aren't truncated by the byte budget, and confirming custom patterns
+  are loaded.
+
 ## 0.4.0
 
 - **Config-driven custom mutating patterns**: `guard.customPatterns`
