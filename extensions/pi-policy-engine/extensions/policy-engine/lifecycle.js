@@ -56,7 +56,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     // Load persisted history (if configured). Best-effort: file missing or
     // unreadable is fine; we just continue with an empty in-memory history.
     if (cfg.historyFile) {
-      const path = resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd());
+      const path = resolveHistoryPath(
+        cfg.historyFile,
+        ctx?.cwd ?? process.cwd(),
+      );
       if (path) {
         const limit = Number(cfg.historyMaxEntries ?? 500);
         const diskEntries = await readHistory(path, limit);
