@@ -29,7 +29,37 @@ export function createState() {
     // exactly once per session via state.customPatternWarningsEmitted.
     customPatterns: [],
     customPatternWarningsEmitted: false,
+    // In-session routing history. Capped (oldest dropped first) so a long
+    // session doesn't grow unbounded. Cleared on session_start.
+    history: [],
   };
+}
+
+export const HISTORY_CAP = 50;
+
+function summarizePrompt(prompt) {
+  const oneLine = String(prompt ?? "").replace(/\s+/g, " ").trim();
+  return oneLine.length > 80 ? oneLine.slice(0, 77) + "..." : oneLine;
+}
+
+/**
+ * Append a routing decision entry to the in-session history. Caps at
+ * HISTORY_CAP entries (oldest dropped first).
+ */
+export function recordHistory(state, { source, prompt, decision }) {
+  if (!decision) return;
+  state.history.push({
+    ts: Date.now(),
+    source,
+    prompt: summarizePrompt(prompt),
+    task: decision.taskType,
+    risk: decision.risk,
+    workflow: decision.workflow,
+    profile: decision.profile,
+    gate: decision.gate,
+    confidence: decision.confidence,
+  });
+  while (state.history.length > HISTORY_CAP) state.history.shift();
 }
 
 export function stateRuntimeOverrides(state) {

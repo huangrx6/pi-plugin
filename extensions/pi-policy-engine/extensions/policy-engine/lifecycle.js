@@ -13,7 +13,7 @@ import {
   renderPolicyBlock,
 } from "../../src/core/loader.js";
 import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
-import { buildEffectiveConfig, decide } from "./state.js";
+import { buildEffectiveConfig, decide, recordHistory } from "./state.js";
 
 /**
  * Wire all event handlers onto the supplied `pi`. `getState()` returns the
@@ -28,6 +28,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     state.lastDecision = null;
     state.lastPrompt = null;
     state.customPatternWarningsEmitted = false;
+    state.history = [];
     state.currentModel = cleanModel(ctx?.model) ?? state.currentModel;
     const cfg = buildEffectiveConfig({
       packageRoot,
@@ -158,6 +159,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     });
     state.lastPrompt = prompt;
     state.lastDecision = decision;
+    recordHistory(state, { source: "decide", prompt, decision });
 
     if (state.onceMode) state.onceMode = null;
 

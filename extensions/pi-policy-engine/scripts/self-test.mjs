@@ -24,8 +24,12 @@ import {
   buildSemanticRequestBody,
   maybeSemanticClassify,
 } from "../src/core/semantic.js";
-import { formatPreview } from "../extensions/policy-engine/format.js";
-import { preview } from "../extensions/policy-engine/state.js";
+import { formatHistory, formatPreview } from "../extensions/policy-engine/format.js";
+import {
+  HISTORY_CAP,
+  preview,
+  recordHistory,
+} from "../extensions/policy-engine/state.js";
 import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -758,6 +762,112 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   });
   assert.match(empty, /workflow: off/);
   assert.match(empty, /built-in policies \(0 loaded/);
+}
+
+// recordHistory: caps at HISTORY_CAP entries, drops oldest first.
+{
+  const state = { history: [] };
+  const fakeDecision = {
+    taskType: "coding",
+    risk: "low",
+    workflow: "quick",
+    profile: "coding",
+    gate: "soft",
+    confidence: 0.8,
+  };
+  for (let i = 0; i < HISTORY_CAP + 5; i += 1) {
+    recordHistory(state, {
+      source: "decide",
+      prompt: `prompt ${i}`,
+      decision: fakeDecision,
+    });
+  }
+  assert.equal(state.history.length, HISTORY_CAP);
+  // Oldest 5 were dropped; the remaining entries are prompts 5..HISTORY_CAP+4.
+  assert.match(state.history[0].prompt, /^prompt 5$/);
+  assert.match(state.history[HISTORY_CAP - 1].prompt, new RegExp(`^prompt ${HISTORY_CAP + 4}$`));
+}
+
+// recordHistory: trims long prompts to one line, ≤ 80 chars.
+{
+  const state = { history: [] };
+  recordHistory(state, {
+    source: "preview",
+    prompt: "line1\nline2  line3   line4\n\n\n\nlong ".repeat(20),
+    decision: {
+      taskType: "coding",
+      risk: "low",
+      workflow: "quick",
+      profile: "coding",
+      gate: "soft",
+      confidence: 0.7,
+    },
+  });
+  assert.equal(state.history.length, 1);
+  assert.ok(state.history[0].prompt.length <= 80);
+  assert.ok(!state.history[0].prompt.includes("\n"));
+  assert.match(state.history[0].prompt, /\.\.\.$/);
+}
+
+// recordHistory: ignores missing decision (no throw, no entry).
+{
+  const state = { history: [] };
+  recordHistory(state, { source: "decide", prompt: "x", decision: null });
+  assert.equal(state.history.length, 0);
+}
+
+// formatHistory: empty state shows graceful message.
+{
+  assert.match(formatHistory([], 5), /No routing history/);
+  assert.match(formatHistory(null, 5), /No routing history/);
+}
+
+// formatHistory: respects N limit and renders rows in reverse-chronological
+// order (newest first), with 1-based chronological numbering.
+{
+  const entries = [];
+  for (let i = 0; i < 7; i += 1) {
+    entries.push({
+      ts: 1_700_000_000_000 + i * 60_000,
+      source: "decide",
+      prompt: `prompt ${i}`,
+      task: "coding",
+      risk: "low",
+      workflow: "quick",
+      profile: "coding",
+      gate: "soft",
+      confidence: 0.8,
+    });
+  }
+  const out = formatHistory(entries, 3);
+  assert.match(out, /last 3 of 7/);
+  // Most recent entry first.
+  const newestIdx = out.indexOf("prompt 6");
+  const midIdx = out.indexOf("prompt 5");
+  const oldestIdx = out.indexOf("prompt 4");
+  assert.ok(newestIdx > 0 && midIdx > 0 && oldestIdx > 0);
+  assert.ok(newestIdx < midIdx);
+  assert.ok(midIdx < oldestIdx);
+  // Chronological numbering matches 1-based index of original entries.
+  assert.match(out, /^7\./m);
+  assert.match(out, /^5\./m);
+}
+
+// formatHistory: invalid N falls back to default 5.
+{
+  const entries = Array.from({ length: 3 }, (_, i) => ({
+    ts: 1_700_000_000_000 + i * 60_000,
+    source: "decide",
+    prompt: `p ${i}`,
+    task: "coding",
+    risk: "low",
+    workflow: "quick",
+    profile: "coding",
+    gate: "soft",
+    confidence: 0.8,
+  }));
+  const out = formatHistory(entries, NaN);
+  assert.match(out, /last 3 of 3/);
 }
 
 process.stdout.write("self-test: OK\n");

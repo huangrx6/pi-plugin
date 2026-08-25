@@ -150,6 +150,32 @@ project policies (0 loaded, 0 bytes):
 
 preview 是**纯读**：不动 session state、不发请求给 agent、不发请求给 semantic fallback（除非用户另外调高决定性 confidence 阈值）。
 
+#### Session 历史：`/policy history [N]`
+
+回看本 session 内所有路由决策（决定性 + preview），调参后看实际效果用：
+
+```text
+/policy history 5
+```
+
+输出：
+
+```text
+# Routing history (last 5 of 8)
+
+7. [14:23:01] decide  strict   (architecture / high, conf=0.92)
+     prompt: 设计生产环境 PG schema 迁移方案...
+6. [14:21:45] decide  quick    (documentation / low, conf=0.95)
+     prompt: 改 README typo...
+5. [14:20:10] preview  standard (debugging / medium, conf=0.78)
+     prompt: 排查接口偶尔返回旧数据...
+```
+
+- 默认 5 条，可指定 `N`
+- 1-based 序号 + 时间戳（HH:MM:SS）+ source（decide/preview）+ 路由结果
+- session_start 时清空；最长保留 50 条
+- 不会写磁盘——只在内存里
+
 ### Policy 层叠加
 
 每次启动按需叠加 5 类 policy Markdown：
@@ -259,6 +285,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 | `/policy gate off\|soft\|hard` | 切换 gate 等级 |
 | `/policy profile <name>` | 切 profile（auto / coding / debugging / documentation / architecture / review / research） |
 | `/policy preview <prompt>` | 不触发 agent，直接看路由结果（classification + 加载的 policies + byte 预算使用） |
+| `/policy history [N]` | 本 session 内最近的 N 条路由决策（默认 5），包括 /policy preview 也记录 |
 | `/policy status` | 当前 mode / gate / profile / phase / 模型 |
 | `/policy why` | 上一轮的完整路由决策（含命中规则） |
 | `/policy cancel` | 取消 pending strict plan |

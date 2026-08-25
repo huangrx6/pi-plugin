@@ -1,6 +1,28 @@
 // Human-readable formatters for decisions and status rows. Pure functions;
 // consumed by commands.js and lifecycle.js.
 
+export function formatHistory(entries, n = 5) {
+  if (!entries || entries.length === 0) {
+    return "No routing history yet. Use /policy preview <prompt> to dry-run, or send a prompt to record one.";
+  }
+  const limit = Math.min(Math.max(1, Number(n) || 5), entries.length);
+  const lines = [`# Routing history (last ${limit} of ${entries.length})`, ""];
+  // Walk the array backwards without .reverse() to avoid mutating a slice.
+  for (let i = entries.length - 1, shown = 0; i >= 0 && shown < limit; i--, shown++) {
+    const e = entries[i];
+    const idx = i + 1; // 1-based chronological numbering
+    const time = new Date(e.ts).toISOString().slice(11, 19);
+    const conf =
+      typeof e.confidence === "number" ? e.confidence.toFixed(2) : "?";
+    const taskRisk = e.task && e.risk ? `${e.task} / ${e.risk}` : e.task ?? "?";
+    lines.push(
+      `${idx}. [${time}] ${e.source ?? "decide"}  ${e.workflow}  (${taskRisk}, conf=${conf})`,
+    );
+    lines.push(`     prompt: ${e.prompt ?? ""}`);
+  }
+  return lines.join("\n");
+}
+
 function previewPhaseLabel(workflow) {
   if (workflow === "off") return "idle";
   if (workflow === "strict") return "planning";

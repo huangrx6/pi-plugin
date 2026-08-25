@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- **In-session routing history**: `/policy history [N]` shows the last N
+  routing decisions (default 5, cap 50) made via either `before_agent_start`
+  or `/policy preview`. Useful for tuning `config/routing.json` keywords:
+  change a keyword, send a few prompts, then `/policy history` to see how
+  routing actually shifted.
+- Entries are in-memory only; cleared on `session_start`. No disk writes.
+
 ## 0.5.0
 
 - **Dry-run preview**: `/policy preview <prompt...>` runs the full routing

@@ -4,9 +4,14 @@
 //     gate / profile in sequence. This matches pi-mode-switcher's /mode UX.
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
-import { formatDecision, formatPreview, formatStatusSummary } from "./format.js";
+import {
+  formatDecision,
+  formatHistory,
+  formatPreview,
+  formatStatusSummary,
+} from "./format.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
-import { buildEffectiveConfig, preview } from "./state.js";
+import { buildEffectiveConfig, preview, recordHistory } from "./state.js";
 
 const MODE_OPTIONS = [
   { key: "auto", description: "按 prompt 内容自动路由 workflow（默认）" },
@@ -178,6 +183,7 @@ export function createCommandHandler({ packageRoot, getState }) {
           prompt: rawPrompt,
           model: ctx?.model ?? state.currentModel,
         });
+        recordHistory(state, { source: "preview", prompt: rawPrompt, decision: result.decision });
         notify(ctx, formatPreview(result), "info");
       } catch (err) {
         notify(
@@ -186,6 +192,13 @@ export function createCommandHandler({ packageRoot, getState }) {
           "warning",
         );
       }
+      return;
+    }
+
+    if (action === "history") {
+      const n = Number.parseInt(rest[0] ?? "5", 10);
+      const limit = Number.isFinite(n) && n > 0 ? n : 5;
+      notify(ctx, formatHistory(state.history, limit), "info");
       return;
     }
 
@@ -234,7 +247,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N]|status|why|cancel|reset]",
       "info",
     );
   };
