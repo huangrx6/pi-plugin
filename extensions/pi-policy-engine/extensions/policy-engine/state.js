@@ -294,6 +294,12 @@ export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
   const budget = Number(config.policyMaxBytes ?? 24000);
   return {
     decision,
+    // Config is returned so callers (e.g. the /policy preview handler's
+    // disk-history append) can read historyFile without a second
+    // buildEffectiveConfig round-trip. v0.9 shipped the caller reading
+    // `result.config?.historyFile` but this field was missing — the preview
+    // path never persisted history. Restored here.
+    config,
     classification,
     policies,
     projectPolicies,

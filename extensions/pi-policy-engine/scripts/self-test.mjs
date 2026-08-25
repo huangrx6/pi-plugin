@@ -342,6 +342,83 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   );
 }
 
+// Redirect exemptions (v0.3 regression fixed): /dev/null and fd duplication
+// are NOT file mutations. `ls 2>/dev/null` is the single most common shell
+// idiom — blocking it under hard gate made the gate unusable in practice.
+{
+  const allow = [
+    "ls 2> /dev/null",
+    "grep foo bar.txt 2>/dev/null || true",
+    "cat config.json 2> /dev/null | head -5",
+    "echo done > /dev/null 2>&1",
+    "rg TODO src 2>/dev/null",
+    "find . -name x 2>/dev/null",
+    "echo x >> /dev/null",
+    "node script.js 2>&1",
+  ];
+  for (const cmd of allow) {
+    assert.equal(
+      findMutatingShell(cmd),
+      null,
+      `should NOT match: ${cmd}`,
+    );
+  }
+  const block = [
+    "ls > /tmp/real-output.txt",
+    "echo hi >> /var/log/app.log",
+    "cat x > ~/backup.txt",
+  ];
+  for (const cmd of block) {
+    const hit = findMutatingShell(cmd);
+    assert.ok(hit, `should match: ${cmd}`);
+    assert.equal(hit.category, "file");
+    assert.equal(hit.label, "redirect");
+  }
+  // End-to-end under hard gate: silencing passes, real write blocks.
+  assert.equal(
+    shouldBlockTool(
+      { toolName: "bash", input: { command: "rg TODO src 2>/dev/null" } },
+      "hard",
+      true,
+      {},
+      [],
+    ).block,
+    false,
+  );
+  assert.equal(
+    shouldBlockTool(
+      { toolName: "bash", input: { command: "rg TODO src > /tmp/out" } },
+      "hard",
+      true,
+      {},
+      [],
+    ).block,
+    true,
+  );
+}
+
+// preview() must return config so the /policy preview handler's
+// historyFile append actually fires (v0.9 shipped the caller reading
+// result.config?.historyFile but the field was missing — preview history
+// never persisted).
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const result = await preview({
+    packageRoot: root,
+    cwd: root,
+    prompt: "preview config field regression test",
+    model: null,
+  });
+  assert.ok(
+    result.config && typeof result.config === "object",
+    "preview() result must include the resolved config object",
+  );
+  assert.ok(
+    typeof result.config.historyFile === "string",
+    "result.config.historyFile must be reachable (defaults provide a string)",
+  );
+}
+
 // shouldBlockTool reason should include the offending segment (v0.3).
 {
   const r = shouldBlockTool(
@@ -1164,15 +1241,17 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const result = validateConfig({
     config: {
       guard: {
-        customPatterns: [
-          { category: "bogus", label: "x", regex: "x" },
-        ],
+        customPatterns: [{ category: "bogus", label: "x", regex: "x" }],
       },
     },
     packageRoot: root,
   });
   assert.equal(result.ok, false);
-  assert.ok(result.issues.some((i) => i.severity === "error" && i.message.includes("bogus")));
+  assert.ok(
+    result.issues.some(
+      (i) => i.severity === "error" && i.message.includes("bogus"),
+    ),
+  );
 }
 
 // validateConfig: includePolicies with unknown id -> warning (not error).
@@ -1183,7 +1262,11 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     packageRoot: root,
   });
   assert.equal(result.ok, true);
-  assert.ok(result.issues.some((i) => i.severity === "warning" && i.message.includes("totally.bogus")));
+  assert.ok(
+    result.issues.some(
+      (i) => i.severity === "warning" && i.message.includes("totally.bogus"),
+    ),
+  );
 }
 
 // validateConfig: core.* id is always accepted.
@@ -1257,9 +1340,7 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 {
   const text = formatValidation({
     ok: true,
-    issues: [
-      { severity: "warning", message: "minor thing" },
-    ],
+    issues: [{ severity: "warning", message: "minor thing" }],
   });
   assert.match(text, /# Validation: OK \(with warnings\)/);
   assert.match(text, /Warnings \(1\)/);
@@ -1270,9 +1351,7 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 {
   const text = formatValidation({
     ok: false,
-    issues: [
-      { severity: "error", message: "broken thing" },
-    ],
+    issues: [{ severity: "error", message: "broken thing" }],
   });
   assert.match(text, /# Validation: FAIL \(1 error\)/);
   assert.match(text, /Errors \(1\)/);

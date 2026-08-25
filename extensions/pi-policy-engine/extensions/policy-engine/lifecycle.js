@@ -18,7 +18,12 @@ import {
   resolveHistoryPath,
 } from "../../src/core/history-store.js";
 import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
-import { buildEffectiveConfig, decide, recordHistory } from "./state.js";
+import {
+  HISTORY_CAP,
+  buildEffectiveConfig,
+  decide,
+  recordHistory,
+} from "./state.js";
 
 /**
  * Wire all event handlers onto the supplied `pi`. `getState()` returns the
@@ -55,20 +60,22 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
 
     // Load persisted history (if configured). Best-effort: file missing or
     // unreadable is fine; we just continue with an empty in-memory history.
+    // We read at most HISTORY_CAP entries — the in-memory ring buffer can't
+    // hold more than that, so reading historyMaxEntries (default 500) lines
+    // off disk just to slice(-50) them is wasted IO.
     if (cfg.historyFile) {
       const path = resolveHistoryPath(
         cfg.historyFile,
         ctx?.cwd ?? process.cwd(),
       );
       if (path) {
-        const limit = Number(cfg.historyMaxEntries ?? 500);
+        const limit = Math.min(
+          Number(cfg.historyMaxEntries ?? 500),
+          HISTORY_CAP,
+        );
         const diskEntries = await readHistory(path, limit);
         if (Array.isArray(diskEntries) && diskEntries.length > 0) {
-          state.history = diskEntries.slice(-50); // cap at HISTORY_CAP
-          if (!state.customPatternWarningsEmitted && diskEntries.length > 0) {
-            // Surface only once; quiet otherwise.
-            state.customPatternWarningsEmitted = true;
-          }
+          state.history = diskEntries;
         }
       }
     }

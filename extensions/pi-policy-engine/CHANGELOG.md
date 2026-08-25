@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.11.1
+
+- **Fix (hard gate regression)**: `ls 2>/dev/null`, `grep … 2>/dev/null`,
+  `echo x > /dev/null 2>&1` and every other /dev/null silencing idiom were
+  falsely blocked by the hard gate's redirect pattern. The v0.3
+  segment-anchored rewrite dropped the /dev/null exemption that v0.1 had;
+  fd duplication (`2>&1`, `>&2`) was also caught. Redirect now requires a
+  real (non-/dev/null, non-fd) file target. Includes a regex backtracking
+  trap fix: `>>` could satisfy the lookahead via its second `>`.
+- **Fix (preview history never persisted)**: `/policy preview` entries were
+  never appended to historyFile — the handler read `result.config?.historyFile`
+  but `preview()` never returned a `config` field, so the append was dead
+  code since v0.9. `preview()` now returns the resolved config.
+- **Cleanup**: removed a no-op block in session_start that misused
+  `customPatternWarningsEmitted` as a dedup flag for disk-history loading
+  (it could swallow customPattern warning semantics on /reload).
+- **Perf**: session_start now reads at most `HISTORY_CAP` entries from the
+  history file instead of `historyMaxEntries` (default 500) lines that were
+  immediately sliced down to 50.
+- Regression tests added for both fixes (silencing-vs-real-write matrix,
+  preview config field contract).
+
 ## 0.11.0
 
 - **Config validation**: `/policy validate` proactively checks the resolved

@@ -39,7 +39,18 @@ const MUTATING_SHELL_PATTERNS = [
   { category: "file", label: "chown", pattern: /^chown\s+/i },
   { category: "file", label: "sed -i", pattern: /^sed\s+-i\b/i },
   { category: "file", label: "perl -pi", pattern: /^perl\s+-p?i\b/i },
-  { category: "file", label: "redirect", pattern: /(?:^|[^&])>{1,2}\s*[^&]/ },
+  // Redirect to a real file is mutating; stderr/stdout silencing is not.
+  // Negative lookahead exempts the two non-file targets:
+  //   - /dev/null  (the universal silencing idiom, v0.1 regression fixed here:
+  //     the v0.3 segment-anchored rewrite dropped this exemption and made
+  //     `ls 2>/dev/null` a false positive under hard gate)
+  //   - & (fd duplication like 2>&1, >&2 — redirects to another descriptor,
+  //     never creates/modifies a file)
+  {
+    category: "file",
+    label: "redirect",
+    pattern: /(?:^|[^&])>{1,2}\s*(?!\/dev\/null|&)[^&\s>]/,
+  },
   { category: "file", label: "tee", pattern: /^tee\s+/i },
 
   // git
