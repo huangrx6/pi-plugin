@@ -6,6 +6,11 @@
 
 import { previewGuard } from "../../src/core/guard.js";
 import {
+  appendHistory,
+  clearHistory,
+  resolveHistoryPath,
+} from "../../src/core/history-store.js";
+import {
   formatConfig,
   formatDecision,
   formatGuardPreview,
@@ -186,7 +191,21 @@ export function createCommandHandler({ packageRoot, getState }) {
           prompt: rawPrompt,
           model: ctx?.model ?? state.currentModel,
         });
-        recordHistory(state, { source: "preview", prompt: rawPrompt, decision: result.decision });
+        recordHistory(state, {
+          source: "preview",
+          prompt: rawPrompt,
+          decision: result.decision,
+        });
+        if (result.config?.historyFile) {
+          const path = resolveHistoryPath(
+            result.config.historyFile,
+            ctx?.cwd ?? process.cwd(),
+          );
+          if (path && state.history.length > 0) {
+            const latest = state.history[state.history.length - 1];
+            appendHistory(path, latest).catch(() => {});
+          }
+        }
         notify(ctx, formatPreview(result), "info");
       } catch (err) {
         notify(
@@ -199,6 +218,33 @@ export function createCommandHandler({ packageRoot, getState }) {
     }
 
     if (action === "history") {
+      if (rest[0] === "clear-disk") {
+        const cfg = buildEffectiveConfig({
+          packageRoot,
+          cwd: ctx?.cwd ?? process.cwd(),
+          state,
+        });
+        if (!cfg.historyFile) {
+          notify(ctx, "No historyFile configured; nothing to clear.", "info");
+          return;
+        }
+        const path = resolveHistoryPath(
+          cfg.historyFile,
+          ctx?.cwd ?? process.cwd(),
+        );
+        if (!path) {
+          notify(ctx, "Could not resolve historyFile path.", "warning");
+          return;
+        }
+        const result = await clearHistory(path);
+        if (result.ok) {
+          state.history = [];
+          notify(ctx, `Cleared on-disk history at ${path}`, "success");
+        } else {
+          notify(ctx, `Failed to clear history: ${result.reason}`, "warning");
+        }
+        return;
+      }
       const n = Number.parseInt(rest[0] ?? "5", 10);
       const limit = Number.isFinite(n) && n > 0 ? n : 5;
       notify(ctx, formatHistory(state.history, limit), "info");
@@ -227,11 +273,7 @@ export function createCommandHandler({ packageRoot, getState }) {
         configGuard: cfg.guard,
         customPatterns: state.customPatterns,
       });
-      notify(
-        ctx,
-        formatGuardPreview(result, { gate, command: cmd }),
-        "info",
-      );
+      notify(ctx, formatGuardPreview(result, { gate, command: cmd }), "info");
       return;
     }
 
@@ -290,7 +332,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N]|test-guard <cmd>|config|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N|clear-disk]|test-guard <cmd>|config|status|why|cancel|reset]",
       "info",
     );
   };

@@ -12,6 +12,11 @@ import {
   loadProjectPolicies,
   renderPolicyBlock,
 } from "../../src/core/loader.js";
+import {
+  appendHistory,
+  readHistory,
+  resolveHistoryPath,
+} from "../../src/core/history-store.js";
 import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
 import { buildEffectiveConfig, decide, recordHistory } from "./state.js";
 
@@ -46,6 +51,23 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         notify(ctx, `Policy Engine guard config: ${w}`, "warning");
       }
       state.customPatternWarningsEmitted = true;
+    }
+
+    // Load persisted history (if configured). Best-effort: file missing or
+    // unreadable is fine; we just continue with an empty in-memory history.
+    if (cfg.historyFile) {
+      const path = resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd());
+      if (path) {
+        const limit = Number(cfg.historyMaxEntries ?? 500);
+        const diskEntries = await readHistory(path, limit);
+        if (Array.isArray(diskEntries) && diskEntries.length > 0) {
+          state.history = diskEntries.slice(-50); // cap at HISTORY_CAP
+          if (!state.customPatternWarningsEmitted && diskEntries.length > 0) {
+            // Surface only once; quiet otherwise.
+            state.customPatternWarningsEmitted = true;
+          }
+        }
+      }
     }
 
     if (cfg.showStatus !== false)
@@ -160,6 +182,14 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     state.lastPrompt = prompt;
     state.lastDecision = decision;
     recordHistory(state, { source: "decide", prompt, decision });
+    // Fire-and-forget persist to disk if configured.
+    if (config.historyFile) {
+      const path = resolveHistoryPath(config.historyFile, cwd);
+      if (path && state.history.length > 0) {
+        const latest = state.history[state.history.length - 1];
+        appendHistory(path, latest).catch(() => {});
+      }
+    }
 
     if (state.onceMode) state.onceMode = null;
 

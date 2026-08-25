@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0
+
+- **Cross-session history persistence**: `/policy history` now reads from
+  `~/.pi/agent/policy-engine/history.jsonl` (JSONL) at session_start and
+  appends every decision to it. Default-enabled; opt out with
+  `historyFile: ""` in `policy-engine.json`. Cap reads with
+  `historyMaxEntries` (default 500). `/policy history clear-disk` truncates
+  the file.
+- Best-effort writes: disk failures (EACCES, ENOSPC) are swallowed; the
+  in-memory history still works. No corruption risk because writes are
+  append-only.
+- New module: `src/core/history-store.js` exports `appendHistory`,
+  `readHistory`, `clearHistory`, `resolveHistoryPath`,
+  `defaultHistoryPath`. All accept an optional `fs` override for testing.
+
 ## 0.8.0
 
 - **Resolved config dump**: `/policy config` prints the effective merged
@@ -30,7 +45,7 @@
 ## 0.5.0
 
 - **Dry-run preview**: `/policy preview <prompt...>` runs the full routing
-  + policy composition pipeline for the given prompt without touching
+  - policy composition pipeline for the given prompt without touching
   the agent loop, mutating state, or calling the semantic fallback.
   Useful for tuning config/routing.json keywords, verifying new policies
   aren't truncated by the byte budget, and confirming custom patterns

@@ -21,6 +21,17 @@ import {
 } from "../src/core/guard.js";
 import { mergeConfig } from "../src/core/config.js";
 import {
+  createRequire as _createRequire,
+} from "node:module";
+const require = _createRequire(import.meta.url);
+import {
+  appendHistory,
+  clearHistory,
+  defaultHistoryPath,
+  readHistory,
+  resolveHistoryPath,
+} from "../src/core/history-store.js";
+import {
   buildSemanticPrompt,
   buildSemanticRequestBody,
   maybeSemanticClassify,
@@ -363,7 +374,9 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   try {
     parsed = JSON.parse(userPayload);
   } catch (error) {
-    throw new Error(`buildSemanticPrompt produced invalid JSON: ${error.message}`);
+    throw new Error(
+      `buildSemanticPrompt produced invalid JSON: ${error.message}`,
+    );
   }
   assert.equal(parsed.prompt, "hi");
   assert.equal(parsed.deterministic.taskType, "coding");
@@ -378,7 +391,13 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   };
   const result = await maybeSemanticClassify(
     "修个 typo",
-    { taskType: "documentation", risk: "low", domains: [], analysisOnly: false, confidence: 0.5 },
+    {
+      taskType: "documentation",
+      risk: "low",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.5,
+    },
     { semanticFallback: { enabled: false } },
     { fetcher },
   );
@@ -395,8 +414,21 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   };
   const result = await maybeSemanticClassify(
     "fix a bug",
-    { taskType: "debugging", risk: "low", domains: [], analysisOnly: false, confidence: 0.95 },
-    { semanticFallback: { enabled: true, endpoint: "https://x", model: "m", apiKeyEnvVar: "K" } },
+    {
+      taskType: "debugging",
+      risk: "low",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.95,
+    },
+    {
+      semanticFallback: {
+        enabled: true,
+        endpoint: "https://x",
+        model: "m",
+        apiKeyEnvVar: "K",
+      },
+    },
     { fetcher },
   );
   assert.equal(result, null);
@@ -474,7 +506,13 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   };
   const merged = await maybeSemanticClassify(
     "x",
-    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      taskType: "coding",
+      risk: "low",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.4,
+    },
     {
       semanticFallback: {
         enabled: true,
@@ -494,7 +532,13 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   delete process.env.PI_POLICY_TEST_KEY;
   const merged = await maybeSemanticClassify(
     "x",
-    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      taskType: "coding",
+      risk: "low",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.4,
+    },
     {
       semanticFallback: {
         enabled: true,
@@ -510,10 +554,20 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 // Semantic fallback: response not ok — returns null.
 {
   process.env.PI_POLICY_TEST_KEY = "sk-test";
-  const fetcher = async () => ({ ok: false, status: 401, json: async () => ({}) });
+  const fetcher = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({}),
+  });
   const merged = await maybeSemanticClassify(
     "x",
-    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      taskType: "coding",
+      risk: "low",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.4,
+    },
     {
       semanticFallback: {
         enabled: true,
@@ -534,12 +588,20 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const fetcher = async () => ({
     ok: true,
     json: async () => ({
-      choices: [{ message: { content: JSON.stringify({ taskType: "wrong" }) } }],
+      choices: [
+        { message: { content: JSON.stringify({ taskType: "wrong" }) } },
+      ],
     }),
   });
   const merged = await maybeSemanticClassify(
     "x",
-    { taskType: "coding", risk: "low", domains: [], analysisOnly: false, confidence: 0.4 },
+    {
+      taskType: "coding",
+      risk: "low",
+      domains: [],
+      analysisOnly: false,
+      confidence: 0.4,
+    },
     {
       semanticFallback: {
         enabled: true,
@@ -558,8 +620,16 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 {
   const { patterns, warnings } = compileCustomPatterns({
     customPatterns: [
-      { category: "file", label: "mydeploy-apply", regex: "mydeploy\\s+(apply|destroy)" },
-      { category: "package", label: "internal-tool", regex: "deploy-tool\\s+install" },
+      {
+        category: "file",
+        label: "mydeploy-apply",
+        regex: "mydeploy\\s+(apply|destroy)",
+      },
+      {
+        category: "package",
+        label: "internal-tool",
+        regex: "deploy-tool\\s+install",
+      },
     ],
   });
   assert.equal(warnings.length, 0);
@@ -596,10 +666,10 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 {
   assert.deepEqual(compileCustomPatterns({}), { patterns: [], warnings: [] });
   assert.deepEqual(compileCustomPatterns(null), { patterns: [], warnings: [] });
-  assert.deepEqual(
-    compileCustomPatterns({ customPatterns: "not-an-array" }),
-    { patterns: [], warnings: [] },
-  );
+  assert.deepEqual(compileCustomPatterns({ customPatterns: "not-an-array" }), {
+    patterns: [],
+    warnings: [],
+  });
 }
 
 // Custom patterns participate in findMutatingShell: user pattern matches.
@@ -613,7 +683,10 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.equal(hit?.category, "file");
   assert.equal(hit?.label, "mydeploy-apply");
   // Built-in patterns still work alongside custom ones.
-  const builtin = findMutatingShell("kubectl apply -f x.yaml", compiled.patterns);
+  const builtin = findMutatingShell(
+    "kubectl apply -f x.yaml",
+    compiled.patterns,
+  );
   assert.equal(builtin?.category, "k8s");
 }
 
@@ -648,7 +721,11 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   // hard gate with custom pattern matches
   const compiled = compileCustomPatterns({
     customPatterns: [
-      { category: "file", label: "deploy-tool-prod", regex: "^deploy-tool\\s+prod" },
+      {
+        category: "file",
+        label: "deploy-tool-prod",
+        regex: "^deploy-tool\\s+prod",
+      },
     ],
   });
   const prod = previewGuard({
@@ -729,7 +806,11 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 {
   const compiled = compileCustomPatterns({
     customPatterns: [
-      { category: "file", label: "company-deploy", regex: "^deploy-tool\\s+prod" },
+      {
+        category: "file",
+        label: "company-deploy",
+        regex: "^deploy-tool\\s+prod",
+      },
     ],
   });
   const blocked = shouldBlockTool(
@@ -770,7 +851,9 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.ok(result.policies.some((p) => p.id === "model.minimax-m3"));
   assert.ok(result.stats.builtInBytes > 0);
   assert.ok(result.stats.budget > 0);
-  assert.ok(result.stats.budgetUsedPct >= 0 && result.stats.budgetUsedPct <= 100);
+  assert.ok(
+    result.stats.budgetUsedPct >= 0 && result.stats.budgetUsedPct <= 100,
+  );
 }
 
 // preview: pure read — does NOT mutate any shared state.
@@ -807,11 +890,10 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       gate: "hard",
       modelPolicy: "model.minimax-m3",
     },
-    classification: { reasons: ["risk:high matched prod", "task:architecture"] },
-    policies: [
-      { id: "core.evidence-priority" },
-      { id: "domain.database" },
-    ],
+    classification: {
+      reasons: ["risk:high matched prod", "task:architecture"],
+    },
+    policies: [{ id: "core.evidence-priority" }, { id: "domain.database" }],
     projectPolicies: [],
     truncated: ["domain.kubernetes"],
     wouldRequireApproval: true,
@@ -879,7 +961,10 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.equal(state.history.length, HISTORY_CAP);
   // Oldest 5 were dropped; the remaining entries are prompts 5..HISTORY_CAP+4.
   assert.match(state.history[0].prompt, /^prompt 5$/);
-  assert.match(state.history[HISTORY_CAP - 1].prompt, new RegExp(`^prompt ${HISTORY_CAP + 4}$`));
+  assert.match(
+    state.history[HISTORY_CAP - 1].prompt,
+    new RegExp(`^prompt ${HISTORY_CAP + 4}$`),
+  );
 }
 
 // recordHistory: trims long prompts to one line, ≤ 80 chars.
@@ -908,6 +993,107 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const state = { history: [] };
   recordHistory(state, { source: "decide", prompt: "x", decision: null });
   assert.equal(state.history.length, 0);
+}
+
+// history-store: resolveHistoryPath expands ~ and resolves relative paths.
+{
+  assert.match(resolveHistoryPath("~/x/y.jsonl"), /^~?\/.+x\/y\.jsonl$/);
+  assert.match(resolveHistoryPath("/abs/path.jsonl"), /\/abs\/path\.jsonl$/);
+  assert.equal(resolveHistoryPath(""), null);
+  assert.equal(resolveHistoryPath(null), null);
+  // cwd-relative
+  assert.equal(
+    resolveHistoryPath("rel.jsonl", "/tmp"),
+    require("node:path").resolve("/tmp", "rel.jsonl"),
+  );
+  // default path
+  const def = defaultHistoryPath();
+  assert.match(def, /policy-engine\/history\.jsonl$/);
+}
+
+// history-store: round-trip via in-memory fs mock.
+{
+  // Minimal fs mock: appendFile accumulates, readFile returns contents.
+  const store = new Map();
+  const fs = {
+    async appendFile(path, data) {
+      store.set(path, (store.get(path) ?? "") + data);
+    },
+    async readFile(path) {
+      if (!store.has(path)) {
+        const err = new Error("ENOENT");
+        err.code = "ENOENT";
+        throw err;
+      }
+      return store.get(path);
+    },
+    async writeFile(path, data) {
+      store.set(path, data);
+    },
+  };
+  const file = "/mem/history.jsonl";
+
+  // Empty file -> empty array.
+  assert.deepEqual(await readHistory(file, 50, fs), []);
+
+  // Append three entries.
+  const entries = [
+    { ts: 1, source: "decide", prompt: "p1", task: "coding" },
+    { ts: 2, source: "preview", prompt: "p2", task: "debugging" },
+    { ts: 3, source: "decide", prompt: "p3", task: "documentation" },
+  ];
+  for (const e of entries) {
+    const r = await appendHistory(file, e, fs);
+    assert.equal(r.ok, true);
+  }
+  assert.ok(store.get(file).split("\n").length === 4); // 3 + trailing empty
+
+  // Read back: chronological order, respects limit.
+  const got = await readHistory(file, 50, fs);
+  assert.equal(got.length, 3);
+  assert.equal(got[0].ts, 1);
+  assert.equal(got[2].ts, 3);
+
+  // Limit respected: only most-recent 2.
+  const last2 = await readHistory(file, 2, fs);
+  assert.equal(last2.length, 2);
+  assert.equal(last2[0].ts, 2);
+  assert.equal(last2[1].ts, 3);
+
+  // Malformed line is skipped (graceful).
+  store.set(file, store.get(file) + "{not-json\n");
+  const withBad = await readHistory(file, 50, fs);
+  assert.equal(withBad.length, 3);
+
+  // Clear truncates.
+  const cleared = await clearHistory(file, fs);
+  assert.equal(cleared.ok, true);
+  assert.equal(store.get(file), "");
+  assert.deepEqual(await readHistory(file, 50, fs), []);
+}
+
+// history-store: appendHistory on write-failure returns ok:false.
+{
+  const fs = {
+    async appendFile() {
+      throw new Error("EACCES");
+    },
+  };
+  const r = await appendHistory("/some/path", { ts: 1 }, fs);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /EACCES/);
+}
+
+// history-store: readHistory on missing file returns [].
+{
+  const fs = {
+    async readFile() {
+      const err = new Error("ENOENT");
+      err.code = "ENOENT";
+      throw err;
+    },
+  };
+  assert.deepEqual(await readHistory("/missing/path", 50, fs), []);
 }
 
 // formatConfig: minimal config shows all defaults.
@@ -940,7 +1126,11 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
       enabledCategories: ["file", "git", "k8s"],
       disabledCategories: ["package"],
       customPatterns: [
-        { category: "file", label: "deploy-tool-prod", regex: "^deploy-tool\\s+prod" },
+        {
+          category: "file",
+          label: "deploy-tool-prod",
+          regex: "^deploy-tool\\s+prod",
+        },
       ],
     },
     semanticFallback: {

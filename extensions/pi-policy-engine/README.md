@@ -143,6 +143,7 @@ project policies (0 loaded, 0 bytes):
 ```
 
 适用场景：
+
 - 调 `config.routing.json` 关键词后看新 prompt 路由是否如预期
 - 写新 policy 后看是否被 byte 预算裁掉
 - 加新 custom pattern 后看是否被加载
@@ -174,6 +175,7 @@ reason: Policy Engine: ... [file: deploy-tool-prod]. Segment: ...
 会**临时模拟 `pendingApproval=true`**（严格模式下 gate 才生效的状态），所以 off / soft gate 会显示 "would block: no" 并解释为什么。
 
 适用场景：
+
 - 验证新加的 `guard.customPatterns` 是否生效
 - 确认 `disabledCategories` 关掉某个分类后不会误拦
 - 排查"为啥这条命令没被拦"
@@ -215,11 +217,29 @@ semanticFallback
 ```
 
 适用场景：
+
 - 验证 global / project JSON 真的被加载了（不是还在用 default）
 - 确认 `domainHints` 没写错（JSON 拼写错误会被静默忽略）
 - 检查 `customPatterns` 数量对得上你配的
 
 不告诉你**哪一层覆盖了哪一层**——要查 source 层，自己读 `~/.pi/agent/policy-engine.json` 和 `<project>/.pi/policy-engine.json`。
+
+#### 跨 session 历史：`historyFile` + `historyMaxEntries`
+
+`/policy history` 默认会读 `~/.pi/agent/policy-engine/history.jsonl`（JSONL 每行一条），让你**跨 session 看路由历史**。可以在 `policy-engine.json` 调：
+
+- `historyFile`：磁盘路径。支持 `~` 展开和相对路径。设为 `""` / `null` 关闭磁盘持久化（只剩 session 内内存）。
+- `historyMaxEntries`：session_start 从磁盘读取时最多拉多少条，默认 500。
+- `/policy history clear-disk`：清空磁盘文件。
+
+文件格式：
+
+```text
+{"ts":1700000000000,"source":"decide","prompt":"...","task":"coding",...}
+{"ts":1700000001000,"source":"preview","prompt":"...","task":"debugging",...}
+```
+
+抹写策略：append-only，不重写历史。失败场景（磁盘满 / EACCES）会被吞掉不报错，session 内内存仍能正常工作。
 
 #### Session 历史：`/policy history [N]`
 
@@ -244,8 +264,8 @@ semanticFallback
 
 - 默认 5 条，可指定 `N`
 - 1-based 序号 + 时间戳（HH:MM:SS）+ source（decide/preview）+ 路由结果
-- session_start 时清空；最长保留 50 条
-- 不会写磁盘——只在内存里
+- session_start 时清空内存中的临时记录；最长保留 50 条
+- **跨 session 持久化**：默认写到 `~/.pi/agent/policy-engine/history.jsonl`（JSONL 格式，每条一行）。可在 `policy-engine.json` 用 `historyFile` 改路径（或设为空字符串关闭写盘）。`historyMaxEntries` 控制从磁盘读取时最多加载多少（默认 500）。/policy history clear-disk 能清空磁盘文件
 
 ### Policy 层叠加
 
@@ -289,7 +309,9 @@ runtime /policy override           ← 进程内（/policy 命令）
   "excludePolicies": [],
   "domainHints": ["backend"],
   "projectPolicyMaxFiles": 12,
-  "projectPolicyMaxBytes": 24000
+  "projectPolicyMaxBytes": 24000,
+  "historyFile": "~/.pi/agent/policy-engine/history.jsonl",
+  "historyMaxEntries": 500
 }
 ```
 
@@ -358,7 +380,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 | `/policy preview <prompt>` | 不触发 agent，直接看路由结果（classification + 加载的 policies + byte 预算使用） |
 | `/policy test-guard <bash>` | 不触发严格模式，直接看当前 gate 是否会拦截这条命令 |
 | `/policy config` | 打印当前 resolved 配置（defaults + global + project + runtime 四层合并结果） |
-| `/policy history [N]` | 本 session 内最近的 N 条路由决策（默认 5），包括 /policy preview 也记录 |
+| `/policy history [N\|clear-disk]` | 本 session 内最近的 N 条路由决策（默认 5），包括 /policy preview 也记录。`clear-disk` 清空磁盘历史文件 |
 | `/policy status` | 当前 mode / gate / profile / phase / 模型 |
 | `/policy why` | 上一轮的完整路由决策（含命中规则） |
 | `/policy cancel` | 取消 pending strict plan |
