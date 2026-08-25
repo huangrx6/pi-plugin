@@ -1,6 +1,33 @@
 // Human-readable formatters for decisions and status rows. Pure functions;
 // consumed by commands.js and lifecycle.js.
 
+/**
+ * Render a `/policy test-guard` result as human-readable text.
+ */
+export function formatGuardPreview(result, { gate, command }) {
+  const lines = [
+    `# Guard preview (gate: ${gate ?? "?"})`,
+    "",
+    `command: ${command ?? ""}`,
+    `would block: ${result.wouldBlock ? "yes" : "no"}`,
+  ];
+  if (result.wouldBlock) {
+    lines.push(`category: ${result.category ?? "?"}`);
+    lines.push(`label: ${result.label ?? "?"}`);
+    lines.push(`segment: ${result.segment ?? ""}`);
+    lines.push(`reason: ${result.reason ?? ""}`);
+  } else if (gate === "off") {
+    lines.push("(gate is off — nothing is mechanically blocked)");
+  } else if (gate === "soft") {
+    lines.push(
+      "(soft gate blocks direct mutation tools like write / edit; shell commands need hard gate to be blocked)",
+    );
+  } else {
+    lines.push("(no built-in or custom pattern matched this command)");
+  }
+  return lines.join("\n");
+}
+
 export function formatHistory(entries, n = 5) {
   if (!entries || entries.length === 0) {
     return "No routing history yet. Use /policy preview <prompt> to dry-run, or send a prompt to record one.";

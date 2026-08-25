@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+- **Guard dry-run**: `/policy test-guard <bash command>` simulates the gate
+  against a sample command without entering strict mode. Reports whether
+  the command would be blocked, with category, label, matched segment, and
+  reason. Useful for verifying `guard.customPatterns` and `disabledCategories`
+  without accidentally triggering a real block.
+
 ## 0.6.0
 
 - **In-session routing history**: `/policy history [N]` shows the last N

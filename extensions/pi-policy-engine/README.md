@@ -150,6 +150,34 @@ project policies (0 loaded, 0 bytes):
 
 preview 是**纯读**：不动 session state、不发请求给 agent、不发请求给 semantic fallback（除非用户另外调高决定性 confidence 阈值）。
 
+#### Guard dry-run：`/policy test-guard <bash command>`
+
+不发命令给 agent，直接看当前 gate + custom patterns 会不会拦它。调完 `guard.customPatterns` 后验证用：
+
+```text
+/policy test-guard deploy-tool prod my-service
+```
+
+输出：
+
+```text
+# Guard preview (gate: hard)
+
+command: deploy-tool prod my-service
+would block: yes
+category: file
+label: deploy-tool-prod
+segment: deploy-tool prod my-service
+reason: Policy Engine: ... [file: deploy-tool-prod]. Segment: ...
+```
+
+会**临时模拟 `pendingApproval=true`**（严格模式下 gate 才生效的状态），所以 off / soft gate 会显示 "would block: no" 并解释为什么。
+
+适用场景：
+- 验证新加的 `guard.customPatterns` 是否生效
+- 确认 `disabledCategories` 关掉某个分类后不会误拦
+- 排查"为啥这条命令没被拦"
+
 #### Session 历史：`/policy history [N]`
 
 回看本 session 内所有路由决策（决定性 + preview），调参后看实际效果用：
@@ -285,6 +313,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 | `/policy gate off\|soft\|hard` | 切换 gate 等级 |
 | `/policy profile <name>` | 切 profile（auto / coding / debugging / documentation / architecture / review / research） |
 | `/policy preview <prompt>` | 不触发 agent，直接看路由结果（classification + 加载的 policies + byte 预算使用） |
+| `/policy test-guard <bash>` | 不触发严格模式，直接看当前 gate 是否会拦截这条命令 |
 | `/policy history [N]` | 本 session 内最近的 N 条路由决策（默认 5），包括 /policy preview 也记录 |
 | `/policy status` | 当前 mode / gate / profile / phase / 模型 |
 | `/policy why` | 上一轮的完整路由决策（含命中规则） |

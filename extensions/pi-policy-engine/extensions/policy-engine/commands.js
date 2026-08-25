@@ -4,8 +4,10 @@
 //     gate / profile in sequence. This matches pi-mode-switcher's /mode UX.
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
+import { previewGuard } from "../../src/core/guard.js";
 import {
   formatDecision,
+  formatGuardPreview,
   formatHistory,
   formatPreview,
   formatStatusSummary,
@@ -202,6 +204,36 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
+    if (action === "test-guard" || action === "testguard") {
+      const cmd = rest.join(" ").trim();
+      if (!cmd) {
+        notify(
+          ctx,
+          "Usage: /policy test-guard <bash command>  (dry-run the gate against a sample command)",
+          "warning",
+        );
+        return;
+      }
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      const gate = state.runtimeGate ?? cfg.gate ?? "soft";
+      const result = previewGuard({
+        command: cmd,
+        gate,
+        configGuard: cfg.guard,
+        customPatterns: state.customPatterns,
+      });
+      notify(
+        ctx,
+        formatGuardPreview(result, { gate, command: cmd }),
+        "info",
+      );
+      return;
+    }
+
     if (action === "why") {
       notify(ctx, formatDecision(state.lastDecision, state.phase), "info");
       return;
@@ -247,7 +279,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N]|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N]|test-guard <cmd>|status|why|cancel|reset]",
       "info",
     );
   };

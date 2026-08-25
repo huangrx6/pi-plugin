@@ -15,6 +15,7 @@ import {
   findMutatingShell,
   isApprovalPrompt,
   isMutatingShell,
+  previewGuard,
   shouldBlockTool,
   splitShellSegments,
 } from "../src/core/guard.js";
@@ -24,7 +25,11 @@ import {
   buildSemanticRequestBody,
   maybeSemanticClassify,
 } from "../src/core/semantic.js";
-import { formatHistory, formatPreview } from "../extensions/policy-engine/format.js";
+import {
+  formatGuardPreview,
+  formatHistory,
+  formatPreview,
+} from "../extensions/policy-engine/format.js";
 import {
   HISTORY_CAP,
   preview,
@@ -629,6 +634,94 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const hit = findMutatingShell("rm tmp", compiled2.patterns);
   assert.equal(hit?.label, "shadowed-rm");
   assert.equal(compiled.warnings.length, 1); // "audit" not in ALL_CATEGORIES
+}
+
+// previewGuard: dry-run the gate against a sample command.
+{
+  // hard gate blocks built-in rm
+  const rm = previewGuard({ command: "rm -rf tmp", gate: "hard" });
+  assert.equal(rm.wouldBlock, true);
+  assert.equal(rm.category, "file");
+  assert.equal(rm.label, "rm");
+
+  // hard gate with custom pattern matches
+  const compiled = compileCustomPatterns({
+    customPatterns: [
+      { category: "file", label: "deploy-tool-prod", regex: "^deploy-tool\\s+prod" },
+    ],
+  });
+  const prod = previewGuard({
+    command: "deploy-tool prod my-service",
+    gate: "hard",
+    customPatterns: compiled.patterns,
+  });
+  assert.equal(prod.wouldBlock, true);
+  assert.equal(prod.label, "deploy-tool-prod");
+  // staging does not match
+  const staging = previewGuard({
+    command: "deploy-tool staging my-service",
+    gate: "hard",
+    customPatterns: compiled.patterns,
+  });
+  assert.equal(staging.wouldBlock, false);
+
+  // hard gate respects disabledCategories
+  const disabled = previewGuard({
+    command: "kubectl apply -f x.yaml",
+    gate: "hard",
+    configGuard: { disabledCategories: ["k8s"] },
+  });
+  assert.equal(disabled.wouldBlock, false);
+
+  // soft gate does not block shell commands
+  const soft = previewGuard({ command: "rm -rf tmp", gate: "soft" });
+  assert.equal(soft.wouldBlock, false);
+
+  // off gate never blocks
+  const off = previewGuard({ command: "rm -rf tmp", gate: "off" });
+  assert.equal(off.wouldBlock, false);
+
+  // empty / null command is safe
+  assert.equal(previewGuard({ command: "", gate: "hard" }).wouldBlock, false);
+  assert.equal(previewGuard({ command: null, gate: "hard" }).wouldBlock, false);
+}
+
+// formatGuardPreview: block case shows all fields.
+{
+  const text = formatGuardPreview(
+    {
+      wouldBlock: true,
+      category: "file",
+      label: "rm",
+      segment: "rm -rf tmp",
+      reason: "blocked",
+    },
+    { gate: "hard", command: "rm -rf tmp" },
+  );
+  assert.match(text, /# Guard preview \(gate: hard\)/);
+  assert.match(text, /would block: yes/);
+  assert.match(text, /category: file/);
+  assert.match(text, /label: rm/);
+  assert.match(text, /segment: rm -rf tmp/);
+}
+
+// formatGuardPreview: non-blocking cases explain why.
+{
+  const offText = formatGuardPreview(
+    { wouldBlock: false, reason: null },
+    { gate: "off", command: "ls" },
+  );
+  assert.match(offText, /gate is off/);
+  const softText = formatGuardPreview(
+    { wouldBlock: false, reason: null },
+    { gate: "soft", command: "rm -rf tmp" },
+  );
+  assert.match(softText, /soft gate blocks direct mutation tools/);
+  const cleanText = formatGuardPreview(
+    { wouldBlock: false, reason: null },
+    { gate: "hard", command: "ls -la" },
+  );
+  assert.match(cleanText, /no built-in or custom pattern matched/);
 }
 
 // Custom patterns honored by shouldBlockTool.

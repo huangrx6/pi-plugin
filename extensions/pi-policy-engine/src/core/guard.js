@@ -321,6 +321,35 @@ export function shouldBlockTool(
   return { block: false };
 }
 
+/**
+ * Dry-run the gate against a hypothetical bash command. Used by
+ * `/policy test-guard`. Pretends `pendingApproval=true` so the gate is
+ * active; the result is what the agent would actually receive during a
+ * strict workflow under the given gate + customPatterns.
+ */
+export function previewGuard({
+  command,
+  gate,
+  configGuard,
+  customPatterns = [],
+  pendingApproval = true,
+}) {
+  const result = shouldBlockTool(
+    { toolName: "bash", input: { command: String(command ?? "") } },
+    gate,
+    pendingApproval,
+    configGuard,
+    customPatterns,
+  );
+  return {
+    wouldBlock: !!result.block,
+    category: result.category,
+    label: result.label,
+    segment: result.segment,
+    reason: result.reason ?? null,
+  };
+}
+
 export function isApprovalPrompt(prompt) {
   const text = String(prompt ?? "")
     .trim()
