@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { classifyTask } from "../../src/core/classifier.js";
 import { classifyFollowUp } from "../../src/core/intent.js";
 import {
+  globalConfigFile,
   loadEffectiveConfig,
   loadRoutingConfig,
   projectConfigFiles,
@@ -18,6 +19,10 @@ import {
   loadProfile,
 } from "../../src/core/loader.js";
 import { buildDecision, loadModelRules } from "../../src/core/router.js";
+import {
+  resolveHistoryPath,
+  strictStatePath,
+} from "../../src/core/history-store.js";
 import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
 export function createState() {
@@ -70,6 +75,19 @@ function stateRuntimeOverrides(state) {
   if (state.runtimeMode) out.mode = state.runtimeMode;
   if (state.runtimeProfile) out.profile = state.runtimeProfile;
   return out;
+}
+
+/**
+ * THE one strict-state path resolver (v0.23 P0). Save/load/clear/cancel/
+ * reset must all derive the file through this function — v0.22 namespaced
+ * the file by cwd but three clear sites kept the legacy call shape
+ * (strictStatePath without cwd), clearing strict-state.json while saves
+ * went to strict-state-<hash>.json: a cancelled plan revived on restart.
+ */
+export function resolveStrictStatePath(cfg, cwd) {
+  if (!cfg?.historyFile) return null;
+  const historyPath = resolveHistoryPath(cfg.historyFile, cwd);
+  return historyPath ? strictStatePath(historyPath, cwd) : null;
 }
 
 export function buildEffectiveConfig({ packageRoot, cwd, state, raw = false }) {
@@ -360,6 +378,10 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
 
   // Broken config JSON must not be silent (v0.20): safeJson swallows parse
   // errors during merging, so surface them here.
+  const g = globalConfigFile();
+  if (g?.error) {
+    push("error", `global config ${g.path}: invalid JSON (${g.error})`);
+  }
   if (cwd) {
     for (const f of projectConfigFiles(cwd)) {
       if (f.error) {

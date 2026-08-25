@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.23.0
+
+Release-candidate hardening #4 — the three runtime invariants.
+
+- **P0: read-only intent is BINDING in the policy runtime.** The classifier
+  said read-only, then rigor.quick injected "Inspect -> Change -> Verify"
+  and rigor.standard "execute it without unnecessary ceremony" — a direct
+  system-prompt contradiction for "只分析这个 bug，不要修改代码". New
+  intent policy layer (policies/intents/{read-only,mutate,unclear}.md,
+  priority core > project > intent > flow > rigor > …); rigor.quick/
+  standard and flow.debug-first are now intent-NEUTRAL (mutation guidance
+  only inside "If mutation is requested:", plus an explicit read-only
+  branch); the runtime header announces Execution intent / Execution
+  timing / Approval required. Intent is a hard boundary; rigor decides
+  depth, never whether to mutate.
+- **P0: only a PURE approval releases — no enumeration gaps.** Verified
+  leaks: "批准，不要重构/不要部署/不要迁移数据库/我还有一个要求/顺序别变"
+  all approved (constraint verbs outside the enumerated lists), and
+  "批准，为什么第二步要改数据库？" approved because a question could not
+  override an earlier approve. Resolution is now conservative by default:
+  approve + question → discuss; approve + ANY substantive clause → revise;
+  only filler/continuation keeps the release.
+- **P0: cancelled strict plans no longer revive.** v0.22 namespaced the
+  state file but three clear sites (clearAwaitState, /policy cancel,
+  /policy reset) kept the legacy un-namespaced call — they cleared
+  strict-state.json while saves went to `strict-state-<hash>.json`, so a
+  cancelled plan restored on restart. All save/load/clear paths now go
+  through resolveStrictStatePath(cfg, cwd); E2E cancel → restart →
+  no-restore is pinned.
+- **P1: conditional execution ≠ hypothetical.** Bare 如果 no longer
+  triggers hypothetical (comma-free "如果测试通过就部署" misread as
+  read-only while the comma'd form mutated); the trigger is a consequence
+  QUESTION (会发生什么/有什么影响/为什么要…). Conditional approval talk
+  ("如果确认后再执行" + question clause) reads read-only consistently.
+- **P1: specific negated verbs are scope constraints.** 不要重构/不要部署/
+  不要删除 on an otherwise-live task stay mutate ("修复这个 bug，但不要
+  重构" was unclear — 重构 has no target noun so it parsed as a global
+  revoke). Only broad verbs (改/修改/动/做/执行…) revoke globally.
+- **P1: quote-aware approval spans.** Matching now happens on unquoted
+  text (quoted spans masked): '确认后再执行，字段叫"id"' gates; a quote
+  elsewhere in the clause no longer hides the demand (the v0.22
+  whole-clause skip made '先把标题改成"foo"' punctuation-sensitive).
+- **P2**: global config (~/.pi/agent/policy-engine.json) parse errors are
+  reported by /policy validate (project layers already were).
+- Tests 181 → 183 (incl. runtime-invariant E2Es); corpus 58 → 71.
+
 ## 0.22.0
 
 Release-candidate hardening #3 — approval-gate modality + sequential

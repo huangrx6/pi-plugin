@@ -31,7 +31,6 @@ import {
   readHistory,
   resolveHistoryPath,
   saveStrictState,
-  strictStatePath,
 } from "../../src/core/history-store.js";
 import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
 import {
@@ -40,6 +39,7 @@ import {
   decide,
   mergeRevisionDecision,
   recordHistory,
+  resolveStrictStatePath,
 } from "./state.js";
 
 /**
@@ -86,8 +86,7 @@ function buildBlock({ packageRoot, cwd, config, decision, phase, model }) {
 
 /** Clear the persisted awaiting state (approval/cancel resolved it). */
 function clearAwaitState(cfg, cwd) {
-  if (!cfg?.historyFile) return Promise.resolve();
-  const sPath = strictStatePath(resolveHistoryPath(cfg.historyFile, cwd));
+  const sPath = resolveStrictStatePath(cfg, cwd);
   if (!sPath) return Promise.resolve();
   return clearStrictState(sPath);
 }
@@ -132,12 +131,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     // (v0.20): plan in the evening, /resume the next morning, "批准" must
     // still route through the approval classifier instead of a fresh
     // classification. cwd-matched, max one week old; /policy cancel discards.
-    if (cfg.historyFile) {
-      const hPath = resolveHistoryPath(
-        cfg.historyFile,
-        ctx?.cwd ?? process.cwd(),
-      );
-      const sPath = strictStatePath(hPath, ctx?.cwd ?? process.cwd());
+    {
+      const sPath = resolveStrictStatePath(cfg, ctx?.cwd ?? process.cwd());
       if (sPath) {
         const restored = await loadStrictState(sPath, {
           cwd: ctx?.cwd ?? process.cwd(),
@@ -360,11 +355,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     });
     // Persist the awaiting state (or clear it when the strict task is
     // done/aborted) so a session restart doesn't lose the approval gate.
-    if (cfg.historyFile) {
-      const sPath = strictStatePath(
-        resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd()),
-        ctx?.cwd ?? process.cwd(),
-      );
+    {
+      const sPath = resolveStrictStatePath(cfg, ctx?.cwd ?? process.cwd());
       if (sPath) {
         if (state.phase === "awaiting_approval" && state.lastDecision) {
           saveStrictState(sPath, {

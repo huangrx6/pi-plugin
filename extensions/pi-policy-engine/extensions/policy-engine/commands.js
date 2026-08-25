@@ -18,7 +18,6 @@ import {
   clearHistory,
   clearStrictState,
   resolveHistoryPath,
-  strictStatePath,
 } from "../../src/core/history-store.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
 import {
@@ -26,6 +25,7 @@ import {
   compareDecisions,
   preview,
   recordHistory,
+  resolveStrictStatePath,
   validateConfig,
 } from "./state.js";
 
@@ -348,12 +348,8 @@ export function createCommandHandler({ packageRoot, getState }) {
         cwd: ctx?.cwd ?? process.cwd(),
         state,
       });
-      if (cfg0.historyFile) {
-        const sPath = strictStatePath(
-          resolveHistoryPath(cfg0.historyFile, ctx?.cwd ?? process.cwd()),
-        );
-        if (sPath) clearStrictState(sPath).catch(() => {});
-      }
+      const sPath0 = resolveStrictStatePath(cfg0, ctx?.cwd ?? process.cwd());
+      if (sPath0) clearStrictState(sPath0).catch(() => {});
       notify(ctx, "Pending strict plan cancelled.", "success");
       return;
     }
@@ -370,12 +366,8 @@ export function createCommandHandler({ packageRoot, getState }) {
         cwd: ctx?.cwd ?? process.cwd(),
         state,
       });
-      if (cfg1.historyFile) {
-        const sPath1 = strictStatePath(
-          resolveHistoryPath(cfg1.historyFile, ctx?.cwd ?? process.cwd()),
-        );
-        if (sPath1) clearStrictState(sPath1).catch(() => {});
-      }
+      const sPath1 = resolveStrictStatePath(cfg1, ctx?.cwd ?? process.cwd());
+      if (sPath1) clearStrictState(sPath1).catch(() => {});
       notify(ctx, "Policy runtime overrides reset.", "success");
       return;
     }

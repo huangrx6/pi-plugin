@@ -20,6 +20,23 @@ function safeJson(path, fallback = {}) {
  * file exists but does not parse (surfaced via /policy validate; the
  * merge itself still ignores broken files).
  */
+/**
+ * The global config file, with a parse-error probe (v0.23 P2): project
+ * layers already report broken JSON via projectConfigFiles/validate; the
+ * GLOBAL layer was still silently swallowed by safeJson. Same treatment.
+ */
+export function globalConfigFile() {
+  const path = join(homedir(), ".pi", "agent", "policy-engine.json");
+  if (!existsSync(path)) return null;
+  let error = null;
+  try {
+    JSON.parse(readFileSync(path, "utf8"));
+  } catch (e) {
+    error = e?.message ?? String(e);
+  }
+  return { path, error };
+}
+
 export function projectConfigFiles(cwd) {
   const out = [];
   let cur = resolve(String(cwd ?? "."));

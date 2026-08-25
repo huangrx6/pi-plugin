@@ -434,6 +434,104 @@
       "expect": {
         "planResponse": "approve"
       }
+    },
+    {
+      "prompt": "批准，不要重构",
+      "because": "v0.23 P0: enumerated constraints missed 重构 (not a target noun); substantive-after-approve now defaults to revise",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "批准，不要部署",
+      "because": "v0.23 P0: same family",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "批准，不要迁移数据库",
+      "because": "v0.23 P0: same family",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "批准，我还有一个要求",
+      "because": "v0.23 P0: substantive unknown after approve must not release",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "批准，顺序别变",
+      "because": "v0.23 P0: substantive unknown family",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "批准，为什么第二步要改数据库？",
+      "because": "v0.23 P0: question after approve downgrades to discuss",
+      "expect": {
+        "planResponse": "discuss"
+      }
+    },
+    {
+      "prompt": "批准，这样会不会影响线上？",
+      "because": "v0.23 P0: question after approve",
+      "expect": {
+        "planResponse": "discuss"
+      }
+    },
+    {
+      "prompt": "批准，好的",
+      "because": "v0.23 P0: filler after approve keeps the release pure",
+      "expect": {
+        "planResponse": "approve"
+      }
+    },
+    {
+      "prompt": "如果测试通过就部署",
+      "because": "v0.23 P1: bare 如果 is not hypothetical — conditional execution is mutate (comma-free form must match comma form)",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "如果测试失败就修复",
+      "because": "v0.23 P1: conditional execution family",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "如果删除这个文件会有什么影响？",
+      "because": "v0.23 P1: consequence QUESTION keeps hypothetical read-only",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "修复这个 bug，但不要重构",
+      "because": "v0.23 P1: specific negated verb = implementation constraint, not revoke",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "修复这个 bug，不要部署",
+      "because": "v0.23 P1: specific-verb constraint family",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "先给我方案确认后再执行并把标题改成“foo”",
+      "because": "v0.23 P1: quote in the clause must not hide an unquoted approval demand (span masking)",
+      "expect": {
+        "approvalRequired": "explicit"
+      }
     }
   ]
 }

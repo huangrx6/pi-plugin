@@ -171,7 +171,15 @@ function isFillerOnly(rest) {
 
 /**
  * Classify one clause of a plan response:
- * "approve" | "revise" | "cancel" | "discuss" | null (no signal).
+ *   "approve"     approval flavor + filler only
+ *   "revise"      constraint / instruction / contrast / plan change
+ *   "discuss"     question
+ *   "filler"      bare filler/continuation, no signal
+ *   "substantive" real content with no approval flavor ("我还有一个要求")
+ * The resolver turns approve+substantive into revise and approve+question
+ * into discuss — only a PURE approval releases (v0.23 P0: enumerated
+ * constraints alone let "批准，不要重构" / "批准，我还有一个要求" /
+ * "批准，为什么…" all leak through as approve).
  */
 function classifyApprovalClause(clause) {
   if (PLAN_CHANGE_RE.test(clause)) return "revise";
@@ -183,12 +191,11 @@ function classifyApprovalClause(clause) {
   // Questions never release — "可以执行吗" asks, it does not approve.
   if (QUESTION_RE.test(clause)) return "discuss";
   const { rest, found } = stripApprovals(clause);
-  if (!found) return null;
-  if (isFillerOnly(rest)) return "approve";
   const core = rest.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-  if (CONTINUATION_RE.test(core)) return "approve";
-  // Approval flavor + leftover content = a new constraint attached.
-  return "revise";
+  if (isFillerOnly(rest)) return found ? "approve" : "filler";
+  if (CONTINUATION_RE.test(core)) return found ? "approve" : "filler";
+  if (found) return "revise"; // approval flavor + leftover content
+  return "substantive"; // real content, no approval flavor
 }
 
 /**
@@ -234,11 +241,26 @@ export function classifyPlanResponse(prompt) {
     } else if (v === "revise") {
       verdict = "revise";
       stickyRevise = true; // constraints stick; later approve ≠ un-stick
-    } else if (v === "approve") {
-      if (!stickyRevise && verdict !== "cancel") verdict = "approve";
     } else if (v === "discuss") {
-      if (verdict === null && !stickyRevise) verdict = "discuss";
+      // A question after approval DOWNGRADES the release: "批准，为什么
+      // 第二步要改数据库？" is a discussion, not an approval.
+      if (!stickyRevise && verdict !== "cancel") verdict = "discuss";
+    } else if (v === "approve") {
+      if (!stickyRevise && verdict !== "cancel" && verdict !== "discuss") {
+        verdict = "approve";
+      }
+    } else if (v === "substantive") {
+      // v0.23 P0 — conservative default: anything substantive attached to
+      // an approval is a revision of it ("批准，我还有一个要求" / "批准，
+      // 不要重构" / "批准，顺序别变"). Only filler/continuation keeps a
+      // release pure.
+      if (verdict === "approve") {
+        verdict = "revise";
+        stickyRevise = true;
+      }
+      // bare substantive without any approval keeps awaiting (unknown).
     }
+    // "filler": no signal, ignored.
   }
   if (verdict) return verdict;
   if (stickyRevise) return "revise";

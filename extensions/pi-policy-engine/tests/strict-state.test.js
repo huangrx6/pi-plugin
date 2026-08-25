@@ -245,3 +245,120 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
     rmSync(repoB, { recursive: true, force: true });
   }
 });
+
+// ---- v0.23 P0: cancel must clear the NAMESPACED file — no revival ------
+
+test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
+  const realHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "pi-policy-home2-"));
+  const repo = mkdtempSync(join(tmpdir(), "pi-policy-repo2-"));
+  process.env.HOME = home;
+  try {
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(
+      join(home, ".pi", "agent", "policy-engine.json"),
+      JSON.stringify({ showStatus: false }),
+    );
+    const make = (cwd) => {
+      const handlers = new Map();
+      const commands = new Map();
+      policyEngine({
+        on: (n, f) => handlers.set(n, f),
+        registerCommand: (n, d) => commands.set(n, d),
+      });
+      return {
+        handlers,
+        commands,
+        ctx: { cwd, model: { provider: "minimax-cn", id: "MiniMax-M3" },
+               ui: { notify() {}, setStatus() {} } },
+      };
+    };
+
+    // Strict plan → awaiting → persisted (namespaced file).
+    const s1 = make(repo);
+    await s1.handlers.get("session_start")({}, s1.ctx);
+    await s1.handlers.get("before_agent_start")(
+      { prompt: "设计生产环境 PostgreSQL 迁移方案并实施，需要回滚", systemPrompt: "B" },
+      s1.ctx,
+    );
+    await s1.handlers.get("agent_end")({}, s1.ctx);
+
+    // Cancel via the command — v0.22 bug: cleared the UN-namespaced path.
+    await s1.commands.get("policy").handler("cancel", s1.ctx);
+
+    // Restart: the cancelled plan must NOT come back.
+    const s2 = make(repo);
+    await s2.handlers.get("session_start")({}, s2.ctx);
+    const resp = await s2.handlers.get("before_agent_start")(
+      { prompt: "随便看看这个项目", systemPrompt: "B" },
+      s2.ctx,
+    );
+    assert.ok(
+      !/Restored a strict plan awaiting approval/.test(""),
+      "sanity",
+    );
+    // Direct probe: no awaiting restore, no PLAN-ONLY leakage from a ghost plan.
+    assert.doesNotMatch(resp.systemPrompt, /## Still awaiting approval/);
+    assert.doesNotMatch(resp.systemPrompt, /Phase: awaiting_approval/);
+  } finally {
+    process.env.HOME = realHome;
+    rmSync(home, { recursive: true, force: true });
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+// ---- v0.23 P0: read-only intent is binding in the runtime block --------
+
+test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", async () => {
+  const realHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "pi-policy-home3-"));
+  process.env.HOME = home;
+  try {
+    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    writeFileSync(
+      join(home, ".pi", "agent", "policy-engine.json"),
+      JSON.stringify({ showStatus: false }),
+    );
+    const handlers = new Map();
+    policyEngine({
+      on: (n, f) => handlers.set(n, f),
+      registerCommand: () => {},
+    });
+    const ctx = {
+      cwd: process.cwd(),
+      model: { provider: "minimax-cn", id: "MiniMax-M3" },
+      ui: { notify() {}, setStatus() {} },
+    };
+    await handlers.get("session_start")({}, ctx);
+
+    const r = await handlers.get("before_agent_start")(
+      { prompt: "只分析这个 bug，不要修改代码", systemPrompt: "B" },
+      ctx,
+    );
+    // The runtime must ANNOUNCE the binding intent...
+    assert.match(r.systemPrompt, /Execution intent: read-only/);
+    // ...and enforce it via the intent policy (hard boundary)...
+    assert.match(r.systemPrompt, /intent\.read-only/);
+    assert.match(r.systemPrompt, /do not modify files/i);
+    // ...while rigor stays intent-neutral: mutation guidance appears ONLY
+    // inside the explicit conditional (the old unconditional "Then inspect
+    // ... execute it" form is gone), and the read-only branch is present.
+    assert.doesNotMatch(
+      r.systemPrompt,
+      /Then inspect the relevant implementation, create a minimal implementation plan, execute it/,
+    );
+    for (const m of r.systemPrompt.matchAll(
+      /.{0,140}execute it without unnecessary ceremony/gs,
+    )) {
+      assert.match(
+        m[0],
+        /If mutation is requested/,
+        "mutation guidance must be conditional",
+      );
+    }
+    assert.match(r.systemPrompt, /If the task is read-only: do not perform the mutation phase/);
+  } finally {
+    process.env.HOME = realHome;
+    rmSync(home, { recursive: true, force: true });
+  }
+});

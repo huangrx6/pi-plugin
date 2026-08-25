@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.22
+# Design — pi-policy-engine v0.23
 
 ## 1. Design goal
 
@@ -114,8 +114,12 @@ could reach `policyMaxBytes + projectPolicyMaxBytes` while
 `/policy preview` reported only the built-in share — verified 700-byte
 budget injecting 1433 bytes. `budgetUsedPct` now reports the true total.
 
-Priority order (v0.21, one budget walk): core > **project** > rigor/flow >
-concern > domain > profile behaviors > model. A repo's own constraints
+Priority order (v0.23, one budget walk): core > **project** > **intent** >
+flow > rigor > concern > domain > profile behaviors > model. The intent
+policy (policies/intents/) is a HARD BOUNDARY — intent.read-only forbids
+mutation outright and rigor policies are intent-neutral (mutation guidance
+only under an explicit conditional). Intent decides WHETHER, rigor decides
+HOW DEEP, flow decides HOW. A repo's own constraints
 outrank generic model adaptation when the budget is tight — project
 policies used to be dropped first, which inverted that.
 

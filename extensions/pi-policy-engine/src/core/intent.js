@@ -302,13 +302,44 @@ function isPlanningDeliverable(clause) {
         return !IMPLEMENT_MARKER_RE.test(clause);
 }
 
-// Hypothetical frame (v0.22): the mutation is DISCUSSED, not requested.
-// "如果修改 schema 会怎样" / "删除这个文件会有什么影响" / "为什么要修改
-// 这个文件" / "what happens if X" — questions about consequences. The
-// marker must share the CLAUSE with the verb: "如果测试通过，就部署" splits
-// into two clauses and 部署 stays live (conditional execution ≠ question).
+// Hypothetical frame (v0.22, fixed v0.23): the mutation is DISCUSSED, not
+// requested. The trigger is a CONSEQUENCE QUESTION sharing the clause with
+// the verb — "删除这个文件会有什么影响" / "为什么要修改这个文件" / "what
+// happens if X". A bare conditional (如果/假如/要是) is NOT hypothetical:
+// "如果测试通过就部署" is a conditional EXECUTION instruction, and making
+// 如果 alone trigger read-only made intent depend on whether the user
+// typed a comma ("如果测试通过，就部署" split into clauses → mutate, the
+// unsplit version read-only — verified inconsistency).
 const HYPOTHETICAL_RE =
-        /(如果|假如|假设|要是|万一|会发生什么|会怎么样|会怎样|有什么影响|有什么后果|有什么风险|为什么要|what (?:happens|would happen|if)|what are the (?:risks?|impacts?|consequences)|why (?:would|should|do|does))/i;
+        /(会发生什么|会怎么样|会怎样|有什么影响|有什么后果|有什么风险|为什么要|what (?:happens|would happen)|what are the (?:risks?|impacts?|consequences)|why (?:would|should|do|does))/i;
+
+// Broad revoke verbs (v0.23): a negated 改/修改/动/做/执行 revokes the
+// WHOLE task ("先修改代码，不要修改" → read-only analysis follows). A
+// negated SPECIFIC verb (不要重构/不要部署/不要迁移/不要安装/不要优化…) is
+// an implementation CONSTRAINT on an otherwise-live task: "修复这个 bug，但
+// 不要重构" stays mutate — the specific verb is itself the scope, no
+// target noun needed ("不要更新依赖" also worked before only because 依赖
+// parsed as a target; "不要重构" has none and was misread as a revoke).
+const BROAD_REVOKE_TERMS = new Set([
+        "改",
+        "修改",
+        "改动",
+        "更改",
+        "动",
+        "做",
+        "执行",
+        "实施",
+        "change",
+        "modify",
+        "do",
+        "execute",
+        "implement",
+        "touch",
+]);
+
+function isBroadRevoke(term) {
+        return BROAD_REVOKE_TERMS.has(term);
+}
 
 function classifyClause(clause) {
         const lower = clause.toLowerCase();
@@ -319,20 +350,33 @@ function classifyClause(clause) {
                 return { kind: "read-only", via: "planning-deliverable" };
         }
         const hypothetical = HYPOTHETICAL_RE.test(clause);
+        // Conditional-headed approval phrase ("如果确认后再执行") DISCUSSES
+        // the gate — same modality as the v0.22 approval-hypothetical skip,
+        // applied to intent so the split clause ("，会发生什么？") doesn't
+        // leave a stray live 执行. "如果测试通过就部署" (no approval phrase)
+        // is unaffected and stays a conditional execution instruction.
+        const conditionalApprovalTalk =
+                /^(如果|假如|假设|要是|万一)/.test(clause.trim()) &&
+                DEFERRED_APPROVAL_RE.test(clause);
         const liveMut = [];
         const advisoryMut = [];
         let negatedMut = false;
         for (const h of findTerms(lower, MUTATION_VERBS)) {
                 if (isNegated(clause, h.idx)) {
-                        // Scoped negation = constraint, not revocation.
-                        if (!isScopedNegation(lower, h)) negatedMut = true;
+                        // Global revocation requires a BROAD verb with no
+                        // attached target (v0.23). Specific verbs (重构/
+                        // 部署/删除…) and targeted negations are scope
+                        // constraints — the task stays live.
+                        if (isBroadRevoke(h.term) && !isScopedNegation(lower, h)) {
+                                negatedMut = true;
+                        }
                         continue;
                 }
                 const m = modality(clause, lower, h);
                 if (m === "live") {
                         // Hypothetical mutations are discussed consequences —
                         // they read as read-only questions, not requests.
-                        if (hypothetical) advisoryMut.push(h);
+                        if (hypothetical || conditionalApprovalTalk) advisoryMut.push(h);
                         else liveMut.push(h);
                 } else if (m === "advisory") advisoryMut.push(h);
                 // "dead": narrated or bare topic mention — no signal either way.
@@ -414,9 +458,31 @@ const DEFERRED_APPROVAL_RE =
 //   "如果确认后再执行，会发生什么？" → gate (WRONG — a question)
 const APPROVAL_NEGATOR_RE =
         /(不需要?|不用|无需|不必|别)[^，。;,]{0,4}(等)?[^，。;,]{0,4}(确认|批准|审批|同意|点头|approval|confirmation|confirm)|no need (?:to wait|for|to)|don'?t (?:wait|need)|without (?:my |your )?(?:approval|confirmation)/i;
-const APPROVAL_QUOTE_RE = /[“”「」『』"'][^“”「」『』"']{0,30}[“”「」『』"']/;
 const APPROVAL_HYPOTHETICAL_RE =
         /^(如果|假如|假设|要是|万一)|会发生什么|会怎么样|会怎样|有什么影响|what (?:happens|would happen)/i;
+
+// Quote masking (v0.23): the deferred-approval phrase must be matched in
+// UNQUOTED text only. The v0.22 whole-clause quote skip was punctuation-
+// sensitive: '先给我方案确认后再执行并把标题改成"foo"' dropped the gate
+// merely because SOME quote existed in the clause, while the comma'd
+// variant gated correctly. Masking quoted spans fixes both directions:
+// 把"确认后再执行"改成"确认后部署" masks the phrase (no gate);
+// 确认后再执行，字段叫"id" leaves the phrase live (gate).
+const QUOTE_CHARS = "“”「」『』\"'";
+
+function maskQuotedSpans(text) {
+        let out = "";
+        let inQuote = false;
+        for (const ch of text) {
+                if (QUOTE_CHARS.includes(ch)) {
+                        inQuote = !inQuote;
+                        out += "_";
+                } else {
+                        out += inQuote ? "_" : ch;
+                }
+        }
+        return out;
+}
 
 /**
  * Classify whether the prompt DEMANDS an approval gate. Clause-wise, last
@@ -434,8 +500,9 @@ export function classifyApprovalRequirement(prompt) {
                         required = null; // "不用等我确认" lifts the gate
                         continue;
                 }
-                if (!DEFERRED_APPROVAL_RE.test(t)) continue;
-                if (APPROVAL_QUOTE_RE.test(t)) continue; // quoted text edit
+                // Match only in unquoted spans (v0.23 quote-aware).
+                const unquoted = maskQuotedSpans(t);
+                if (!DEFERRED_APPROVAL_RE.test(unquoted)) continue;
                 if (APPROVAL_HYPOTHETICAL_RE.test(t)) continue; // asking about it
                 if (ADVISORY_HEAD_RE.test(t)) continue; // explain-it request
                 required = "explicit";

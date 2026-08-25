@@ -63,7 +63,10 @@ export function modelPolicyId(model, rules = DEFAULT_MODEL_RULES) {
   const provider = String(model?.provider ?? "").toLowerCase();
   const id = String(model?.id ?? model?.name ?? "").toLowerCase();
   for (const rule of rules ?? []) {
-    if (typeof rule?.provider === "string" && rule.provider.toLowerCase() !== provider) {
+    if (
+      typeof rule?.provider === "string" &&
+      rule.provider.toLowerCase() !== provider
+    ) {
       continue;
     }
     if (typeof rule?.model === "string") {

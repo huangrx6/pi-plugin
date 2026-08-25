@@ -27,8 +27,14 @@ test("modelPolicyId maps via config/models.json rules (v0.22 structured)", () =>
     "model.minimax-m3",
   );
   // substring era bugs: M30 ate the M3 policy; notdeepseek matched deepseek.
-  assert.equal(modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M30" }, rules), null);
-  assert.equal(modelPolicyId({ provider: "notdeepseek", id: "x" }, rules), null);
+  assert.equal(
+    modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M30" }, rules),
+    null,
+  );
+  assert.equal(
+    modelPolicyId({ provider: "notdeepseek", id: "x" }, rules),
+    null,
+  );
   // provider-scoped rule covers every model of that provider.
   assert.equal(
     modelPolicyId({ provider: "deepseek", id: "deepseeker" }, rules),

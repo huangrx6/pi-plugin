@@ -255,6 +255,12 @@ export function composePolicies({
   // Project entries are pre-loaded objects; mark them with a reserved
   // prefix so the walk can resolve them without a manifest lookup.
   for (const pp of projectPolicies) ordered.push(`project:${pp.id}`);
+  // v0.23 P0: the execution intent is a HARD BOUNDARY in the runtime —
+  // quick/standard flows are intent-neutral, and intent.read-only forbids
+  // mutation outright. Rigor decides depth, never whether to mutate.
+  ordered.push(
+    `intent.${decision.executionIntent === "read-only" ? "read-only" : decision.executionIntent === "mutate" ? "mutate" : "unclear"}`,
+  );
   // v0.19 flow/rigor split: flow (how to work) derives from the task type,
   // rigor (how strict) from risk/intent. Profiles carry behaviors only.
   if (decision.flow) ordered.push(`flow.${decision.flow}`);
@@ -392,6 +398,9 @@ export function renderPolicyBlock({
     "",
     `Task type: ${decision.taskType}`,
     `Risk: ${decision.risk}`,
+    `Execution intent: ${decision.executionIntent ?? "unclear"}`,
+    `Execution timing: ${decision.executionTiming ?? "now"}`,
+    `Approval required: ${decision.approvalRequired ?? "no"}`,
     `Rigor: ${decision.rigor}`,
     `Flow: ${decision.flow ?? "default"}`,
     `Phase: ${phase}`,
