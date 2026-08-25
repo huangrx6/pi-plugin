@@ -214,6 +214,10 @@ function renderStatus(ctx: UiCtx): void {
   └─ setStatus("mode", "◈ mode:X") → footer 更新
 ```
 
+## 与 pi-policy-engine 共用
+
+两个扩展都在 `tool_call` 上拦截，实测可安全共存：拦截语义是 OR 组合取更严者，本扩展先注册先执行，任何一方 block 即短路。完整 8 场景矩阵和推荐搭配见 [pi-policy-engine README](../pi-policy-engine/README.md#与-agentsmd--skill--pi-mode-switcher-的边界)。唯一已知摩擦：ask 模式下 strict 计划已批准后仍会逐文件弹框（两扩展互不知晓对方状态），嫌烦可在批准计划后 `/mode smart`。
+
 ## 文件结构
 
 ```text

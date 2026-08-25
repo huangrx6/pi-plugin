@@ -508,7 +508,28 @@ pi-mode-switcher (同仓库另一扩展)
 | 每次写操作的人工弹框 |  |  |  | ✓ |
 | 持久化权限模式 |  |  |  | ✓ |
 
-`mode-switcher` 是**用户每次决策**，`policy-engine` 是**自动路由**——两者正交，常一起用：mode-switcher 给总闸（ask / smart / full），policy-engine 在自动路由出来的 strict 流程上加 plan-then-execute 的额外保险。
+`mode-switcher` 是**逐工具人工确认**，`policy-engine` 是**任务级自动 plan-then-execute**。两套门禁实测可安全共存（见下方矩阵），拦截语义是 **OR 组合取更严者**：mode-switcher 先注册先执行，任何一个返回 block 即短路，后序 handler 不再跑（pi `runner.js::emitToolCall` 语义）。
+
+### 实测共存矩阵（scripts/conflict-harness.mjs，8 场景全过）
+
+| mode-switcher 模式 | policy-engine 状态 | 实际行为 |
+| --- | --- | --- |
+| ask | strict 计划待批准，`edit` | 弹框问用户；即使点 Yes，policy gate 仍拦（计划没批） |
+| ask（点 No） | 同上 | mode-switcher 直接短路，policy-engine 不再跑 |
+| ask | strict **已批准**，`edit` | policy 放行，但 ask 仍逐文件弹框——**双重门槛** |
+| full | strict 已批准 | 全放行零弹框 |
+| full | 已批准，只读 `bash`（含 `2>/dev/null`） | 放行 |
+| ask | strict 待批准，`kubectl apply` | ask 不认 kubectl 为写命令→不弹框，hard gate 接管拦截 |
+| smart | strict 待批准，`write` | smart 自动过→policy gate 接管拦截 |
+| smart | strict 待批准，`rm -rf` | 弹框（危险命令）；点 Yes 后 hard gate 仍拦 |
+
+### 推荐搭配
+
+- **smart + policy-engine（默认推荐）**：日常写操作零打扰，危险命令弹框，strict 任务在计划批准前双重锁死——互补性最好。
+- **full + policy-engine**：工具全放，只靠 policy 的计划门禁。适合信任度高但仍想拦「未经批准的 strict 计划偷偷改库」。
+- **ask + strict 已知摩擦**：计划已批准后，ask 仍会逐文件弹框（policy 不知道 mode-switcher 的存在，反之亦然）。若嫌烦，批准计划后 `/mode smart` 即可。
+
+复现：`cd extensions/pi-policy-engine && node ./scripts/conflict-harness.mjs`（本地诊断工具，不进 npm test / CI——依赖全局 pi 安装里的 jiti 加载 TS 扩展）。
 
 ## 实现原理（面向维护者）
 
