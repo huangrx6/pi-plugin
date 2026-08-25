@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 function safeJson(path, fallback = {}) {
   try {
@@ -9,6 +9,37 @@ function safeJson(path, fallback = {}) {
   } catch {
     return fallback;
   }
+}
+
+/**
+ * Project config files from cwd upward to the enclosing git root (v0.20),
+ * NEAREST LAST so it wins the merge — mirroring projectPolicyRoots. Before
+ * this, .pi/policy-engine.json was read at cwd only while .pi/policies
+ * walked up: starting pi in repo/backend/service silently ignored the
+ * repo-root config. Returns [{ path, error }] where error is set when the
+ * file exists but does not parse (surfaced via /policy validate; the
+ * merge itself still ignores broken files).
+ */
+export function projectConfigFiles(cwd) {
+  const out = [];
+  let cur = resolve(String(cwd ?? "."));
+  for (;;) {
+    const file = join(cur, ".pi", "policy-engine.json");
+    if (existsSync(file)) {
+      let error = null;
+      try {
+        JSON.parse(readFileSync(file, "utf8"));
+      } catch (e) {
+        error = e?.message ?? String(e);
+      }
+      out.push({ path: file, error });
+    }
+    if (existsSync(join(cur, ".git"))) break;
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return out.reverse(); // nearest last = highest merge priority
 }
 
 function isPlainObject(v) {
@@ -75,8 +106,15 @@ export function loadEffectiveConfig({
     join(homedir(), ".pi", "agent", "policy-engine.json"),
     {},
   );
-  const projectConfig = safeJson(join(cwd, ".pi", "policy-engine.json"), {});
-  return mergeConfig(defaults, globalConfig, projectConfig, runtimeOverrides);
+  const projectLayers = projectConfigFiles(cwd).map((f) =>
+    f.error ? {} : safeJson(f.path, {}),
+  );
+  return mergeConfig(
+    defaults,
+    globalConfig,
+    ...projectLayers,
+    runtimeOverrides,
+  );
 }
 
 export function loadRoutingConfig(packageRoot) {

@@ -635,7 +635,8 @@
             "加密"
           ]
         }
-      ]
+      ],
+      "riskFloor": "high"
     },
     "production": {
       "strong": [

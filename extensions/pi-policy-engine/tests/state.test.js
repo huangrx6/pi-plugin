@@ -118,8 +118,7 @@ test("compareDecisions: differing fields", () => {
   assert.ok(diffs.length >= 5);
   assert.ok(
     diffs.some(
-      (d) =>
-        d.field === "rigor" && d.left === "strict" && d.right === "quick",
+      (d) => d.field === "rigor" && d.left === "strict" && d.right === "quick",
     ),
   );
   assert.ok(
@@ -448,4 +447,38 @@ test("history-store: missing file reads as []", async () => {
     },
   };
   assert.deepEqual(await readHistory("/missing/path", 50, fs), []);
+});
+
+test("history-store: disk rotation compacts oversized files", async () => {
+  let stored = "";
+  const big = "x".repeat(600); // 600+ bytes per line → 1000 lines > 512 KB
+  const fs = {
+    async stat() {
+      return { size: ROTATE_THRESHOLD + 1 };
+    },
+    async readFile() {
+      return stored;
+    },
+    async writeFile(_p, data) {
+      stored = data;
+    },
+    async appendFile(_p, data) {
+      stored += data;
+    },
+  };
+  const { appendHistory, ROTATE_THRESHOLD } = await import(
+    "../src/core/history-store.js",
+  );
+  // Build an oversized file: 1002 entries via direct writes.
+  const entries = Array.from({ length: 1002 }, (_, i) =>
+    JSON.stringify({ ts: i, source: "decide", prompt: `${big}-${i}` }),
+  );
+  stored = entries.join("\n") + "\n";
+  // Next append triggers rotation (stat > threshold): keep last 1000 lines.
+  const r = await appendHistory("/mem/hist.jsonl", { ts: 9999 }, fs);
+  assert.equal(r.ok, true);
+  const lines = stored.split("\n").filter(Boolean);
+  assert.ok(lines.length <= 1002, `rotated file should be compact (got ${lines.length})`);
+  assert.ok(lines.length >= 1000, `rotation keeps the most recent entries (got ${lines.length})`);
+  assert.equal(JSON.parse(lines[lines.length - 1]).ts, 9999);
 });

@@ -1,5 +1,19 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 
 function readJson(path, fallback = null) {
   try {
@@ -75,23 +89,49 @@ export function projectPolicyRoots(cwd) {
 }
 
 /**
- * A manifest entry loads when ANY of its filters matches the decision —
- * tasks containing taskType, domains/concerns intersecting the decision's.
- * An entry with no filters always loads.
+ * A manifest entry loads when EVERY declared dimension matches (v0.20):
+ * AND across dimensions, OR within one. `{"tasks": ["architecture"],
+ * "domains": ["database"]}` means task∈{architecture} AND domains∋database
+ * — the previous ANY-match semantics loaded architecture+frontend too,
+ * re-manufacturing exactly the policy noise this extension exists to
+ * remove. An entry with no filters always loads.
  */
 function manifestEntryMatches(entry, decision) {
   const tasks = Array.isArray(entry?.tasks) ? entry.tasks : [];
   const domains = Array.isArray(entry?.domains) ? entry.domains : [];
   const concerns = Array.isArray(entry?.concerns) ? entry.concerns : [];
-  if (tasks.length === 0 && domains.length === 0 && concerns.length === 0) {
-    return true;
-  }
-  if (decision?.taskType && tasks.includes(decision.taskType)) return true;
+  const taskOk = tasks.length === 0 || tasks.includes(decision?.taskType);
   const doms = decision?.domains ?? [];
-  if (domains.some((d) => doms.includes(d))) return true;
+  const domainOk = domains.length === 0 || domains.some((d) => doms.includes(d));
   const cons = decision?.concerns ?? [];
-  if (concerns.some((c) => cons.includes(c))) return true;
-  return false;
+  const concernOk =
+    concerns.length === 0 || concerns.some((c) => cons.includes(c));
+  return taskOk && domainOk && concernOk;
+}
+
+/**
+ * Resolve a manifest entry path UNDER its policy root (v0.20 P0).
+ * A project manifest is untrusted input: `{"path": "../../secret.md"}`
+ * used to escape .pi/policies and read arbitrary text into the system
+ * prompt. Reject: absolute paths, non-.md, anything whose realpath is
+ * not strictly inside the realpath of the policy root (symlink escape
+ * included). Returns the resolved real path or null.
+ */
+function containedPolicyPath(base, rel) {
+  if (typeof rel !== "string" || !rel) return null;
+  if (isAbsolute(rel)) return null;
+  if (!/\.md$/i.test(rel)) return null;
+  let rootReal;
+  let fullReal;
+  try {
+    rootReal = realpathSync(base);
+    fullReal = realpathSync(resolve(base, rel));
+  } catch {
+    return null;
+  }
+  if (fullReal === rootReal) return null;
+  if (!fullReal.startsWith(rootReal + sep)) return null;
+  return fullReal;
 }
 
 export function loadProjectPolicies(cwd, config = {}, decision = null) {
@@ -102,25 +142,40 @@ export function loadProjectPolicies(cwd, config = {}, decision = null) {
     : null;
 
   const result = [];
+  const skipped = []; // [{id, reason}] — surfaced via /policy why
   const seen = new Set(); // nearest .pi/policies shadows ancestor duplicates
   let used = 0;
 
-  const pushFile = (full, rel) => {
-    if (result.length >= maxFiles || used >= maxBytes) return false;
+  const pushFile = (full, rel, opts = {}) => {
+    if (result.length >= maxFiles || used >= maxBytes) {
+      skipped.push({
+        id: `project.${rel}`,
+        reason: "dropped (project maxFiles/maxBytes reached)",
+      });
+      return false;
+    }
     if (
       allowList &&
       allowList.size > 0 &&
       !allowList.has(rel) &&
       !allowList.has(basename(rel))
     )
-      return true; // filtered out; keep scanning
+      return true; // filtered out by config; keep scanning
     let size = 0;
     try {
       size = statSync(full).size;
     } catch {
       return true;
     }
-    if (size > maxBytes || used + size > maxBytes) return true;
+    if (size > maxBytes || used + size > maxBytes) {
+      if (!opts.silentSkip) {
+        skipped.push({
+          id: `project.${rel}`,
+          reason: "dropped (project byte budget)",
+        });
+      }
+      return true;
+    }
     try {
       const content = readText(full);
       const id = `project.${rel}`;
@@ -142,24 +197,34 @@ export function loadProjectPolicies(cwd, config = {}, decision = null) {
     // Conditional mode (v0.18): a manifest.json in .pi/policies gates
     // which files load for THIS decision. Files not listed in the manifest
     // are not loaded — a 30-file project stays quiet.
+    // v0.20 P0: entry paths are UNTRUSTED — containment-checked before
+    // any read (no .., no absolute, .md only, realpath inside the root).
     const manifestPath = join(base, "manifest.json");
     if (existsSync(manifestPath)) {
       const manifest = readJson(manifestPath, {});
       for (const [key, entry] of Object.entries(manifest ?? {})) {
         const rel = String(entry?.path ?? key).replaceAll("\\", "/");
         if (!manifestEntryMatches(entry, decision)) continue;
-        if (!pushFile(join(base, rel), rel)) break;
+        const full = containedPolicyPath(base, rel);
+        if (!full) {
+          skipped.push({
+            id: `project.${rel}`,
+            reason: "rejected (path escapes .pi/policies, non-.md, or unresolvable)",
+          });
+          continue;
+        }
+        if (!pushFile(full, rel)) break;
       }
       continue; // manifest mode consumes this root entirely
     }
     // Directory mode: every .md file loads (pre-manifest behavior).
     for (const full of walkMarkdown(base, maxFiles * 2)) {
       const rel = relative(base, full).replaceAll("\\", "/");
-      if (!pushFile(full, rel)) break;
+      if (!pushFile(full, rel, { silentSkip: true })) break;
     }
   }
 
-  return result;
+  return { policies: result, skipped };
 }
 export function composePolicies({
   packageRoot,
@@ -219,17 +284,29 @@ export function composePolicies({
   // *after* built-ins: built-ins are always tried first.
   const maxBytes = Number(config.policyMaxBytes ?? 24000);
   const loaded = [];
+  const missing = []; // unresolvable ids (typo in includePolicies / manifest gap)
+  const budgetDropped = [];
   let used = 0;
   for (const id of ids) {
     const policy = loadPolicyById(packageRoot, manifest, id);
-    if (!policy) continue;
+    if (!policy) {
+      missing.push(id);
+      continue;
+    }
     const size = Buffer.byteLength(policy.content, "utf8");
-    if (used + size > maxBytes) continue; // drop entirely, do not partial-truncate
+    if (used + size > maxBytes) {
+      budgetDropped.push(id); // dropped entirely, no partial truncation
+      continue;
+    }
     loaded.push(policy);
     used += size;
   }
-  const truncated = ids.filter((id) => !loaded.some((p) => p.id === id));
-  return { policies: loaded, truncated, builtInBytes: used };
+  return {
+    policies: loaded,
+    truncated: budgetDropped,
+    missing,
+    builtInBytes: used,
+  };
 }
 
 /**
@@ -247,7 +324,7 @@ export function composeAllPolicies({
   config,
   phase = "executing",
 }) {
-  const { policies, truncated, builtInBytes } = composePolicies({
+  const { policies, truncated, missing, builtInBytes } = composePolicies({
     packageRoot,
     decision,
     config,
@@ -259,19 +336,28 @@ export function composeAllPolicies({
     Number(config.projectPolicyMaxBytes ?? 24000),
     remaining,
   );
-  const projectPolicies = loadProjectPolicies(
-    cwd,
-    {
-      ...config,
-      projectPolicyMaxBytes: projectCap,
-    },
-    decision,
-  );
+  const { policies: projectPolicies, skipped: projectSkipped } =
+    loadProjectPolicies(
+      cwd,
+      {
+        ...config,
+        projectPolicyMaxBytes: projectCap,
+      },
+      decision,
+    );
   const projectBytes = projectPolicies.reduce(
     (n, p) => n + Buffer.byteLength(p.content, "utf8"),
     0,
   );
-  return { policies, projectPolicies, truncated, builtInBytes, projectBytes };
+  return {
+    policies,
+    projectPolicies,
+    projectSkipped,
+    truncated,
+    missing,
+    builtInBytes,
+    projectBytes,
+  };
 }
 
 export function renderPolicyBlock({

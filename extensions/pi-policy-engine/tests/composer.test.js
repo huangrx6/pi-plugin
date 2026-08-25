@@ -18,7 +18,7 @@ import { validateConfig } from "../extensions/policy-engine/state.js";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 test("project policies load from examples/project", () => {
-  const projectPolicies = loadProjectPolicies(
+  const { policies: projectPolicies } = loadProjectPolicies(
     join(root, "examples", "project"),
     { projectPolicyMaxFiles: 12, projectPolicyMaxBytes: 24000 },
   );
@@ -225,6 +225,7 @@ test("composeAllPolicies: total (built-in + project) never exceeds policyMaxByte
     `total ${result.builtInBytes}+${result.projectBytes} must be <= 1500`,
   );
   assert.equal(result.projectPolicies.length, 0);
+  assert.ok(Array.isArray(result.projectSkipped));
 
   // Comfortable budget: the project file loads within the REMAINING space.
   const roomy = composeAllPolicies({
@@ -274,12 +275,15 @@ test("loadProjectPolicies discovers ancestor policies from a nested cwd", async 
   await fs.mkdir(join(repo, ".git"), { recursive: true });
   await fs.mkdir(join(repo, ".pi", "policies"), { recursive: true });
   await fs.mkdir(join(repo, "backend", "service-a"), { recursive: true });
-  await fs.writeFile(join(repo, ".pi", "policies", "root.md"), "# Root policy\n");
+  await fs.writeFile(
+    join(repo, ".pi", "policies", "root.md"),
+    "# Root policy\n",
+  );
 
   const found = loadProjectPolicies(join(repo, "backend", "service-a"), {});
-  assert.equal(found.length, 1);
-  assert.equal(found[0].id, "project.root.md");
-  assert.match(found[0].content, /Root policy/);
+  assert.equal(found.policies.length, 1);
+  assert.equal(found.policies[0].id, "project.root.md");
+  assert.match(found.policies[0].content, /Root policy/);
 
   await fs.rm(repo, { recursive: true, force: true });
 });
@@ -291,11 +295,14 @@ test("nearest .pi/policies shadows an ancestor's duplicate id", async () => {
   await fs.mkdir(join(repo, ".pi", "policies"), { recursive: true });
   await fs.mkdir(join(repo, "sub", ".pi", "policies"), { recursive: true });
   await fs.writeFile(join(repo, ".pi", "policies", "shared.md"), "ANCESTOR");
-  await fs.writeFile(join(repo, "sub", ".pi", "policies", "shared.md"), "NEAREST");
+  await fs.writeFile(
+    join(repo, "sub", ".pi", "policies", "shared.md"),
+    "NEAREST",
+  );
 
   const found = loadProjectPolicies(join(repo, "sub"), {});
-  assert.equal(found.length, 1);
-  assert.equal(found[0].content, "NEAREST");
+  assert.equal(found.policies.length, 1);
+  assert.equal(found.policies[0].content, "NEAREST");
 
   await fs.rm(repo, { recursive: true, force: true });
 });
@@ -317,31 +324,215 @@ test("manifest.json gates which project policies load per decision", async () =>
     JSON.stringify({
       "arch-guide": { path: "arch.md", tasks: ["architecture"] },
       "db-guide": { path: "db.md", domains: ["database"] },
-      "always": { path: "always.md" },
+      always: { path: "always.md" },
     }),
   );
 
   // architecture task: arch.md (tasks match) + always.md; db.md filtered out.
   const archDecision = { taskType: "architecture", domains: [], concerns: [] };
   const forArch = loadProjectPolicies(repo, {}, archDecision);
-  assert.equal(forArch.length, 2);
-  assert.ok(forArch.some((p) => p.content === "ARCH POLICY"));
-  assert.ok(forArch.some((p) => p.content === "ALWAYS POLICY"));
+  assert.equal(forArch.policies.length, 2);
+  assert.ok(forArch.policies.some((p) => p.content === "ARCH POLICY"));
+  assert.ok(forArch.policies.some((p) => p.content === "ALWAYS POLICY"));
 
   // database domain: db.md + always.md.
-  const dbDecision = { taskType: "coding", domains: ["database"], concerns: [] };
+  const dbDecision = {
+    taskType: "coding",
+    domains: ["database"],
+    concerns: [],
+  };
   const forDb = loadProjectPolicies(repo, {}, dbDecision);
-  assert.equal(forDb.length, 2);
-  assert.ok(forDb.some((p) => p.content === "DB POLICY"));
+  assert.equal(forDb.policies.length, 2);
+  assert.ok(forDb.policies.some((p) => p.content === "DB POLICY"));
 
   // unrelated decision: only the unconditional entry.
-  const other = loadProjectPolicies(repo, {}, { taskType: "coding", domains: [], concerns: [] });
-  assert.equal(other.length, 1);
-  assert.equal(other[0].content, "ALWAYS POLICY");
+  const other = loadProjectPolicies(
+    repo,
+    {},
+    { taskType: "coding", domains: [], concerns: [] },
+  );
+  assert.equal(other.policies.length, 1);
+  assert.equal(other.policies[0].content, "ALWAYS POLICY");
   // unlisted.md never loaded in any mode.
   for (const list of [forArch, forDb, other]) {
-    assert.ok(!list.some((p) => p.content === "SHOULD NOT LOAD"));
+    assert.ok(!list.policies.some((p) => p.content === "SHOULD NOT LOAD"));
   }
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+// ---- v0.20 P0: manifest path containment ----------------------------------
+
+test("manifest entries cannot escape .pi/policies (path traversal)", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-traversal-"));
+  const base = join(repo, ".pi", "policies");
+  await fs.mkdir(base, { recursive: true });
+  await fs.writeFile(join(repo, "secret.md"), "TOP SECRET");
+  await fs.writeFile(
+    join(base, "manifest.json"),
+    JSON.stringify({
+      leak1: { path: "../../secret.md" },
+      leak2: { path: "../../../etc/passwd" },
+      leakAbs: { path: "/etc/hosts" },
+      leakTxt: { path: "../notes.txt" },
+      ok: { path: "inside.md" },
+    }),
+  );
+  await fs.writeFile(join(base, "inside.md"), "INSIDE");
+
+  const { policies, skipped } = loadProjectPolicies(repo, {}, {
+    taskType: "coding",
+    domains: [],
+    concerns: [],
+  });
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0].content, "INSIDE");
+  for (const p of policies) {
+    assert.ok(!p.content.includes("TOP SECRET"));
+  }
+  // Every rejected entry is named in skipped — auditable, not silent.
+  const skippedIds = skipped.map((x) => x.id).join(" ");
+  assert.ok(skippedIds.includes("secret.md"), skippedIds);
+  assert.ok(skippedIds.includes("notes.txt"), skippedIds);
+  assert.ok(skipped.every((x) => x.reason.includes("rejected")));
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+test("manifest symlink escape is rejected (realpath containment)", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-symlink-"));
+  const base = join(repo, ".pi", "policies");
+  await fs.mkdir(base, { recursive: true });
+  await fs.writeFile(join(repo, "secret.md"), "TOP SECRET");
+  await fs.symlink(join(repo, "secret.md"), join(base, "leak.md"));
+  await fs.writeFile(
+    join(base, "manifest.json"),
+    JSON.stringify({ leak: { path: "leak.md" } }),
+  );
+
+  const { policies } = loadProjectPolicies(repo, {}, {
+    taskType: "coding",
+    domains: [],
+    concerns: [],
+  });
+  assert.equal(policies.length, 0);
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+// ---- v0.20 P1: manifest filters are AND across dimensions ----------------
+
+test("manifest filters: AND across dimensions, OR within one", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-and-"));
+  const base = join(repo, ".pi", "policies");
+  await fs.mkdir(base, { recursive: true });
+  await fs.writeFile(join(base, "db-migration.md"), "DB MIGRATION");
+  await fs.writeFile(
+    join(base, "manifest.json"),
+    JSON.stringify({
+      "db-migration": {
+        path: "db-migration.md",
+        tasks: ["architecture", "coding"],
+        domains: ["database", "backend"],
+      },
+    }),
+  );
+
+  // architecture + frontend: task matches, domain does NOT → no load.
+  const wrongDomain = loadProjectPolicies(repo, {}, {
+    taskType: "architecture",
+    domains: ["frontend"],
+    concerns: [],
+  });
+  assert.equal(wrongDomain.policies.length, 0);
+
+  // debugging + database: domain matches, task does NOT → no load.
+  const wrongTask = loadProjectPolicies(repo, {}, {
+    taskType: "debugging",
+    domains: ["database"],
+    concerns: [],
+  });
+  assert.equal(wrongTask.policies.length, 0);
+
+  // architecture + database: both match → load.
+  const both = loadProjectPolicies(repo, {}, {
+    taskType: "architecture",
+    domains: ["database"],
+    concerns: [],
+  });
+  assert.equal(both.policies.length, 1);
+  assert.equal(both.policies[0].content, "DB MIGRATION");
+
+  // coding + backend: OR within a dimension → load.
+  const orWithin = loadProjectPolicies(repo, {}, {
+    taskType: "coding",
+    domains: ["backend"],
+    concerns: [],
+  });
+  assert.equal(orWithin.policies.length, 1);
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+// ---- v0.20: project config ancestor discovery ------------------------------
+
+test("projectConfigFiles walks up and reports broken JSON", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-cfg-"));
+  await fs.mkdir(join(repo, ".git"), { recursive: true });
+  await fs.mkdir(join(repo, ".pi"), { recursive: true });
+  await fs.mkdir(join(repo, "backend", ".pi"), { recursive: true });
+  await fs.writeFile(
+    join(repo, ".pi", "policy-engine.json"),
+    JSON.stringify({ mode: "strict" }),
+  );
+  await fs.writeFile(join(repo, "backend", ".pi", "policy-engine.json"), "{broken");
+
+  const { projectConfigFiles, loadEffectiveConfig } = await import(
+    "../src/core/config.js"
+  );
+
+  const files = projectConfigFiles(join(repo, "backend"));
+  assert.equal(files.length, 2);
+  // nearest last (higher priority)
+  assert.ok(files[1].path.includes(join("backend", ".pi")));
+  assert.ok(files[1].error && files[1].error.length > 0); // broken JSON named
+
+  // broken layer is skipped in the merge; the root config still applies
+  const cfg = loadEffectiveConfig({
+    packageRoot: root,
+    cwd: join(repo, "backend"),
+  });
+  assert.equal(cfg.mode, "strict");
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+test("nearest project config overrides the ancestor's value", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-cfg2-"));
+  await fs.mkdir(join(repo, ".git"), { recursive: true });
+  await fs.mkdir(join(repo, ".pi"), { recursive: true });
+  await fs.mkdir(join(repo, "sub", ".pi"), { recursive: true });
+  await fs.writeFile(
+    join(repo, ".pi", "policy-engine.json"),
+    JSON.stringify({ mode: "strict", showStatus: false }),
+  );
+  await fs.writeFile(
+    join(repo, "sub", ".pi", "policy-engine.json"),
+    JSON.stringify({ mode: "quick" }),
+  );
+
+  const { loadEffectiveConfig } = await import("../src/core/config.js");
+  const cfg = loadEffectiveConfig({
+    packageRoot: root,
+    cwd: join(repo, "sub"),
+  });
+  assert.equal(cfg.mode, "quick"); // nearest wins
+  assert.equal(cfg.showStatus, false); // ancestor's other keys still merge
 
   await fs.rm(repo, { recursive: true, force: true });
 });

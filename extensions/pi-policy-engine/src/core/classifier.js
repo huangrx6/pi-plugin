@@ -53,6 +53,7 @@ function scoreDomain(text, rule) {
   const strongHit = matchSignalGroups(text, toSignalGroups(strong));
   if (strongHit.score > 0) {
     return {
+      strong: true,
       score: strongHit.score * STRONG_SCORE,
       evidence: [
         `strong: ${strongHit.hits
@@ -171,6 +172,9 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   );
 
   const domains = new Set(hints);
+  for (const h of hints) {
+    reasons.push(`domain:${h} loaded (explicit hint)`);
+  }
   for (const t of triggered) {
     if (domains.size >= maxDomains) {
       reasons.push(
@@ -197,6 +201,8 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   // with domains for maxDomains slots: "postgresql schema + spring
   // controller + jwt 鉴权" loads database+backend AND security.
   const concerns = [];
+  let concernRiskFloor = null; // "low" | "medium" | "high"
+  const FLOOR_RANK = { low: 0, medium: 1, high: 2 };
   for (const [concern, rule] of Object.entries(routing.concernRules ?? {})) {
     const result = scoreDomain(text, rule);
     if (!result) continue;
@@ -206,6 +212,19 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     }
     concerns.push(concern);
     reasons.push(`concern:${concern} loaded (${result.evidence[0]})`);
+    // v0.20 riskFloor: a STRONG concern hit raises the risk floor (weak
+    // signals never do). security.md itself says auth/credentials changes
+    // are high-impact — the router must agree. Read-only intents still
+    // downgrade in chooseRigor, so "解释 JWT 鉴权" stays standard while
+    // "修改 JWT 鉴权" becomes strict.
+    if (result.strong && rule?.riskFloor) {
+      if (
+        !concernRiskFloor ||
+        FLOOR_RANK[rule.riskFloor] > FLOOR_RANK[concernRiskFloor]
+      ) {
+        concernRiskFloor = rule.riskFloor;
+      }
+    }
   }
 
   // ---- risk --------------------------------------------------------------
@@ -235,6 +254,16 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     reasons.push(
       `risk:low matched simple hint ${simpleMatches.slice(0, 2).join(", ")}`,
     );
+  }
+
+  if (
+    concernRiskFloor &&
+    FLOOR_RANK[concernRiskFloor] > FLOOR_RANK[risk]
+  ) {
+    reasons.push(
+      `risk:${concernRiskFloor} raised by concern riskFloor (strong concern evidence, weak signals never floor)`,
+    );
+    risk = concernRiskFloor;
   }
 
   if (executionIntent === "read-only" && risk === "high") {

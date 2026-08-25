@@ -6,7 +6,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { classifyTask } from "../src/core/classifier.js";
-import { chooseRigor, chooseFlow, modelPolicyId, loadModelRules } from "../src/core/router.js";
+import {
+  chooseRigor,
+  chooseFlow,
+  modelPolicyId,
+  loadModelRules,
+} from "../src/core/router.js";
 import { preview } from "../extensions/policy-engine/state.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -24,7 +29,11 @@ test("modelPolicyId maps via config/models.json rules", () => {
 });
 
 test("flow derives from task type, independent of rigor", () => {
-  const debugging = { taskType: "debugging", risk: "low", executionIntent: "mutate" };
+  const debugging = {
+    taskType: "debugging",
+    risk: "low",
+    executionIntent: "mutate",
+  };
   assert.equal(chooseFlow(debugging), "debug-first");
   // debug-first pairs with ANY rigor
   assert.equal(chooseRigor(debugging, "auto"), "quick");

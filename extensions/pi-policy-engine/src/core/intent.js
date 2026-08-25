@@ -262,64 +262,98 @@ function modality(clause, lower, hit) {
 }
 
 /**
- * Classify one clause: "mutate" | "read-only" | null.
- * Negated and past-narrated verbs are dead; advisory mutations ask for
- * GUIDANCE, which is a read-only request.
+ * Classify one clause into a KIND used by sequential resolution:
+ *   "mutate"             live mutation verb
+ *   "read-only"          live read-only verb OR advisory mutation
+ *                       (guidance request) OR communication head
+ *   "negated-mutate"     a mutation verb was explicitly revoked here
+ *   "negated-read-only"  a read-only verb was explicitly revoked here
+ *   null                 no signal (ambiguous/narration/bare topic)
  */
 function classifyClause(clause) {
         const lower = clause.toLowerCase();
         const liveMut = [];
         const advisoryMut = [];
+        let negatedMut = false;
         for (const h of findTerms(lower, MUTATION_VERBS)) {
-                if (isNegated(clause, h.idx)) continue;
+                if (isNegated(clause, h.idx)) {
+                        negatedMut = true;
+                        continue;
+                }
                 const m = modality(clause, lower, h);
                 if (m === "live") liveMut.push(h);
                 else if (m === "advisory") advisoryMut.push(h);
                 // "dead": narrated or bare topic mention — no signal either way.
         }
         if (liveMut.length > 0) {
-                return { verdict: "mutate", via: liveMut[0].term };
+                return { kind: "mutate", via: liveMut[0].term };
         }
         const roHits = findTerms(lower, READONLY_VERBS).filter(
                 (h) => !isNegated(clause, h.idx),
         );
         // Advisory mutation (告诉我如何修复/给我部署步骤) IS a read-only
         // request: the user asks for guidance, not for the change itself.
-        if (advisoryMut.length > 0 || roHits.length > 0) {
+        // A clause-initial communication head ("只告诉我原因") reads as
+        // read-only even with no mutation verb in it.
+        if (
+                advisoryMut.length > 0 ||
+                roHits.length > 0 ||
+                ADVISORY_HEAD_RE.test(clause.trim())
+        ) {
                 return {
-                        verdict: "read-only",
-                        via: advisoryMut[0]?.term ?? roHits[0]?.term,
+                        kind: "read-only",
+                        via: advisoryMut[0]?.term ?? roHits[0]?.term ?? "communication",
                 };
+        }
+        if (negatedMut) return { kind: "negated-mutate" };
+        if (roHits.length === 0) {
+                // any readonly verb hit was filtered above; detect negation
+                const anyRo = findTerms(lower, READONLY_VERBS);
+                if (anyRo.length > 0) return { kind: "negated-read-only" };
         }
         const ambHits = findTerms(lower, AMBIGUOUS_VERBS);
         if (ambHits.length > 0) {
-                return { verdict: null, via: ambHits[0].term, ambiguous: true };
+                return { kind: null, via: ambHits[0].term, ambiguous: true };
         }
-        return { verdict: null };
+        return { kind: null };
 }
 
+// Correction heads (v0.20 P0): the user revokes / supersedes what came
+// before. A later correction must override an earlier request — the old
+// "any live mutation short-circuits" let "先修改代码，不要修改，只分析"
+// classify as mutate.
+const CORRECTION_HEAD_RE =
+        /^(不对|不对了|等等|等一下|算了|改主意|改为|改成|其实|实际上|重新说|说错了|说反了|换个思路|wrong|actually|instead|wait|scratch that|on second thought|never mind|hold on)/i;
+
 /**
- * Extract the execution intent of a prompt.
+ * Extract the execution intent of a prompt via SEQUENTIAL clause
+ * resolution (v0.20): the user's LAST effective instruction wins.
+ *
+ *   先修改代码 → active=mutate
+ *   不要修改  → revokes mutate (negated-mutate clears an active mutate)
+ *   只分析    → active=read-only
+ *
+ * Correction heads (不对/等等/算了/actually…) clear ANY active intent;
+ * a negated clause only clears the SAME kind it negates ("只分析，不要
+ * 修改" stays read-only — the negation targets mutation, not analysis).
  *
  * @returns {"read-only" | "mutate" | "unclear"}
- *
- * Examples (all verified in tests/regression-corpus.json):
- *   只分析，不要修改            → read-only
- *   不要只分析，直接修改代码     → mutate      (negation scoping fixed)
- *   don't fix it, just analyze  → read-only   (v0.16 space-gap fix)
- *   帮我修复这个 bug           → mutate
- *   先分析问题，然后修改         → mutate      (later clause wins)
- *   帮我看看这个                → unclear     (ambiguous verb)
  */
 export function extractExecutionIntent(prompt) {
         const clauses = splitClauses(prompt);
-        let sawReadonly = false;
+        let active = null;
         for (const clause of clauses) {
-                const { verdict } = classifyClause(clause);
-                if (verdict === "mutate") return "mutate";
-                if (verdict === "read-only") sawReadonly = true;
+                if (CORRECTION_HEAD_RE.test(clause.trim())) active = null;
+                const { kind } = classifyClause(clause);
+                if (kind === "mutate") active = "mutate";
+                else if (kind === "read-only") active = "read-only";
+                else if (kind === "negated-mutate") {
+                        if (active === "mutate") active = null;
+                } else if (kind === "negated-read-only") {
+                        if (active === "read-only") active = null;
+                }
         }
-        return sawReadonly ? "read-only" : "unclear";
+        return active ?? "unclear";
 }
 
 // ---------------------------------------------------------------------------
@@ -421,8 +455,10 @@ const FRAME_ACTIONS = [
 export function extractIntentFrame(prompt) {
         const clauses = splitClauses(prompt);
         const candidates = [];
+        let lastCorrectionIdx = -1;
 
         clauses.forEach((clause, i) => {
+                if (CORRECTION_HEAD_RE.test(clause.trim())) lastCorrectionIdx = i;
                 const lower = clause.toLowerCase();
                 for (const { id, terms } of FRAME_ACTIONS) {
                         const hits = findTerms(lower, terms);
@@ -448,7 +484,12 @@ export function extractIntentFrame(prompt) {
                 }
         });
 
-        if (candidates.length === 0) {
+        // v0.20: a correction supersedes everything before it — candidates
+        // from clauses BEFORE the last correction head are dead.
+        const effective = candidates.filter(
+                (c) => c.clauseIdx > lastCorrectionIdx,
+        );
+        if (effective.length === 0) {
                 return {
                         action: null,
                         targetHint: null,
@@ -456,11 +497,11 @@ export function extractIntentFrame(prompt) {
                         frameClause: null,
                 };
         }
-        const imperative = candidates.filter((c) => c.imperative);
+        const imperative = effective.filter((c) => c.imperative);
         const pick =
                 imperative.length > 0
                         ? imperative[imperative.length - 1]
-                        : candidates[candidates.length - 1];
+                        : effective[effective.length - 1];
         return {
                 action: pick.action,
                 targetHint: pick.targetHint,
@@ -496,9 +537,32 @@ const FOLLOWUP_PATTERNS = [
  * the last decision and recomputes intent + risk escalation.
  */
 export function isFollowUpPrompt(prompt) {
+        return classifyFollowUp(prompt).type !== "none";
+}
+
+// Action follow-ups convert advice into execution ("按这个做" after a
+// read-only analysis must become mutate, not inherit read-only).
+const FOLLOWUP_EXECUTE_RE =
+  /^(?:按(?:这个|计划|方案|刚才的?)(?:做|来|执行|改|实施)|就按(?:这个|计划|方案)(?:来|做|执行|实施)?|照(?:这个|计划|方案)(?:做|来|执行)|继续(?:修|改|执行|部署|删|加|创建|写|实施|落地)|去(?:改|修|执行|做)吧?|动手吧|开工吧|直接做|do it|apply it|go ahead|make the change|apply the plan)$/;
+
+// Inspection follow-ups keep looking without asserting mutation.
+const FOLLOWUP_INSPECT_RE =
+  /^(?:再(?:看看|试试|检查一下|跑一下|看一遍|查一遍)|look again|check again|try again)$/;
+
+/**
+ * Classify a whole-message follow-up (v0.20):
+ *   "execute" — converts previous advice into execution → intent mutate
+ *   "inspect" — keep looking; no intent assertion
+ *   "neutral" — plain continuation; inherit previous intent
+ *   "none"    — not a follow-up; full classification applies
+ */
+export function classifyFollowUp(prompt) {
   const t = String(prompt ?? "")
     .replace(/[。.!！？?\s]+$/u, "")
     .trim();
-  if (!t || t.length > 20) return false;
-  return FOLLOWUP_PATTERNS.some((re) => re.test(t));
+  if (!t || t.length > 20) return { type: "none" };
+  if (FOLLOWUP_EXECUTE_RE.test(t)) return { type: "execute" };
+  if (FOLLOWUP_INSPECT_RE.test(t)) return { type: "inspect" };
+  if (FOLLOWUP_PATTERNS.some((re) => re.test(t))) return { type: "neutral" };
+  return { type: "none" };
 }

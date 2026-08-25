@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v1.0
+# Design — pi-policy-engine v0.20
 
 ## 1. Design goal
 
@@ -143,6 +143,18 @@ Why opt-in rather than always-on:
 3. **Cost**: even cheap models cost money; we shouldn't incur it without consent.
 4. **Determinism contract**: deterministic routing is what users rely on for reproducibility. Making the fallback optional keeps that contract.
 
+### Sequential intent resolution (v0.20)
+
+Intent resolves across clauses IN ORDER — the user's last effective
+instruction wins. Correction heads (不对/等等/算了/actually/scratch
+that…) clear the active intent; a negated clause revokes only the same
+kind it negates ("只分析，不要修改" stays read-only — the negation
+targets mutation, not analysis). Advisory clauses (告诉我如何修复 /
+给我部署步骤) read as read-only guidance requests. Before v0.20, "any
+live mutation short-circuits" let "先修改代码，不要修改，只分析"
+classify as mutate. The intent frame skips clauses before the last
+correction, so "帮我修复，不对，先别改，只分析原因" anchors on 分析.
+
 ## 5. Strict rigor state machine
 
 `phase` is the single source of truth (the pre-0.15 `pendingApproval` boolean
@@ -174,6 +186,15 @@ release execution as an approval.
 A "verifying" phase (post-execution verification pass) is planned but
 requires wave tracking that does not exist yet; executing currently
 returns to idle at agent_end.
+
+## 5a. Session-restart restore (v0.20)
+
+awaiting_approval is persisted (minimal decision fields only) next to the
+history file and restored on session_start — cwd-matched, max 7 days old.
+Plan → quit → /resume → "批准" routes through the approval classifier
+instead of fresh classification. /policy cancel discards. Concurrency:
+two live sessions in one project share the file; last writer wins and
+the failure direction is safe (asks again, never auto-releases).
 
 ## 6. No tool-call interception (v0.12)
 

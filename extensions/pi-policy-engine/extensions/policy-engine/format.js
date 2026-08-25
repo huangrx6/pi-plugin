@@ -60,6 +60,16 @@ export function formatDecision(decision, phase) {
     lines.push("truncated by byte budget:");
     for (const id of decision.truncatedPolicies) lines.push(`- ${id}`);
   }
+  if (decision.missingPolicies?.length) {
+    lines.push("unavailable (not in manifest — check includePolicies):");
+    for (const id of decision.missingPolicies) lines.push(`- ${id}`);
+  }
+  if (decision.droppedProjectPolicies?.length) {
+    lines.push("project policies dropped:");
+    for (const d of decision.droppedProjectPolicies) {
+      lines.push(`- ${d.id} (${d.reason})`);
+    }
+  }
   if (decision.reasons?.length) {
     lines.push("reasons:");
     for (const reason of decision.reasons) lines.push(`- ${reason}`);
@@ -241,8 +251,11 @@ export function formatPreview(preview) {
     `task: ${decision.taskType}`,
     `risk: ${decision.risk}`,
     `confidence: ${decision.confidence}`,
+    `execution intent: ${decision.executionIntent ?? "unclear"}`,
     `domains: ${(decision.domains ?? []).join(", ") || "none"}`,
+    `concerns: ${(decision.concerns ?? []).join(", ") || "none"}`,
     `rigor: ${decision.rigor}`,
+    `flow: ${decision.flow ?? "default"}`,
     `phase: ${previewPhaseLabel(decision.rigor)}`,
     `profile: ${decision.profile}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,

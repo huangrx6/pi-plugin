@@ -21,7 +21,7 @@
 //   failure (disk full, permissions) doesn't break the agent loop.
 
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
@@ -50,6 +50,37 @@ export function defaultHistoryPath(cwd = process.cwd()) {
  * Accepts optional `fs` override for testing (must implement appendFile,
  * mkdir, and optionally chmod).
  */
+// v0.20: disk rotation. historyMaxEntries only capped the in-memory read;
+// the file grew forever. Once the file exceeds ROTATE_THRESHOLD bytes it is
+// compacted to the most recent ROTATE_KEEP lines. Stats are size-based so
+// the common path (file small) costs one stat, not a full read.
+const ROTATE_THRESHOLD = 512 * 1024; // 512 KB
+const ROTATE_KEEP = 1000; // entries kept after compaction
+
+async function rotateIfNeeded(filePath, lib) {
+  if (typeof lib.stat !== "function") return; // fs mocks without stat
+  let size = 0;
+  try {
+    size = (await lib.stat(filePath)).size;
+  } catch {
+    return; // missing file is fine
+  }
+  if (size <= ROTATE_THRESHOLD) return;
+  let text;
+  try {
+    text = await lib.readFile(filePath, "utf8");
+  } catch {
+    return;
+  }
+  const lines = text.split("\n").filter((l) => l.trim());
+  const kept = lines.slice(-ROTATE_KEEP).join("\n") + "\n";
+  try {
+    await lib.writeFile(filePath, kept, "utf8");
+  } catch {
+    // Compaction failure is non-fatal — the append still proceeds.
+  }
+}
+
 export async function appendHistory(filePath, entry, fs = null) {
   if (!filePath || !entry) return { ok: false, reason: "missing args" };
   const lib = fs ?? (await import("node:fs/promises"));
@@ -59,6 +90,7 @@ export async function appendHistory(filePath, entry, fs = null) {
     } catch {
       // mkdir failure falls through to appendFile, which reports it.
     }
+    await rotateIfNeeded(filePath, lib);
     await lib.appendFile(filePath, JSON.stringify(entry) + "\n", {
       encoding: "utf8",
       mode: 0o600,
@@ -111,4 +143,111 @@ export async function readHistory(filePath, limit = 50, fs = null) {
   }
   // toReversed() returns a new array without mutating `out` (Node 20+).
   return out.toReversed();
+}
+
+// ---------------------------------------------------------------------------
+// Strict-plan state across sessions (v0.20)
+// ---------------------------------------------------------------------------
+//
+// session_start resets state, so a strict plan left at awaiting_approval
+// died with the process: plan in the evening, /resume the next morning,
+// "批准" -> fresh classification. The awaiting state is now persisted next
+// to the history file and restored on session_start (cwd-matched, max one
+// week old). Concurrency caveat: two live sessions in the SAME project
+// share the file — last writer wins. The failure direction is safe: a
+// stale restore keeps awaiting_approval (asks again) and never releases
+// execution on its own.
+
+/** Path of the strict-state file next to a resolved history file. */
+export function strictStatePath(historyFilePath) {
+  if (typeof historyFilePath !== "string" || !historyFilePath) return null;
+  return join(dirname(historyFilePath), "strict-state.json");
+}
+
+// Only routing-relevant decision fields are persisted — bookkeeping
+// (loadedPolicies etc.) is recomputed per turn anyway.
+const STRICT_DECISION_FIELDS = [
+  "taskType",
+  "risk",
+  "confidence",
+  "executionIntent",
+  "domains",
+  "concerns",
+  "rigor",
+  "flow",
+  "profile",
+  "modelPolicy",
+  "reasons",
+];
+
+export async function saveStrictState(filePath, state, fs = null) {
+  if (!filePath || !state?.decision) return { ok: false, reason: "missing args" };
+  const lib = fs ?? (await import("node:fs/promises"));
+  const decision = {};
+  for (const k of STRICT_DECISION_FIELDS) decision[k] = state.decision?.[k];
+  const payload = {
+    version: 1,
+    cwd: state.cwd,
+    ts: Date.now(),
+    phase: "awaiting_approval",
+    decision,
+  };
+  try {
+    try {
+      await lib.mkdir(dirname(filePath), { recursive: true, mode: 0o700 });
+    } catch {
+      // mkdir failure falls through to writeFile, which reports it.
+    }
+    await lib.writeFile(filePath, JSON.stringify(payload) + "\n", {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
+}
+
+/**
+ * Restore a persisted awaiting_approval plan. Returns
+ * { phase: "awaiting_approval", decision } or null (missing / stale /
+ * different project / malformed). Never throws.
+ */
+export async function loadStrictState(
+  filePath,
+  { cwd, maxAgeMs = 7 * 24 * 3600 * 1000 } = {},
+  fs = null,
+) {
+  if (!filePath) return null;
+  const lib = fs ?? (await import("node:fs/promises"));
+  let text;
+  try {
+    text = await lib.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.version !== 1) return null;
+    if (parsed?.phase !== "awaiting_approval") return null;
+    if (!parsed?.decision?.rigor) return null;
+    if (typeof cwd === "string" && parsed.cwd !== cwd) return null;
+    if (typeof parsed?.ts === "number" && Date.now() - parsed.ts > maxAgeMs) {
+      return null;
+    }
+    return { phase: "awaiting_approval", decision: parsed.decision };
+  } catch {
+    return null;
+  }
+}
+
+export async function clearStrictState(filePath, fs = null) {
+  if (!filePath) return { ok: false, reason: "missing path" };
+  const lib = fs ?? (await import("node:fs/promises"));
+  try {
+    await lib.writeFile(filePath, "", { encoding: "utf8", mode: 0o600 });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
 }

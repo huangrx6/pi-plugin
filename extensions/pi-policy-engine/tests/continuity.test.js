@@ -21,8 +21,18 @@ const lastDecision = {
 
 test("isFollowUpPrompt: verified follow-up family", () => {
   const yes = [
-    "继续", "继续修", "继续改一下", "接着做", "再看看", "再试试",
-    "还是不对", "没修好", "刚才那个", "这个地方呢", "按这个做", "还差一点",
+    "继续",
+    "继续修",
+    "继续改一下",
+    "接着做",
+    "再看看",
+    "再试试",
+    "还是不对",
+    "没修好",
+    "刚才那个",
+    "这个地方呢",
+    "按这个做",
+    "还差一点",
   ];
   const no = [
     "继续，只分析", // carries an instruction
@@ -68,7 +78,10 @@ test("decide(): fresh intent on the follow-up wins over inherited", async () => 
 });
 
 test("decide(): risk never drops across continuity", async () => {
-  const state = { ...createState(), lastDecision: { ...lastDecision, risk: "high" } };
+  const state = {
+    ...createState(),
+    lastDecision: { ...lastDecision, risk: "high" },
+  };
   const { decision } = await decide({
     packageRoot: root,
     cwd: root,
@@ -145,5 +158,85 @@ test("decide(): non-follow-up prompt → full classification", async () => {
     state,
     model: null,
   });
-  assert.ok(decision.taskType !== "debugging" || !decision.reasons.some((r) => r.startsWith("task-continuity:")));
+  assert.ok(
+    decision.taskType !== "debugging" ||
+      !decision.reasons.some((r) => r.startsWith("task-continuity:")),
+  );
+});
+
+// ---- v0.20: continuity inherits CONCERNS and types follow-ups -------------
+
+test("decide(): follow-up inherits concerns from the previous decision", async () => {
+  const state = {
+    ...createState(),
+    lastDecision: {
+      taskType: "debugging",
+      risk: "medium",
+      rigor: "standard",
+      profile: "debugging",
+      confidence: 0.85,
+      executionIntent: "mutate",
+      domains: ["database"],
+      concerns: ["security"],
+    },
+  };
+  const { decision } = await decide({
+    packageRoot: root,
+    cwd: root,
+    prompt: "继续",
+    state,
+    model: null,
+  });
+  assert.ok(decision.concerns.includes("security"),
+    `security concern must survive continuity, got ${decision.concerns}`);
+});
+
+test("decide(): execute follow-up converts advice into mutation", async () => {
+  // Previous turn was a read-only analysis; "按这个做" is execution.
+  const state = {
+    ...createState(),
+    lastDecision: {
+      taskType: "debugging",
+      risk: "medium",
+      rigor: "standard",
+      profile: "debugging",
+      confidence: 0.8,
+      executionIntent: "read-only",
+      domains: ["database"],
+      concerns: [],
+    },
+  };
+  const { decision } = await decide({
+    packageRoot: root,
+    cwd: root,
+    prompt: "按这个做",
+    state,
+    model: null,
+  });
+  assert.equal(decision.executionIntent, "mutate");
+  assert.equal(decision.taskType, "debugging"); // still the same task
+});
+
+test("decide(): neutral follow-up keeps the inherited read-only intent", async () => {
+  const state = {
+    ...createState(),
+    lastDecision: {
+      taskType: "debugging",
+      risk: "medium",
+      rigor: "standard",
+      profile: "debugging",
+      confidence: 0.8,
+      executionIntent: "read-only",
+      domains: ["database"],
+      concerns: [],
+    },
+  };
+  const { decision } = await decide({
+    packageRoot: root,
+    cwd: root,
+    prompt: "继续",
+    state,
+    model: null,
+  });
+  assert.equal(decision.executionIntent, "read-only");
 });

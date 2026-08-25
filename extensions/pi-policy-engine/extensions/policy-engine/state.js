@@ -5,10 +5,11 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { classifyTask } from "../../src/core/classifier.js";
-import { isFollowUpPrompt } from "../../src/core/intent.js";
+import { classifyFollowUp } from "../../src/core/intent.js";
 import {
   loadEffectiveConfig,
   loadRoutingConfig,
+  projectConfigFiles,
 } from "../../src/core/config.js";
 import {
   composeAllPolicies,
@@ -117,7 +118,8 @@ export async function decide({
   // a bare follow-up after a debugging/database task re-classified as
   // coding/none and drifted the model off its constraints.
   const last = state.lastDecision;
-  if (last && last.rigor !== "off" && isFollowUpPrompt(prompt)) {
+  const followUp = classifyFollowUp(prompt);
+  if (last && last.rigor !== "off" && followUp.type !== "none") {
     const fresh = classification;
     const RANK = { low: 0, medium: 1, high: 2 };
     // A bare follow-up carries no risk signal of its own — the fresh
@@ -131,21 +133,30 @@ export async function decide({
       freshHasRiskSignal && RANK[fresh.risk] > RANK[last.risk]
         ? fresh.risk
         : last.risk;
+    // Follow-up typing drives intent (v0.20):
+    //   execute ("按这个做" after a read-only analysis) → mutate
+    //   inspect / neutral → fresh intent, falling back to the inherited one
     const executionIntent =
-      fresh.executionIntent === "unclear"
-        ? (last.executionIntent ?? "unclear")
-        : fresh.executionIntent;
+      followUp.type === "execute"
+        ? "mutate"
+        : fresh.executionIntent === "unclear"
+          ? (last.executionIntent ?? "unclear")
+          : fresh.executionIntent;
+    // Cross-cutting constraints survive continuity (v0.20): a "继续" after
+    // a security-relevant task must not drop the security concern.
+    const concerns = [
+      ...new Set([...(last.concerns ?? []), ...(fresh.concerns ?? [])]),
+    ];
     classification = {
       ...fresh,
       taskType: last.taskType,
       runnerUpTask: fresh.taskType,
       domains: last.domains ?? [],
+      concerns,
       risk,
       executionIntent,
       reasons: [
-        `task-continuity: follow-up inherits task=${last.taskType} domains=[${(last.domains ?? []).join(
-          ",",
-        )}] from the previous turn; intent/risk recomputed (risk never drops)`,
+        `task-continuity: ${followUp.type} follow-up inherits task=${last.taskType} domains=[${(last.domains ?? []).join(",")}] concerns=[${concerns.join(",") || "none"}] from the previous turn; intent/risk recomputed (risk never drops)`,
         ...fresh.reasons,
       ],
     };
@@ -182,9 +193,75 @@ export async function decide({
  *
  * Returns { ok, issues: [{ severity: 'error' | 'warning', message }] }.
  */
-export function validateConfig({ config, packageRoot }) {
+export function validateConfig({ config, packageRoot, cwd = null }) {
   const issues = [];
   const push = (severity, message) => issues.push({ severity, message });
+
+  // ---- v0.20: schema freeze actually validated ----------------------------
+  // A frozen schema deserves real checks, not just id-reference lookups.
+  const MODES = ["auto", "quick", "standard", "strict", "off"];
+  if (config.mode !== undefined && !MODES.includes(config.mode)) {
+    push(
+      "error",
+      `mode: '${config.mode}' is not one of ${MODES.join(" | ")}`,
+    );
+  }
+  const PROFILES = ["auto", "coding", "debugging", "review", "research", "architecture", "documentation"];
+  if (config.profile !== undefined && !PROFILES.includes(config.profile)) {
+    push(
+      "warning",
+      `profile: '${config.profile}' is not a built-in profile (${PROFILES.join(", ")}) — loading falls back to defaults`,
+    );
+  }
+  if (config.maxDomains !== undefined && !(Number(config.maxDomains) > 0)) {
+    push("error", `maxDomains: must be > 0 (got ${config.maxDomains})`);
+  }
+  if (config.policyMaxBytes !== undefined && !(Number(config.policyMaxBytes) > 0)) {
+    push("error", `policyMaxBytes: must be > 0 (got ${config.policyMaxBytes})`);
+  }
+  if (
+    config.projectPolicyMaxFiles !== undefined &&
+    !(Number(config.projectPolicyMaxFiles) > 0)
+  ) {
+    push(
+      "error",
+      `projectPolicyMaxFiles: must be > 0 (got ${config.projectPolicyMaxFiles})`,
+    );
+  }
+  const fb = config.semanticFallback;
+  if (fb && fb.enabled === true) {
+    if (typeof fb.endpoint !== "string" || !/^https?:\/\//.test(fb.endpoint)) {
+      push("error", "semanticFallback.endpoint: must be an http(s) URL when enabled");
+    }
+    if (typeof fb.model !== "string" || !fb.model) {
+      push("error", "semanticFallback.model: must be a non-empty string when enabled");
+    }
+    if (typeof fb.apiKeyEnvVar !== "string" || !fb.apiKeyEnvVar) {
+      push("error", "semanticFallback.apiKeyEnvVar: must be set when enabled");
+    }
+    if (
+      fb.confidenceThreshold !== undefined &&
+      !(fb.confidenceThreshold > 0 && fb.confidenceThreshold < 1)
+    ) {
+      push(
+        "error",
+        `semanticFallback.confidenceThreshold: must be in (0, 1) (got ${fb.confidenceThreshold})`,
+      );
+    }
+    if (fb.timeoutMs !== undefined && !(Number(fb.timeoutMs) > 0)) {
+      push("error", `semanticFallback.timeoutMs: must be > 0 (got ${fb.timeoutMs})`);
+    }
+  }
+
+  // Broken config JSON must not be silent (v0.20): safeJson swallows parse
+  // errors during merging, so surface them here.
+  if (cwd) {
+    for (const f of projectConfigFiles(cwd)) {
+      if (f.error) {
+        push("error", `project config ${f.path}: invalid JSON (${f.error})`);
+      }
+    }
+  }
 
   // Reference checks against manifest + core.* + model.*
   const manifest = loadManifest(packageRoot);
@@ -254,7 +331,11 @@ export function compareDecisions(left, right) {
   if (!left || !right) return [];
   const fields = [
     ["rigor", left?.decision?.rigor, right?.decision?.rigor],
-    ["flow", left?.decision?.flow ?? "default", right?.decision?.flow ?? "default"],
+    [
+      "flow",
+      left?.decision?.flow ?? "default",
+      right?.decision?.flow ?? "default",
+    ],
     ["task", left?.decision?.taskType, right?.decision?.taskType],
     ["risk", left?.decision?.risk, right?.decision?.risk],
     ["confidence", left?.decision?.confidence, right?.decision?.confidence],
@@ -332,8 +413,7 @@ export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
     projectPolicies,
     truncated,
     wouldRequireApproval:
-      decision.rigor === "strict" &&
-      decision.executionIntent !== "read-only",
+      decision.rigor === "strict" && decision.executionIntent !== "read-only",
     stats: {
       builtInCount: policies.length,
       builtInBytes,

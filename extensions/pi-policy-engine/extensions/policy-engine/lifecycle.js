@@ -19,14 +19,20 @@
 // v0.12 note still applies: no tool_call handler — model-behavior layer only.
 
 import { classifyPlanResponse } from "../../src/core/approval.js";
+import { classifyTask } from "../../src/core/classifier.js";
+import { loadRoutingConfig } from "../../src/core/config.js";
 import {
   composeAllPolicies,
   renderPolicyBlock,
 } from "../../src/core/loader.js";
 import {
   appendHistory,
+  clearStrictState,
+  loadStrictState,
   readHistory,
   resolveHistoryPath,
+  saveStrictState,
+  strictStatePath,
 } from "../../src/core/history-store.js";
 import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
 import {
@@ -44,8 +50,15 @@ import {
 function buildBlock({ packageRoot, cwd, config, decision, phase }) {
   // v0.17: one TOTAL byte budget — project policies participate in
   // policyMaxBytes after built-ins (composeAllPolicies).
-  const { policies, projectPolicies, truncated, builtInBytes, projectBytes } =
-    composeAllPolicies({
+  const {
+    policies,
+    projectPolicies,
+    truncated,
+    missing,
+    projectSkipped,
+    builtInBytes,
+    projectBytes,
+  } = composeAllPolicies({
       packageRoot,
       cwd,
       decision,
@@ -54,6 +67,8 @@ function buildBlock({ packageRoot, cwd, config, decision, phase }) {
     });
   decision.loadedPolicies = [...policies, ...projectPolicies].map((p) => p.id);
   decision.truncatedPolicies = truncated;
+  decision.missingPolicies = missing;
+  decision.droppedProjectPolicies = projectSkipped;
   decision.policyBytes = builtInBytes + projectBytes;
   decision.policyBudget = Number(config.policyMaxBytes ?? 24000);
   return renderPolicyBlock({
@@ -63,6 +78,14 @@ function buildBlock({ packageRoot, cwd, config, decision, phase }) {
     phase,
     truncated,
   });
+}
+
+/** Clear the persisted awaiting state (approval/cancel resolved it). */
+function clearAwaitState(cfg, cwd) {
+  if (!cfg?.historyFile) return Promise.resolve();
+  const sPath = strictStatePath(resolveHistoryPath(cfg.historyFile, cwd));
+  if (!sPath) return Promise.resolve();
+  return clearStrictState(sPath);
 }
 
 export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
@@ -101,8 +124,39 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       }
     }
 
+    // Restore a strict plan left awaiting approval by a previous session
+    // (v0.20): plan in the evening, /resume the next morning, "批准" must
+    // still route through the approval classifier instead of a fresh
+    // classification. cwd-matched, max one week old; /policy cancel discards.
+    if (cfg.historyFile) {
+      const hPath = resolveHistoryPath(
+        cfg.historyFile,
+        ctx?.cwd ?? process.cwd(),
+      );
+      const sPath = strictStatePath(hPath);
+      if (sPath) {
+        const restored = await loadStrictState(sPath, {
+          cwd: ctx?.cwd ?? process.cwd(),
+        });
+        if (restored) {
+          state.phase = restored.phase;
+          state.lastDecision = restored.decision;
+          notify(
+            ctx,
+            "Restored a strict plan awaiting approval from a previous session (/policy cancel to discard).",
+            "info",
+          );
+        }
+      }
+    }
+
     if (cfg.showStatus !== false)
-      setStatus(ctx, `policy:${cfg.mode ?? "auto"}`);
+      setStatus(
+        ctx,
+        state.phase === "awaiting_approval"
+          ? "policy:strict/awaiting_approval"
+          : `policy:${cfg.mode ?? "auto"}`,
+      );
   });
 
   pi.on("model_select", async (event, ctx) => {
@@ -138,6 +192,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       if (verdict === "cancel") {
         state.phase = "idle";
         state.lastDecision = null;
+        clearAwaitState(cfgAwait, cwd).catch(() => {});
         if (cfgAwait.showStatus !== false) setStatus(ctx, "policy:idle");
         notify(ctx, "Strict plan cancelled.", "info");
         return undefined;
@@ -163,7 +218,50 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
 
       if (verdict === "revise") {
         // Constraint modification: update the plan, re-approval required.
-        const decision = { ...state.lastDecision };
+        // v0.20: the REVISION TEXT is new evidence — conservatively merge
+        // its risk/domains/concerns into the decision (risk only up,
+        // domains/concerns union; task/flow/intent untouched: still the
+        // same strict mutation task). Verified failure mode: "批准，但是
+        // 这是生产数据库，不要改 schema" used to keep risk=medium
+        // domains=[backend] concerns=[] while the plan was re-scoped to
+        // production/database/security.
+        const prev = state.lastDecision;
+        const delta = classifyTask(prompt, loadRoutingConfig(packageRoot), []);
+        const RANK = { low: 0, medium: 1, high: 2 };
+        const risk = RANK[delta.risk] > RANK[prev.risk] ? delta.risk : prev.risk;
+        const domainCap = Math.max(2, (prev.domains ?? []).length);
+        const domains = [
+          ...new Set([...(prev.domains ?? []), ...(delta.domains ?? [])]),
+        ].slice(0, domainCap);
+        const concerns = [
+          ...new Set([...(prev.concerns ?? []), ...(delta.concerns ?? [])]),
+        ];
+        const notes = [];
+        if (risk !== prev.risk) notes.push(`risk ${prev.risk}→${risk}`);
+        const addedDomains = domains.filter(
+          (d) => !(prev.domains ?? []).includes(d),
+        );
+        if (addedDomains.length > 0) notes.push(`+domains ${addedDomains}`);
+        const addedConcerns = concerns.filter(
+          (c) => !(prev.concerns ?? []).includes(c),
+        );
+        if (addedConcerns.length > 0) notes.push(`+concerns ${addedConcerns}`);
+        const decision = {
+          ...prev,
+          risk,
+          domains,
+          concerns,
+          reasons: [
+            ...(prev.reasons ?? []),
+            `plan-revision: ${notes.length > 0 ? notes.join("; ") : "no routing change"}`,
+            ...delta.reasons.filter(
+              (r) =>
+                r.startsWith("risk:") ||
+                r.startsWith("domain:") ||
+                r.startsWith("concern:"),
+            ),
+          ],
+        };
         state.lastDecision = decision;
         state.phase = "planning";
         const block = buildBlock({
@@ -182,6 +280,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
 
       if (verdict === "approve") {
         state.phase = "executing";
+        clearAwaitState(cfgAwait, cwd).catch(() => {});
         const decision = { ...state.lastDecision };
         state.lastDecision = decision;
         const block = buildBlock({
@@ -208,10 +307,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         phase: "awaiting_approval",
       });
       if (cfgAwait.showStatus !== false)
-        setStatus(
-          ctx,
-          `policy:${state.lastDecision.rigor}/awaiting_approval`,
-        );
+        setStatus(ctx, `policy:${state.lastDecision.rigor}/awaiting_approval`);
       return {
         systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Still awaiting approval\nThe user's message was not recognized as an approval, revision, or cancellation. Remain in PLAN-ONLY mode; remind the user that the plan is awaiting explicit approval.`,
       };
@@ -281,6 +377,23 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
+    // Persist the awaiting state (or clear it when the strict task is
+    // done/aborted) so a session restart doesn't lose the approval gate.
+    if (cfg.historyFile) {
+      const sPath = strictStatePath(
+        resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd()),
+      );
+      if (sPath) {
+        if (state.phase === "awaiting_approval" && state.lastDecision) {
+          saveStrictState(sPath, {
+            cwd: ctx?.cwd ?? process.cwd(),
+            decision: state.lastDecision,
+          }).catch(() => {});
+        } else if (state.phase === "idle") {
+          clearStrictState(sPath).catch(() => {});
+        }
+      }
+    }
     if (cfg.showStatus !== false && state.lastDecision) {
       const label =
         state.phase === "idle" ? state.lastDecision.rigor : state.phase;

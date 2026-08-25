@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.20.0
+
+1.0 audit hardening — boundary semantics + security fix. No new features.
+
+- **P0 security: project-policy manifest path containment.** A manifest
+  entry `{"path": "../../secret.md"}` escaped .pi/policies and injected
+  arbitrary files into the system prompt (verified). Entry paths are now
+  containment-checked before any read: no absolute paths, no .., .md
+  only, and the REALPATH of the target must sit strictly inside the
+  policy root (symlink escapes included). Rejected entries are named in
+  /policy why instead of failing silently.
+- **P0 semantics: later corrections override earlier intent.**
+  extractExecutionIntent was "any live mutation short-circuits", so
+  "先修改代码，不要修改，只分析" classified as mutate. Intent is now
+  resolved SEQUENTIALLY: correction heads (不对/等等/算了/actually/
+  scratch that…) clear the active intent; a negated clause only revokes
+  the same kind it negates ("只分析，不要修改" stays read-only);
+  the last effective instruction wins. The intent frame also skips
+  clauses before the last correction ("帮我修复，不对，先别改，只分析
+  原因" now anchors on 分析, not 修复).
+- **P1: continuity inherits concerns + typed follow-ups.** A "继续" after
+  a security-relevant task no longer drops the security concern. Follow-
+  ups are now classified: execute ("按这个做"/"继续修"/"do it") converts
+  advice into mutation — "按这个做" after a read-only analysis is now
+  mutate, not inherited read-only; inspect/neutral keep the inherited
+  intent.
+- **P1: plan revisions re-route the decision.** The revise branch
+  conservatively merges the revision text's evidence into the decision:
+  risk only up, domains/concerns union, task/flow/intent untouched.
+  "批准，但是这是生产数据库，不要改 schema" now raises risk, adds the
+  database domain, and loads the production + security concerns (was:
+  old decision reused verbatim).
+- **P1: concern riskFloor.** A STRONG security concern hit floors risk at
+  high (weak signals never floor): "修改 JWT 鉴权逻辑" → strict;
+  "解释 JWT 鉴权逻辑" stays standard via the existing read-only
+  downgrade. security.md and the router finally agree that auth changes
+  are high-impact.
+- **P1: manifest filters are AND across dimensions** (OR within one):
+  `{"tasks":["architecture"],"domains":["database"]}` requires both —
+  the previous ANY-match loaded architecture+frontend too.
+- **P1: project config discovery walks up** like project policies:
+  .pi/policy-engine.json is found from cwd to the git root, nearest
+  wins; broken JSON is reported by /policy validate instead of silently
+  ignored.
+- **P1: strict plans survive session restarts.** awaiting_approval (+
+  a minimal decision) is persisted next to the history file and
+  restored on session_start (cwd-matched, ≤ 7 days old; /policy cancel
+  discards). Plan in the evening, /resume + 批准 in the morning now
+  routes through the approval classifier. Concurrency caveat: two live
+  sessions in one project share the file; last writer wins, and the
+  failure direction is safe (asks again, never auto-releases).
+- **P2**: /policy validate now checks mode/profile enums, numeric
+  ranges, semanticFallback shape, and broken config JSON; unknown
+  includePolicies are reported as "unavailable (not in manifest)"
+  instead of "truncated by byte budget"; dropped project policies are
+  listed in /policy why; /policy preview shows executionIntent, flow,
+  and concerns; domainHints show "explicit hint" reasons; history files
+  rotate (512 KB threshold → keep last 1000 entries); /policy cancel
+  and reset also clear the persisted strict state; concerns/security.md
+  retitled Security Concern.
+- Tests 130 → 148; regression corpus 30 → 36.
+
 ## 1.0.0
 
 **First stable release — schema, config, and terminology freeze.** No

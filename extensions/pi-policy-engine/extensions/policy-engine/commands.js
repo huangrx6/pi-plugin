@@ -16,7 +16,9 @@ import {
 import {
   appendHistory,
   clearHistory,
+  clearStrictState,
   resolveHistoryPath,
+  strictStatePath,
 } from "../../src/core/history-store.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
 import {
@@ -32,7 +34,8 @@ const MODE_OPTIONS = [
   { key: "quick", description: "轻量 rigor：Inspect → Change → Verify" },
   {
     key: "standard",
-    description: "中等 rigor：Task Contract → Inspect → Plan → Execute → Verify",
+    description:
+      "中等 rigor：Task Contract → Inspect → Plan → Execute → Verify",
   },
   { key: "strict", description: "plan + 等批准 + 分 wave 执行" },
   { key: "off", description: "完全关闭策略注入（含 model adaptation）" },
@@ -45,7 +48,10 @@ const PROFILE_OPTIONS = [
     description:
       "通用编码：execution discipline / minimal change / context hygiene",
   },
-  { key: "debugging", description: "debugging 任务（flow: debug-first 由 task 决定）" },
+  {
+    key: "debugging",
+    description: "debugging 任务（flow: debug-first 由 task 决定）",
+  },
   {
     key: "documentation",
     description: "文档/注释：execution discipline + minimal change",
@@ -324,6 +330,7 @@ export function createCommandHandler({ packageRoot, getState }) {
       const result = validateConfig({
         config: cfg,
         packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
       });
       notify(ctx, formatValidation(result), result.ok ? "info" : "warning");
       return;
@@ -331,6 +338,21 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     if (action === "cancel") {
       state.phase = "idle";
+      // v0.20: also drop the persisted awaiting state and the last prompt —
+      // a bare follow-up after cancel must not resurrect the dead task.
+      state.lastDecision = null;
+      state.lastPrompt = null;
+      const cfg0 = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      if (cfg0.historyFile) {
+        const sPath = strictStatePath(
+          resolveHistoryPath(cfg0.historyFile, ctx?.cwd ?? process.cwd()),
+        );
+        if (sPath) clearStrictState(sPath).catch(() => {});
+      }
       notify(ctx, "Pending strict plan cancelled.", "success");
       return;
     }
@@ -340,7 +362,19 @@ export function createCommandHandler({ packageRoot, getState }) {
       state.runtimeProfile = null;
       state.onceMode = null;
       state.lastDecision = null;
+      state.lastPrompt = null;
       state.phase = "idle";
+      const cfg1 = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      if (cfg1.historyFile) {
+        const sPath1 = strictStatePath(
+          resolveHistoryPath(cfg1.historyFile, ctx?.cwd ?? process.cwd()),
+        );
+        if (sPath1) clearStrictState(sPath1).catch(() => {});
+      }
       notify(ctx, "Policy runtime overrides reset.", "success");
       return;
     }

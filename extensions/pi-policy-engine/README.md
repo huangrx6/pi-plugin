@@ -181,11 +181,15 @@ strict 的 plan 批准**不是工具拦截**，而是注入给模型的明确指
 - read-only 意图会自动把 strict 降级为 standard/quick（纯阅读不需要审批循环）；`unclear` 保持完整严格度（无法证明不会改动）
 - 语义兜底若未明确断言 intent，则保留确定性判定结果
 
+### Strict 计划跨会话恢复（v0.20）
+
+strict 计划在 awaiting approval 时退出 pi（或 /resume 旧会话），恢复后状态不再丢失：awaiting 状态与最小决策会持久化在 history 文件旁，下次 session_start 恢复（同项目目录匹配、最多 7 天，`/policy cancel` 丢弃）。"晚上生成计划，第二天 resume 后批准" 现在会正确走审批分类器。同一项目同时开两个会话时该文件共享——后写者胜，失败方向是安全的（宁可再问一次，绝不自动放行）。
+
 ### 任务连续性（v0.18）
 
 一轮任务结束后（`agent_end`），用户常发不带新指令的短跟进：`继续` / `还是不对` / `再看看` / `按这个做`。这类 prompt 自身没有可分类的内容，按全新任务分类会得到 `coding / medium / 无领域`——模型从此脱离上一轮的约束上下文。
 
-现在这类**整句仅为跟进**的 prompt（带逗号后续指令的不算）会继承上一轮的 task 和 domains，重算执行意图（新意图优先，无信号则沿用），risk 只升不降——且只有跟进语本身携带真实风险证据（如出现生产关键词）才升。
+现在这类**整句仅为跟进**的 prompt（带逗号后续指令的不算）会继承上一轮的 task、domains 和 **concerns**（一句"继续"不会再丢掉 security 关注点），重算执行意图（新意图优先，无信号则沿用），risk 只升不降——且只有跟进语本身携带真实风险证据（如出现生产关键词）才升。跟进语还分类型：**执行型**（`按这个做`/`继续修`/`do it`）把上一轮的 read-only 建议转成 mutate；中性型（`继续`/`还是不对`）沿用上一轮意图。
 
 ### 调试命令
 
@@ -345,9 +349,9 @@ runtime /policy override           ← 进程内（/policy 命令）
 
 ### 项目配置示例
 
-`.pi/policies` 会从 cwd **逐层向上发现**（到 git 根为止，就近优先、同名遮蔽）：在 `repo/backend/service-a` 启动也能用到 `repo/.pi/policies`。
+.pi/policies 会从 cwd **逐层向上发现**（到 git 根为止，就近优先、同名遮蔽）：在 repo/backend/service-a 启动也能用到 repo/.pi/policies。`.pi/policy-engine.json` 同样向上发现（就近优先）。
 
-policy 文件多于几个时，可以加一份 `manifest.json` 做**条件加载**——只加载与当前决策相关的条目，未列出的文件不加载：
+policy 文件多于几个时，可以加一份 `manifest.json` 做**条件加载**——只加载与当前决策相关的条目，未列出的文件不加载。过滤语义是**维度间 AND、维度内 OR**：
 
 ```json
 {
@@ -355,6 +359,8 @@ policy 文件多于几个时，可以加一份 `manifest.json` 做**条件加载
   "always": { "path": "team-conventions.md" }
 }
 ```
+
+上面 db-migration 的含义是 task∈{architecture} **且** domains 含 database——两个条件都满足才加载。manifest 中的 path 只能指向 `.pi/policies` 内的 `.md` 文件（含 symlink 校验），试图引用目录外的文件会被拒绝并记入 `/policy why`。
 
 ```text
 my-project/

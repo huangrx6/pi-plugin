@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { classifyPlanResponse } from "../src/core/approval.js";
 import policyEngine from "../extensions/policy-engine/index.js";
+
+// Hermetic cwd (v0.20): strict-state restore is cwd-matched, so running
+// from a temp dir guarantees no real session's persisted awaiting plan
+// leaks into the smoke run (or vice versa).
+const smokeCwd = mkdtempSync(join(tmpdir(), "pi-policy-smoke-"));
 
 const handlers = new Map();
 const commands = new Map();
@@ -24,7 +32,7 @@ assert.ok(commands.has("policy"));
 const notices = [];
 const statuses = [];
 const ctx = {
-  cwd: process.cwd(),
+  cwd: smokeCwd,
   model: { provider: "minimax-cn", id: "MiniMax-M3" },
   ui: {
     notify(message, level) {
@@ -91,10 +99,7 @@ const planFollowUp = await handlers.get("before_agent_start")(
   ctx,
 );
 assert.match(planFollowUp.systemPrompt, /Phase: awaiting_approval/);
-assert.match(
-  planFollowUp.systemPrompt,
-  /do not start implementation/i,
-);
+assert.match(planFollowUp.systemPrompt, /do not start implementation/i);
 
 // Approval transitions to executing.
 const approved = await handlers.get("before_agent_start")(
@@ -120,4 +125,5 @@ assert.equal(classifyPlanResponse("先别做了"), "cancel");
 await commands.get("policy").handler("why", ctx);
 assert.ok(notices.some((n) => String(n.message).includes("rigor: strict")));
 
+rmSync(smokeCwd, { recursive: true, force: true });
 process.stdout.write("smoke-extension: OK\n");

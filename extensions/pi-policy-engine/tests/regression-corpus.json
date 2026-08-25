@@ -225,6 +225,48 @@
       "expect": {
         "planResponse": "approve"
       }
+    },
+    {
+      "prompt": "先修改代码，不要修改，只分析",
+      "because": "v0.20: any-live-mutation short-circuit ignored the later correction",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "帮我修复，不对，先别改，只分析原因",
+      "because": "v0.20: correction head 不对 must clear the earlier mutate",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "先改一下，等等，不要动，只告诉我原因",
+      "because": "v0.20: correction head 等等 supersedes the earlier request",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "不要修改",
+      "because": "v0.20: bare negation leaves no active intent — never releases",
+      "expect": {
+        "executionIntent": "unclear"
+      }
+    },
+    {
+      "prompt": "不要分析，直接修改",
+      "because": "v0.20: negated read-only then live mutate — correction semantics hold",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "修改 JWT 鉴权逻辑",
+      "because": "v0.20: strong security concern must floor risk at high (security.md says auth changes are high-impact)",
+      "expect": {
+        "risk": "high"
+      }
     }
   ]
 }
