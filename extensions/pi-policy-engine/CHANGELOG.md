@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.0
+
+- **Config validation**: `/policy validate` proactively checks the resolved
+  config for common mistakes before they bite at runtime:
+  - `guard.customPatterns`: unknown category / unparseable regex /
+    empty label / empty regex -> errors (same as session_start warnings).
+  - `includePolicies` / `excludePolicies`: ids not in the package manifest
+    and not under `core.*` / `model.*` -> warnings (these are silently
+    ignored by the composer).
+  - `policies/manifest.json`: each entry's path checked against the
+    filesystem -> errors when missing.
+  - `profiles/*.json`: each entry checked against manifest + built-in
+    prefixes -> errors when unknown.
+- Pure read — no state mutation, no agent invocation, safe to run in CI.
+- New helpers: `validateConfig({ config, packageRoot })` in state.js,
+  `formatValidation(result)` in format.js.
+
 ## 0.10.0
 
 - **Side-by-side routing comparison**: `/policy diff <promptA> || <promptB>`

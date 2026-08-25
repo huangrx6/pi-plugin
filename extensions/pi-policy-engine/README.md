@@ -213,6 +213,7 @@ Differences (4):
 ```
 
 适用场景：
+
 - 调 routing 后验证变化（"这个新关键词生效了吗"）
 - 对比两个相似 prompt 为什么一条 strict 一条 quick
 - 纯读：不触发 agent、不动 session state、不发 semantic fallback 请求
@@ -262,6 +263,38 @@ semanticFallback
 - 检查 `customPatterns` 数量对得上你配的
 
 不告诉你**哪一层覆盖了哪一层**——要查 source 层，自己读 `~/.pi/agent/policy-engine.json` 和 `<project>/.pi/policy-engine.json`。
+
+#### 配置校验：`/policy validate`
+
+调完配置还没起 pi 时主动检查问题，避免运行到一半才发现配置错。
+
+```text
+/policy validate
+```
+
+输出：
+
+```text
+# Validation: FAIL (1 error)
+
+## Errors (1)
+  [error]   guard: customPatterns[0]: unknown category "bogus" (expected one of file, git, package, k8s, network, disk)
+
+## Warnings (0)
+```
+
+校验项：
+
+- `guard.customPatterns` 里每条是否合法（分类在白名单内、regex 能编译、label 非空）—— 错误
+- `includePolicies` / `excludePolicies` 是否引用 manifest 里的 id，或 `core.*` / `model.*` 内置前缀——警告（拼错会静默忽略）
+- `policies/manifest.json` 里每个路径是否真存在——错误
+- `profiles/*.json` 里每个 id 是否引用 manifest 里的项——错误
+
+适用场景：
+
+- 调完 `policy-engine.json` 后启动前 sanity check
+- CI 里跑一次保证配置没坏
+- 写入新 customPattern 时确认没拼错分类
 
 #### 跨 session 历史：`historyFile` + `historyMaxEntries`
 
@@ -419,6 +452,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 | `/policy preview <prompt>` | 不触发 agent，直接看路由结果（classification + 加载的 policies + byte 预算使用） |
 | `/policy test-guard <bash>` | 不触发严格模式，直接看当前 gate 是否会拦截这条命令 |
 | `/policy config` | 打印当前 resolved 配置（defaults + global + project + runtime 四层合并结果） |
+| `/policy validate` | 校验当前配置（customPatterns / manifest 路径 / profile 引用 / include-exclude 引用） |
 | `/policy history [N\|clear-disk]` | 本 session 内最近的 N 条路由决策（默认 5），包括 /policy preview 也记录。`clear-disk` 清空磁盘历史文件 |
 | `/policy status` | 当前 mode / gate / profile / phase / 模型 |
 | `/policy why` | 上一轮的完整路由决策（含命中规则） |

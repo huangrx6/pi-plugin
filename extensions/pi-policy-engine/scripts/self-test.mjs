@@ -20,9 +20,7 @@ import {
   splitShellSegments,
 } from "../src/core/guard.js";
 import { mergeConfig } from "../src/core/config.js";
-import {
-  createRequire as _createRequire,
-} from "node:module";
+import { createRequire as _createRequire } from "node:module";
 const require = _createRequire(import.meta.url);
 import {
   appendHistory,
@@ -36,12 +34,20 @@ import {
   buildSemanticRequestBody,
   maybeSemanticClassify,
 } from "../src/core/semantic.js";
-import { formatConfig, formatDiff, formatGuardPreview, formatHistory, formatPreview } from "../extensions/policy-engine/format.js";
+import {
+  formatConfig,
+  formatDiff,
+  formatGuardPreview,
+  formatHistory,
+  formatPreview,
+  formatValidation,
+} from "../extensions/policy-engine/format.js";
 import {
   HISTORY_CAP,
   compareDecisions,
   preview,
   recordHistory,
+  validateConfig,
 } from "../extensions/policy-engine/state.js";
 import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
 
@@ -1044,14 +1050,29 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const diffs = compareDecisions(left, right);
   // workflow, task, risk, confidence, domains, profile, would require approval
   assert.ok(diffs.length >= 5);
-  assert.ok(diffs.some((d) => d.field === "workflow" && d.left === "strict" && d.right === "quick"));
-  assert.ok(diffs.some((d) => d.field === "risk" && d.left === "high" && d.right === "low"));
+  assert.ok(
+    diffs.some(
+      (d) =>
+        d.field === "workflow" && d.left === "strict" && d.right === "quick",
+    ),
+  );
+  assert.ok(
+    diffs.some(
+      (d) => d.field === "risk" && d.left === "high" && d.right === "low",
+    ),
+  );
 }
 
 // compareDecisions: domains with different order / content.
 {
-  const left = { decision: { domains: ["a", "b"] }, wouldRequireApproval: false };
-  const right = { decision: { domains: ["b", "a"] }, wouldRequireApproval: false };
+  const left = {
+    decision: { domains: ["a", "b"] },
+    wouldRequireApproval: false,
+  };
+  const right = {
+    decision: { domains: ["b", "a"] },
+    wouldRequireApproval: false,
+  };
   // joined-comma comparison: "a,b" vs "b,a" -> differ
   assert.ok(compareDecisions(left, right).some((d) => d.field === "domains"));
 }
@@ -1122,8 +1143,159 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.match(text, /LEFT/);
   assert.match(text, /RIGHT/);
   assert.match(text, /Differences \(\d+\)/);
-  assert.match(text, /workflow: strict  →  quick/);
-  assert.match(text, /risk: high  →  low/);
+  assert.match(text, /workflow: strict {2}→ {2}quick/);
+  assert.match(text, /risk: high {2}→ {2}low/);
+}
+
+// validateConfig: clean baseline config returns ok with zero issues.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const result = validateConfig({
+    config: {},
+    packageRoot: root,
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.issues, []);
+}
+
+// validateConfig: invalid customPattern category -> error.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const result = validateConfig({
+    config: {
+      guard: {
+        customPatterns: [
+          { category: "bogus", label: "x", regex: "x" },
+        ],
+      },
+    },
+    packageRoot: root,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((i) => i.severity === "error" && i.message.includes("bogus")));
+}
+
+// validateConfig: includePolicies with unknown id -> warning (not error).
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const result = validateConfig({
+    config: { includePolicies: ["totally.bogus"] },
+    packageRoot: root,
+  });
+  assert.equal(result.ok, true);
+  assert.ok(result.issues.some((i) => i.severity === "warning" && i.message.includes("totally.bogus")));
+}
+
+// validateConfig: core.* id is always accepted.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const result = validateConfig({
+    config: { includePolicies: ["core.evidence-priority"] },
+    packageRoot: root,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.issues.length, 0);
+}
+
+// validateConfig: missing manifest path -> error.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  // Create a temp manifest with a non-existent path.
+  const fs = await import("node:fs/promises");
+  const tmpDir = await fs.mkdtemp(join(root, ".tmp-validate-"));
+  await fs.mkdir(join(tmpDir, "policies"), { recursive: true });
+  await fs.writeFile(
+    join(tmpDir, "policies", "manifest.json"),
+    JSON.stringify({
+      policies: { "ghost.policy": "policies/does-not-exist.md" },
+    }),
+  );
+  const result = validateConfig({
+    config: {},
+    packageRoot: tmpDir,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.some(
+      (i) =>
+        i.severity === "error" &&
+        i.message.includes("ghost.policy") &&
+        i.message.includes("does-not-exist.md"),
+    ),
+  );
+  // Cleanup
+  await fs.rm(tmpDir, { recursive: true, force: true });
+}
+
+// validateConfig: profile referencing unknown id -> error.
+{
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const fs = await import("node:fs/promises");
+  const tmpDir = await fs.mkdtemp(join(root, ".tmp-validate-"));
+  await fs.mkdir(join(tmpDir, "profiles"), { recursive: true });
+  await fs.writeFile(
+    join(tmpDir, "profiles", "broken.json"),
+    JSON.stringify({ policies: ["missing.policy"] }),
+  );
+  const result = validateConfig({
+    config: {},
+    packageRoot: tmpDir,
+  });
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.issues.some(
+      (i) =>
+        i.severity === "error" &&
+        i.message.includes("broken.json") &&
+        i.message.includes("missing.policy"),
+    ),
+  );
+  await fs.rm(tmpDir, { recursive: true, force: true });
+}
+
+// formatValidation: ok with warnings.
+{
+  const text = formatValidation({
+    ok: true,
+    issues: [
+      { severity: "warning", message: "minor thing" },
+    ],
+  });
+  assert.match(text, /# Validation: OK \(with warnings\)/);
+  assert.match(text, /Warnings \(1\)/);
+  assert.match(text, /minor thing/);
+}
+
+// formatValidation: error.
+{
+  const text = formatValidation({
+    ok: false,
+    issues: [
+      { severity: "error", message: "broken thing" },
+    ],
+  });
+  assert.match(text, /# Validation: FAIL \(1 error\)/);
+  assert.match(text, /Errors \(1\)/);
+  assert.match(text, /broken thing/);
+}
+
+// formatValidation: no issues.
+{
+  const text = formatValidation({ ok: true, issues: [] });
+  assert.match(text, /# Validation: OK/);
+  assert.match(text, /No issues found/);
+}
+
+// formatValidation: pluralization.
+{
+  const text = formatValidation({
+    ok: false,
+    issues: [
+      { severity: "error", message: "e1" },
+      { severity: "error", message: "e2" },
+    ],
+  });
+  assert.match(text, /FAIL \(2 errors\)/);
 }
 
 // history-store: resolveHistoryPath expands ~ and resolves relative paths.

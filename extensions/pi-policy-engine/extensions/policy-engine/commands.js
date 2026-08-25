@@ -18,6 +18,7 @@ import {
   formatHistory,
   formatPreview,
   formatStatusSummary,
+  formatValidation,
 } from "./format.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
 import {
@@ -25,6 +26,7 @@ import {
   compareDecisions,
   preview,
   recordHistory,
+  validateConfig,
 } from "./state.js";
 
 const MODE_OPTIONS = [
@@ -369,6 +371,20 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
+    if (action === "validate") {
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      const result = validateConfig({
+        config: cfg,
+        packageRoot,
+      });
+      notify(ctx, formatValidation(result), result.ok ? "info" : "warning");
+      return;
+    }
+
     if (action === "cancel") {
       state.pendingApproval = false;
       state.phase = "idle";
@@ -390,7 +406,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|test-guard <cmd>|config|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|test-guard <cmd>|config|validate|status|why|cancel|reset]",
       "info",
     );
   };

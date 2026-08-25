@@ -1,12 +1,21 @@
 // Runtime state + classification/decision glue.
 // Single instance per extension load; reset on session_start.
 
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+
+import { compileCustomPatterns } from "../../src/core/guard.js";
 import { classifyTask } from "../../src/core/classifier.js";
 import {
   loadEffectiveConfig,
   loadRoutingConfig,
 } from "../../src/core/config.js";
-import { composePolicies, loadProjectPolicies } from "../../src/core/loader.js";
+import {
+  composePolicies,
+  loadManifest,
+  loadProfile,
+  loadProjectPolicies,
+} from "../../src/core/loader.js";
 import { buildDecision } from "../../src/core/router.js";
 import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
@@ -125,6 +134,85 @@ export async function decide({
 }
 
 /**
+ * Validate the resolved config against the package manifest and project
+ * files. Pure read — no state mutation. Used by `/policy validate`.
+ *
+ * Checks:
+ *  - guard.customPatterns compile + have valid categories (errors).
+ *  - includePolicies / excludePolicies reference manifest ids OR the
+ *    built-in core.* / model.* namespaces (warnings otherwise).
+ *  - profile.<name>.json entries reference valid ids (errors).
+ *  - manifest paths exist on disk (errors).
+ *
+ * Returns { ok, issues: [{ severity: 'error' | 'warning', message }] }.
+ */
+export function validateConfig({ config, packageRoot }) {
+  const issues = [];
+  const push = (severity, message) => issues.push({ severity, message });
+
+  // 1. customPatterns
+  const { warnings } = compileCustomPatterns(config.guard);
+  for (const w of warnings) push("error", `guard: ${w}`);
+
+  // 2. Reference checks against manifest + core.* + model.*
+  const manifest = loadManifest(packageRoot);
+  const manifestIds = new Set(Object.keys(manifest?.policies ?? {}));
+  const builtInPrefixes = ["core.", "model."];
+  const isKnownId = (id) =>
+    manifestIds.has(id) || builtInPrefixes.some((p) => id.startsWith(p));
+  for (const id of config.includePolicies ?? []) {
+    if (!isKnownId(id)) {
+      push(
+        "warning",
+        `includePolicies: '${id}' is not in the package manifest and does not start with 'core.' or 'model.'. It will be silently ignored.`,
+      );
+    }
+  }
+  for (const id of config.excludePolicies ?? []) {
+    if (!isKnownId(id)) {
+      push(
+        "warning",
+        `excludePolicies: '${id}' is not in the package manifest and does not start with 'core.' or 'model.'. It will be silently ignored.`,
+      );
+    }
+  }
+
+  // 3. Manifest paths exist
+  for (const [id, relPath] of Object.entries(manifest?.policies ?? {})) {
+    const full = join(packageRoot, relPath);
+    if (!existsSync(full)) {
+      push(
+        "error",
+        `manifest: policy '${id}' -> '${relPath}' does not exist at ${full}`,
+      );
+    }
+  }
+
+  // 4. Profile policies
+  const profileDir = join(packageRoot, "profiles");
+  if (existsSync(profileDir)) {
+    for (const file of readdirSync(profileDir)) {
+      if (!file.endsWith(".json")) continue;
+      const profileId = file.replace(/\.json$/, "");
+      const profile = loadProfile(packageRoot, profileId);
+      for (const id of profile?.policies ?? []) {
+        if (!isKnownId(id)) {
+          push(
+            "error",
+            `profile '${profileId}.json': policy '${id}' is not in the manifest and is not a core.*/model.* id`,
+          );
+        }
+      }
+    }
+  }
+
+  return {
+    ok: !issues.some((i) => i.severity === "error"),
+    issues,
+  };
+}
+
+/**
  * Compare two decisions and return the list of fields that differ. Used by
  * `/policy diff`. Returns an array of `{ field, left, right }` objects
  * (only for fields where left !== right). Compares on the classification /
@@ -136,11 +224,7 @@ export function compareDecisions(left, right) {
     ["workflow", left?.decision?.workflow, right?.decision?.workflow],
     ["task", left?.decision?.taskType, right?.decision?.taskType],
     ["risk", left?.decision?.risk, right?.decision?.risk],
-    [
-      "confidence",
-      left?.decision?.confidence,
-      right?.decision?.confidence,
-    ],
+    ["confidence", left?.decision?.confidence, right?.decision?.confidence],
     [
       "domains",
       (left?.decision?.domains ?? []).join(","),
