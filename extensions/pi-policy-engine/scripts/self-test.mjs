@@ -5,15 +5,27 @@ import { fileURLToPath } from "node:url";
 
 import { classifyTask } from "../src/core/classifier.js";
 import { chooseWorkflow, modelPolicyId } from "../src/core/router.js";
-import { composePolicies, loadProjectPolicies, renderPolicyBlock } from "../src/core/loader.js";
-import { findMutatingShell, isApprovalPrompt, isMutatingShell, shouldBlockTool } from "../src/core/guard.js";
+import {
+  composePolicies,
+  loadProjectPolicies,
+  renderPolicyBlock,
+} from "../src/core/loader.js";
+import {
+  findMutatingShell,
+  isApprovalPrompt,
+  isMutatingShell,
+  shouldBlockTool,
+  splitShellSegments,
+} from "../src/core/guard.js";
 import { mergeConfig } from "../src/core/config.js";
 import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 let routing;
 try {
-  routing = JSON.parse(readFileSync(join(root, "config", "routing.json"), "utf8"));
+  routing = JSON.parse(
+    readFileSync(join(root, "config", "routing.json"), "utf8"),
+  );
 } catch (error) {
   throw new Error(`failed to load config/routing.json: ${error.message}`);
 }
@@ -56,8 +68,14 @@ function c(prompt) {
   assert.equal(chooseWorkflow(x, "auto"), "standard");
 }
 
-assert.equal(modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M3" }), "model.minimax-m3");
-assert.equal(modelPolicyId({ provider: "deepseek", id: "deepseek-v4" }), "model.deepseek");
+assert.equal(
+  modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M3" }),
+  "model.minimax-m3",
+);
+assert.equal(
+  modelPolicyId({ provider: "deepseek", id: "deepseek-v4" }),
+  "model.deepseek",
+);
 assert.equal(modelPolicyId({ provider: "foo", id: "bar" }), null);
 
 assert.equal(isMutatingShell("git status"), false);
@@ -73,23 +91,38 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   assert.equal(x.block, true);
 }
 {
-  const x = shouldBlockTool({ toolName: "bash", input: { command: "git status" } }, "hard", true);
+  const x = shouldBlockTool(
+    { toolName: "bash", input: { command: "git status" } },
+    "hard",
+    true,
+  );
   assert.equal(x.block, false);
 }
 {
-  const x = shouldBlockTool({ toolName: "bash", input: { command: "rm -rf tmp" } }, "hard", true);
+  const x = shouldBlockTool(
+    { toolName: "bash", input: { command: "rm -rf tmp" } },
+    "hard",
+    true,
+  );
   assert.equal(x.block, true);
 }
 {
-  const x = shouldBlockTool({ toolName: "bash", input: { command: "rm -rf tmp" } }, "soft", true);
+  const x = shouldBlockTool(
+    { toolName: "bash", input: { command: "rm -rf tmp" } },
+    "soft",
+    true,
+  );
   assert.equal(x.block, false);
 }
 
 {
-  const projectPolicies = loadProjectPolicies(join(root, "examples", "project"), {
-    projectPolicyMaxFiles: 12,
-    projectPolicyMaxBytes: 24000,
-  });
+  const projectPolicies = loadProjectPolicies(
+    join(root, "examples", "project"),
+    {
+      projectPolicyMaxFiles: 12,
+      projectPolicyMaxBytes: 24000,
+    },
+  );
   assert.equal(projectPolicies.length, 2);
   assert.match(projectPolicies[0].content, /backward compatible/i);
   assert.match(projectPolicies[1].content, /observability/i);
@@ -110,8 +143,18 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
 // mergeConfig: arrays of objects with `id` are unioned (deduped by id).
 {
   const merged = mergeConfig(
-    { items: [{ id: "x", v: 1 }, { id: "y", v: 2 }] },
-    { items: [{ id: "y", v: 22 }, { id: "z", v: 3 }] },
+    {
+      items: [
+        { id: "x", v: 1 },
+        { id: "y", v: 2 },
+      ],
+    },
+    {
+      items: [
+        { id: "y", v: 22 },
+        { id: "z", v: 3 },
+      ],
+    },
   );
   assert.equal(merged.items.length, 3);
   const xs = merged.items.map((i) => i.id);
@@ -173,7 +216,10 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
     config: { policyMaxBytes: 1500, excludePolicies: [], includePolicies: [] },
     phase: "planning",
   });
-  assert.ok(tight.truncated.length > 0, "expected some policies to be truncated under tight budget");
+  assert.ok(
+    tight.truncated.length > 0,
+    "expected some policies to be truncated under tight budget",
+  );
   // project-domain.kubernetes should drop before core.* does.
   assert.ok(!tight.policies.some((p) => p.id === "domain.kubernetes"));
   assert.ok(tight.policies.some((p) => p.id === "core.evidence-priority"));
@@ -216,6 +262,65 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const c = parsePolicyCommand("   ");
   assert.equal(c.action, "status");
   assert.deepEqual(c.rest, []);
+}
+
+// Structured shell parsing: splitShellSegments respects quotes and $().
+{
+  // Basic splitter
+  assert.deepEqual(splitShellSegments("ls && rm tmp"), ["ls", "rm tmp"]);
+  assert.deepEqual(splitShellSegments("a; b; c"), ["a", "b", "c"]);
+  assert.deepEqual(splitShellSegments("a || b"), ["a", "b"]);
+  // Pipes are split too (both sides can mutate independently).
+  assert.deepEqual(splitShellSegments("echo hi | sed -i s/x/y/"), [
+    "echo hi",
+    "sed -i s/x/y/",
+  ]);
+  // Quoted splitter characters do NOT split.
+  assert.deepEqual(splitShellSegments('echo "a && b"'), ['echo "a && b"']);
+  assert.deepEqual(splitShellSegments("echo 'rm -rf /'"), ["echo 'rm -rf /'"]);
+  // $(...) is opaque — splitter inside the substitution is not honored.
+  assert.deepEqual(splitShellSegments("echo $(rm -rf /tmp)"), [
+    "echo $(rm -rf /tmp)",
+  ]);
+  // Empty / whitespace-only inputs.
+  assert.deepEqual(splitShellSegments(""), []);
+  assert.deepEqual(splitShellSegments("   "), []);
+  assert.deepEqual(splitShellSegments(";"), []);
+}
+
+// Structured parsing should classify correctly even with quotes and pipes.
+{
+  // Quoted rm is NOT mutating.
+  assert.equal(findMutatingShell('echo "rm -rf /" | grep warn'), null);
+  // Unquoted rm IS mutating.
+  const r = findMutatingShell("echo hi; rm -rf tmp");
+  assert.equal(r?.category, "file");
+  assert.equal(r?.label, "rm");
+  assert.match(r?.segment ?? "", /^rm /);
+  // kubectl apply at the head of a multi-segment command.
+  const k = findMutatingShell("kubectl apply -f x.yaml && sleep 5");
+  assert.equal(k?.category, "k8s");
+  assert.match(k?.segment ?? "", /^kubectl /);
+  // Nested mutating inside $() — we DO classify this (it's still a deletion).
+  const s = findMutatingShell("echo $(rm -rf /etc/foo)");
+  assert.equal(s?.category, "file");
+  // last segment wins if earlier ones are clean.
+  assert.equal(
+    findMutatingShell("git status; sleep 1; kubectl delete pod x")?.label,
+    "kubectl apply|delete|patch|...",
+  );
+}
+
+// shouldBlockTool reason should include the offending segment (v0.3).
+{
+  const r = shouldBlockTool(
+    { toolName: "bash", input: { command: "echo hi && rm -rf /tmp" } },
+    "hard",
+    true,
+  );
+  assert.equal(r.block, true);
+  assert.match(r.reason, /file: rm/);
+  assert.match(r.reason, /rm -rf \/tmp/);
 }
 
 process.stdout.write("self-test: OK\n");
