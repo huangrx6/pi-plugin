@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.0
+
+**First stable release — schema, config, and terminology freeze.** No
+new features in 1.0; the surface below is the supported contract.
+
+Frozen surface:
+
+- Terminology: task / risk / executionIntent / domains / concerns /
+  rigor / flow / profile / phase. The workflow axis was split into
+  rigor + flow in v0.19 and will not be reintroduced.
+- Config schema: mode, profile, showStatus, maxDomains,
+  policyMaxBytes (unified total), projectPolicyMaxFiles/MaxBytes,
+  projectPolicies, include/excludePolicies, domainHints, historyFile,
+  historyMaxEntries, semanticFallback, concernRules/taskRules/
+  domainRules (config/routing.json), model rules (config/models.json),
+  project policy manifest (.pi/policies/manifest.json).
+- Decision shape: taskType, risk, confidence, executionIntent, domains,
+  concerns, rigor, flow, profile, modelPolicy, reasons (+ bookkeeping:
+  loadedPolicies, truncatedPolicies, policyBytes, policyBudget).
+- History JSONL: field name `workflow` retained for old-file
+  compatibility; new writers store the rigor value in it.
+- Commands: /policy auto|quick|standard|strict|off|once|profile|
+  preview|diff|history|config|validate|status|why|cancel|reset.
+
+The eight foundational principles are formalized in DESIGN §1a. Known
+future option (NOT in 1.0): an opt-in strictPhaseGuard limited to
+edit/write/apply_patch during planning/awaiting_approval — see DESIGN
+§6; it stays unimplemented until evidence demands it.
+
 ## 0.19.0
 
 Flow/Rigor split + configurable model routing + /policy why budget line.

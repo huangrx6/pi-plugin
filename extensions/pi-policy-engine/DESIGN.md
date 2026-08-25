@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.19
+# Design — pi-policy-engine v1.0
 
 ## 1. Design goal
 
@@ -27,6 +27,29 @@ The extension intentionally does not own:
 - generalized workflow DSL;
 - model provider abstraction;
 - memory system.
+
+## 1a. Foundational principles (frozen at 1.0)
+
+These eight principles are the contract. Any change that violates one of
+them is a regression, not a feature.
+
+1. **Deterministic first.** Routing is rule-based; the optional semantic
+   model only arbitrates below the confidence threshold.
+2. **Intent beats mention.** A discussed topic is not a request — the
+   imperative frame and action modality decide, background keywords
+   only weigh in.
+3. **Hard evidence is never downgraded.** Semantic merge can raise risk,
+   never lower it; deterministic intent is locked unless unclear.
+4. **Less policy is better.** One unified byte budget; every loaded
+   policy must have earned its slot with evidence.
+5. **Strict approval must be pure.** Only a pure approval releases
+   execution; any constraint remainder is a revise.
+6. **Every route must be explainable.** Every decision carries reasons;
+   dropped policies and domains say why they were dropped.
+7. **Enforce workflow, not permissions.** No tool_call interception;
+   the extension constrains task behavior, not tool access.
+8. **Never become another agent runtime.** No schedulers, DAGs,
+   subagent graphs, or orchestration — see Non-goals (§12).
 
 ## 2. Lifecycle
 
@@ -172,6 +195,14 @@ v0.12 removes the tool_call handler entirely:
 - Consequence (documented as a known limitation): if a model ignores the
   PLAN-ONLY instruction and issues a mutation anyway, nothing here stops it.
   That's the deliberate price of clean layering.
+
+**Future option (NOT in 1.0): `strictPhaseGuard`** — an opt-in
+(default-off) invariant guard that blocks exactly `edit` / `write` /
+`apply_patch` while `phase` is planning or awaiting_approval. It would
+parse no Bash, judge no commands, and grant no permissions — pure
+workflow-invariant enforcement, keeping this extension off the
+permission layer. It stays unimplemented until field evidence shows
+PLAN-ONLY instructions being ignored in practice.
 
 `src/core/approval.js` is the only remnant of the old guard module, kept
 because the strict state machine needs phrase recognition.
