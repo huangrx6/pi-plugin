@@ -10,6 +10,7 @@ import {
   loadEffectiveConfig,
   loadRoutingConfig,
   projectConfigFiles,
+  projectConfigViolations,
 } from "../../src/core/config.js";
 import {
   composeAllPolicies,
@@ -71,11 +72,15 @@ function stateRuntimeOverrides(state) {
   return out;
 }
 
-export function buildEffectiveConfig({ packageRoot, cwd, state }) {
+export function buildEffectiveConfig({ packageRoot, cwd, state, raw = false }) {
+  // raw = skip runtime normalization: /policy validate must see the actual
+  // (possibly invalid) values to report them; every runtime consumer gets
+  // the normalized form.
   return loadEffectiveConfig({
     packageRoot,
     cwd,
     runtimeOverrides: stateRuntimeOverrides(state),
+    raw,
   });
 }
 
@@ -201,12 +206,17 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
   // A frozen schema deserves real checks, not just id-reference lookups.
   const MODES = ["auto", "quick", "standard", "strict", "off"];
   if (config.mode !== undefined && !MODES.includes(config.mode)) {
-    push(
-      "error",
-      `mode: '${config.mode}' is not one of ${MODES.join(" | ")}`,
-    );
+    push("error", `mode: '${config.mode}' is not one of ${MODES.join(" | ")}`);
   }
-  const PROFILES = ["auto", "coding", "debugging", "review", "research", "architecture", "documentation"];
+  const PROFILES = [
+    "auto",
+    "coding",
+    "debugging",
+    "review",
+    "research",
+    "architecture",
+    "documentation",
+  ];
   if (config.profile !== undefined && !PROFILES.includes(config.profile)) {
     push(
       "warning",
@@ -216,7 +226,10 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
   if (config.maxDomains !== undefined && !(Number(config.maxDomains) > 0)) {
     push("error", `maxDomains: must be > 0 (got ${config.maxDomains})`);
   }
-  if (config.policyMaxBytes !== undefined && !(Number(config.policyMaxBytes) > 0)) {
+  if (
+    config.policyMaxBytes !== undefined &&
+    !(Number(config.policyMaxBytes) > 0)
+  ) {
     push("error", `policyMaxBytes: must be > 0 (got ${config.policyMaxBytes})`);
   }
   if (
@@ -231,10 +244,16 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
   const fb = config.semanticFallback;
   if (fb && fb.enabled === true) {
     if (typeof fb.endpoint !== "string" || !/^https?:\/\//.test(fb.endpoint)) {
-      push("error", "semanticFallback.endpoint: must be an http(s) URL when enabled");
+      push(
+        "error",
+        "semanticFallback.endpoint: must be an http(s) URL when enabled",
+      );
     }
     if (typeof fb.model !== "string" || !fb.model) {
-      push("error", "semanticFallback.model: must be a non-empty string when enabled");
+      push(
+        "error",
+        "semanticFallback.model: must be a non-empty string when enabled",
+      );
     }
     if (typeof fb.apiKeyEnvVar !== "string" || !fb.apiKeyEnvVar) {
       push("error", "semanticFallback.apiKeyEnvVar: must be set when enabled");
@@ -249,7 +268,10 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
       );
     }
     if (fb.timeoutMs !== undefined && !(Number(fb.timeoutMs) > 0)) {
-      push("error", `semanticFallback.timeoutMs: must be > 0 (got ${fb.timeoutMs})`);
+      push(
+        "error",
+        `semanticFallback.timeoutMs: must be > 0 (got ${fb.timeoutMs})`,
+      );
     }
   }
 
@@ -260,6 +282,14 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
       if (f.error) {
         push("error", `project config ${f.path}: invalid JSON (${f.error})`);
       }
+    }
+    // v0.21 trust boundary: privileged keys in project config are dropped
+    // at load time — say so, or users debug config that never applies.
+    for (const v of projectConfigViolations(cwd)) {
+      push(
+        "error",
+        `project config ${v.path}: key '${v.key}' is global-only (network/credential/filesystem settings cannot come from a project layer; ignored)`,
+      );
     }
   }
 

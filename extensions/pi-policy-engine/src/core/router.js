@@ -61,6 +61,16 @@ export function chooseRigor(classification, requestedMode = "auto") {
     return requestedMode;
   }
 
+  // v0.21 P0: an EXPLICIT user approval gate ("确认后再执行") outranks the
+  // risk heuristic — the user asked for the plan-approval cycle directly.
+  // Only an explicit mode override (/policy quick|standard|off) beats it.
+  if (
+    classification.approvalRequired === "explicit" &&
+    classification.executionIntent !== "read-only"
+  ) {
+    return "strict";
+  }
+
   // Read-only intent never needs the strict approval cycle — downgrade to a
   // standard (or quick) read-only flow. "unclear" keeps full rigor: we can't
   // prove it won't mutate.
@@ -105,6 +115,8 @@ export function buildDecision({
     risk: classification.risk,
     confidence: classification.confidence,
     executionIntent: classification.executionIntent,
+    executionTiming: classification.executionTiming,
+    approvalRequired: classification.approvalRequired ?? null,
     domains: classification.domains,
     concerns: classification.concerns,
     rigor,

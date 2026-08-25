@@ -381,11 +381,15 @@ test("manifest entries cannot escape .pi/policies (path traversal)", async () =>
   );
   await fs.writeFile(join(base, "inside.md"), "INSIDE");
 
-  const { policies, skipped } = loadProjectPolicies(repo, {}, {
-    taskType: "coding",
-    domains: [],
-    concerns: [],
-  });
+  const { policies, skipped } = loadProjectPolicies(
+    repo,
+    {},
+    {
+      taskType: "coding",
+      domains: [],
+      concerns: [],
+    },
+  );
   assert.equal(policies.length, 1);
   assert.equal(policies[0].content, "INSIDE");
   for (const p of policies) {
@@ -412,11 +416,15 @@ test("manifest symlink escape is rejected (realpath containment)", async () => {
     JSON.stringify({ leak: { path: "leak.md" } }),
   );
 
-  const { policies } = loadProjectPolicies(repo, {}, {
-    taskType: "coding",
-    domains: [],
-    concerns: [],
-  });
+  const { policies } = loadProjectPolicies(
+    repo,
+    {},
+    {
+      taskType: "coding",
+      domains: [],
+      concerns: [],
+    },
+  );
   assert.equal(policies.length, 0);
 
   await fs.rm(repo, { recursive: true, force: true });
@@ -442,36 +450,52 @@ test("manifest filters: AND across dimensions, OR within one", async () => {
   );
 
   // architecture + frontend: task matches, domain does NOT → no load.
-  const wrongDomain = loadProjectPolicies(repo, {}, {
-    taskType: "architecture",
-    domains: ["frontend"],
-    concerns: [],
-  });
+  const wrongDomain = loadProjectPolicies(
+    repo,
+    {},
+    {
+      taskType: "architecture",
+      domains: ["frontend"],
+      concerns: [],
+    },
+  );
   assert.equal(wrongDomain.policies.length, 0);
 
   // debugging + database: domain matches, task does NOT → no load.
-  const wrongTask = loadProjectPolicies(repo, {}, {
-    taskType: "debugging",
-    domains: ["database"],
-    concerns: [],
-  });
+  const wrongTask = loadProjectPolicies(
+    repo,
+    {},
+    {
+      taskType: "debugging",
+      domains: ["database"],
+      concerns: [],
+    },
+  );
   assert.equal(wrongTask.policies.length, 0);
 
   // architecture + database: both match → load.
-  const both = loadProjectPolicies(repo, {}, {
-    taskType: "architecture",
-    domains: ["database"],
-    concerns: [],
-  });
+  const both = loadProjectPolicies(
+    repo,
+    {},
+    {
+      taskType: "architecture",
+      domains: ["database"],
+      concerns: [],
+    },
+  );
   assert.equal(both.policies.length, 1);
   assert.equal(both.policies[0].content, "DB MIGRATION");
 
   // coding + backend: OR within a dimension → load.
-  const orWithin = loadProjectPolicies(repo, {}, {
-    taskType: "coding",
-    domains: ["backend"],
-    concerns: [],
-  });
+  const orWithin = loadProjectPolicies(
+    repo,
+    {},
+    {
+      taskType: "coding",
+      domains: ["backend"],
+      concerns: [],
+    },
+  );
   assert.equal(orWithin.policies.length, 1);
 
   await fs.rm(repo, { recursive: true, force: true });
@@ -489,7 +513,10 @@ test("projectConfigFiles walks up and reports broken JSON", async () => {
     join(repo, ".pi", "policy-engine.json"),
     JSON.stringify({ mode: "strict" }),
   );
-  await fs.writeFile(join(repo, "backend", ".pi", "policy-engine.json"), "{broken");
+  await fs.writeFile(
+    join(repo, "backend", ".pi", "policy-engine.json"),
+    "{broken",
+  );
 
   const { projectConfigFiles, loadEffectiveConfig } = await import(
     "../src/core/config.js"

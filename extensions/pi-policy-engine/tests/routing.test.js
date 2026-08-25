@@ -68,12 +68,25 @@ test("workflow routing matrix", () => {
   );
   assert.equal(chooseRigor(debug, "auto"), "standard");
 
-  const strict = classifyTask(
+  // v0.21: a pure design deliverable is read-only → standard; the strict
+  // case needs an implementation marker or an explicit approval gate.
+  const design = classifyTask(
     "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚",
     routing,
     [],
   );
+  assert.equal(design.executionIntent, "read-only");
+  assert.equal(chooseRigor(design, "auto"), "standard");
+
+  const strict = classifyTask(
+    "设计生产环境 PostgreSQL 数据库迁移方案并实施，不能停机，需要回滚",
+    routing,
+    [],
+  );
   assert.equal(chooseRigor(strict, "auto"), "strict");
+
+  const gated = classifyTask("先别改，给我方案，确认后再执行", routing, []);
+  assert.equal(chooseRigor(gated, "auto"), "strict");
 
   const k8s = classifyTask(
     "k8s deployment 的 hostPath 挂载需要调整，生产环境不能停机",

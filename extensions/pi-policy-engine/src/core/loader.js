@@ -102,7 +102,8 @@ function manifestEntryMatches(entry, decision) {
   const concerns = Array.isArray(entry?.concerns) ? entry.concerns : [];
   const taskOk = tasks.length === 0 || tasks.includes(decision?.taskType);
   const doms = decision?.domains ?? [];
-  const domainOk = domains.length === 0 || domains.some((d) => doms.includes(d));
+  const domainOk =
+    domains.length === 0 || domains.some((d) => doms.includes(d));
   const cons = decision?.concerns ?? [];
   const concernOk =
     concerns.length === 0 || concerns.some((c) => cons.includes(c));
@@ -209,7 +210,8 @@ export function loadProjectPolicies(cwd, config = {}, decision = null) {
         if (!full) {
           skipped.push({
             id: `project.${rel}`,
-            reason: "rejected (path escapes .pi/policies, non-.md, or unresolvable)",
+            reason:
+              "rejected (path escapes .pi/policies, non-.md, or unresolvable)",
           });
           continue;
         }
@@ -231,20 +233,28 @@ export function composePolicies({
   decision,
   config,
   phase = "executing",
+  projectPolicies = [],
 }) {
   const manifest = loadManifest(packageRoot);
   const profile = loadProfile(packageRoot, decision.profile);
 
   // Order matters for both selection and budget truncation. Lower in the
   // list = lower priority; if the byte budget runs out we drop from the
-  // tail first (project -> model -> concern -> domain -> rigor/flow ->
-  // profile behaviors -> core).
+  // tail first.
+  //
+  // v0.21 P2 priority: project policies sit right after core — a repo's
+  // own constraints ("never touch schema in this project") are MORE
+  // specific and more binding than generic model adaptation, so
+  // model.minimax-* is dropped before they are. Full order:
+  //   core > project > rigor/flow > concern > domain > profile > model
   const ordered = [
     "core.evidence-priority",
     "core.constraint-retention",
     "core.verification",
-    ...(profile.policies ?? []),
   ];
+  // Project entries are pre-loaded objects; mark them with a reserved
+  // prefix so the walk can resolve them without a manifest lookup.
+  for (const pp of projectPolicies) ordered.push(`project:${pp.id}`);
   // v0.19 flow/rigor split: flow (how to work) derives from the task type,
   // rigor (how strict) from risk/intent. Profiles carry behaviors only.
   if (decision.flow) ordered.push(`flow.${decision.flow}`);
@@ -256,16 +266,17 @@ export function composePolicies({
       phase === "planning" ? "rigor.strict-plan" : "rigor.strict-execute",
     );
   }
-  for (const domain of decision.domains ?? []) {
-    const id = `domain.${domain}`;
-    if (manifest?.policies?.[id]) ordered.push(id);
-  }
   // Concerns (v0.18): cross-cutting policies load alongside domains and
   // never compete for domain slots.
   for (const concern of decision.concerns ?? []) {
     const id = `concern.${concern}`;
     if (manifest?.policies?.[id]) ordered.push(id);
   }
+  for (const domain of decision.domains ?? []) {
+    const id = `domain.${domain}`;
+    if (manifest?.policies?.[id]) ordered.push(id);
+  }
+  for (const id of profile.policies ?? []) ordered.push(id);
   if (decision.modelPolicy) ordered.push(decision.modelPolicy);
   for (const id of config.includePolicies ?? []) ordered.push(id);
 
@@ -280,22 +291,25 @@ export function composePolicies({
     ids.push(id);
   }
 
-  // Load and apply a byte budget. Project policies participate in the budget
-  // *after* built-ins: built-ins are always tried first.
+  // ONE budget walk over built-ins and project entries alike (v0.21).
   const maxBytes = Number(config.policyMaxBytes ?? 24000);
+  const projectById = new Map(projectPolicies.map((p) => [`project:${p.id}`, p]));
   const loaded = [];
   const missing = []; // unresolvable ids (typo in includePolicies / manifest gap)
   const budgetDropped = [];
+  const projectBudgetDropped = [];
   let used = 0;
   for (const id of ids) {
-    const policy = loadPolicyById(packageRoot, manifest, id);
+    const project = projectById.get(id);
+    const policy = project ?? loadPolicyById(packageRoot, manifest, id);
     if (!policy) {
       missing.push(id);
       continue;
     }
     const size = Buffer.byteLength(policy.content, "utf8");
     if (used + size > maxBytes) {
-      budgetDropped.push(id); // dropped entirely, no partial truncation
+      if (project) projectBudgetDropped.push(policy.id);
+      else budgetDropped.push(id); // drop entirely, no partial truncation
       continue;
     }
     loaded.push(policy);
@@ -304,6 +318,7 @@ export function composePolicies({
   return {
     policies: loaded,
     truncated: budgetDropped,
+    projectBudgetDropped,
     missing,
     builtInBytes: used,
   };
@@ -324,37 +339,40 @@ export function composeAllPolicies({
   config,
   phase = "executing",
 }) {
-  const { policies, truncated, missing, builtInBytes } = composePolicies({
+  // v0.21 P2: ONE budget walk interleaves project policies with built-ins
+  // (priority: core > project > rigor/flow > concern > domain > profile >
+  // model). Project candidates load under their OWN caps first (file count
+  // + projectPolicyMaxBytes); the TOTAL policyMaxBytes is enforced by the
+  // unified walk, so a repo's own constraints are dropped only after model
+  // adaptation is — never before it.
+  const { policies: projectCandidates, skipped: projectSkipped } =
+    loadProjectPolicies(cwd, config, decision);
+  const walk = composePolicies({
     packageRoot,
     decision,
     config,
     phase,
+    projectPolicies: projectCandidates,
   });
-  const total = Number(config.policyMaxBytes ?? 24000);
-  const remaining = Math.max(0, total - builtInBytes);
-  const projectCap = Math.min(
-    Number(config.projectPolicyMaxBytes ?? 24000),
-    remaining,
-  );
-  const { policies: projectPolicies, skipped: projectSkipped } =
-    loadProjectPolicies(
-      cwd,
-      {
-        ...config,
-        projectPolicyMaxBytes: projectCap,
-      },
-      decision,
-    );
-  const projectBytes = projectPolicies.reduce(
-    (n, p) => n + Buffer.byteLength(p.content, "utf8"),
-    0,
-  );
+  const isProject = (p) => p.id.startsWith("project.");
+  const policies = walk.policies.filter((p) => !isProject(p));
+  const projectPolicies = walk.policies.filter(isProject);
+  const bytes = (list) =>
+    list.reduce((n, p) => n + Buffer.byteLength(p.content, "utf8"), 0);
+  const builtInBytes = bytes(policies);
+  const projectBytes = bytes(projectPolicies);
   return {
     policies,
     projectPolicies,
-    projectSkipped,
-    truncated,
-    missing,
+    projectSkipped: [
+      ...projectSkipped,
+      ...walk.projectBudgetDropped.map((id) => ({
+        id,
+        reason: "dropped (unified byte budget)",
+      })),
+    ],
+    truncated: walk.truncated,
+    missing: walk.missing,
     builtInBytes,
     projectBytes,
   };

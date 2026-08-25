@@ -29,7 +29,7 @@ const WEAK_SCORE = 0.5;
 const TRIGGER_SCORE = 1.0;
 
 import { matchSignalGroups, matchedTerms, toSignalGroups } from "./matcher.js";
-import { extractExecutionIntent, extractIntentFrame } from "./intent.js";
+import { extractExecutionMeta, extractIntentFrame } from "./intent.js";
 
 function normalize(text) {
   return String(text ?? "")
@@ -232,7 +232,8 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   const highMatches = matchedTerms(text, routing.highRisk ?? []);
   const mediumMatches = matchedTerms(text, routing.mediumRisk ?? []);
   const simpleMatches = matchedTerms(text, routing.simpleHints ?? []);
-  const executionIntent = extractExecutionIntent(prompt);
+  const meta = extractExecutionMeta(prompt);
+  const { executionIntent, approvalRequired } = meta;
 
   let risk = "medium";
   if (highMatches.length > 0) {
@@ -256,10 +257,7 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     );
   }
 
-  if (
-    concernRiskFloor &&
-    FLOOR_RANK[concernRiskFloor] > FLOOR_RANK[risk]
-  ) {
+  if (concernRiskFloor && FLOOR_RANK[concernRiskFloor] > FLOOR_RANK[risk]) {
     reasons.push(
       `risk:${concernRiskFloor} raised by concern riskFloor (strong concern evidence, weak signals never floor)`,
     );
@@ -294,6 +292,12 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     );
   }
 
+  if (approvalRequired === "explicit") {
+    reasons.push(
+      "approval:explicit gate requested by the user (确认后再执行) — outranks risk-based routing",
+    );
+  }
+
   return {
     taskType,
     runnerUpTask: ranked[1]?.[0],
@@ -302,6 +306,8 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     risk,
     confidence,
     executionIntent,
+    executionTiming: meta.executionTiming,
+    approvalRequired,
     reasons,
   };
 }

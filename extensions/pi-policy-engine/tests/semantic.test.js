@@ -231,3 +231,40 @@ test("invalid schema — null", async () => {
   assert.equal(merged, null);
   delete process.env.PI_POLICY_TEST_KEY;
 });
+
+test("v0.21: merge respects config.maxDomains", async () => {
+  process.env.PI_POLICY_TEST_KEY = "sk-test";
+  const merged = await maybeSemanticClassify(
+    "x",
+    det({ domains: ["security"], confidence: 0.4 }),
+    enabledCfg({ maxDomains: 1 }),
+    { fetcher: async () => okResponse({
+      taskType: "coding",
+      risk: "medium",
+      domains: ["frontend", "backend"],
+    }) },
+  );
+  assert.equal(merged.domains.length, 1, JSON.stringify(merged.domains));
+  assert.deepEqual(merged.domains, ["security"]); // deterministic kept
+  delete process.env.PI_POLICY_TEST_KEY;
+});
+
+test("v0.21: task-invariant risk floor re-applied post-merge", async () => {
+  process.env.PI_POLICY_TEST_KEY = "sk-test";
+  // semantic flips coding→architecture but reports medium; the classifier's
+  // own architecture→high invariant must hold after arbitration.
+  const merged = await maybeSemanticClassify(
+    "x",
+    det({ taskType: "coding", risk: "medium", confidence: 0.4 }),
+    enabledCfg(),
+    { fetcher: async () => okResponse({
+      taskType: "architecture",
+      risk: "medium",
+      domains: [],
+    }) },
+  );
+  assert.equal(merged.taskType, "architecture");
+  assert.equal(merged.risk, "high");
+  assert.ok(merged.reasons.some((r) => r.includes("task invariant")));
+  delete process.env.PI_POLICY_TEST_KEY;
+});

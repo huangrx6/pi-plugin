@@ -326,6 +326,7 @@ export function createCommandHandler({ packageRoot, getState }) {
         packageRoot,
         cwd: ctx?.cwd ?? process.cwd(),
         state,
+        raw: true,
       });
       const result = validateConfig({
         config: cfg,

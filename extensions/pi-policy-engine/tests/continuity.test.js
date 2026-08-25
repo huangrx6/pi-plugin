@@ -187,8 +187,10 @@ test("decide(): follow-up inherits concerns from the previous decision", async (
     state,
     model: null,
   });
-  assert.ok(decision.concerns.includes("security"),
-    `security concern must survive continuity, got ${decision.concerns}`);
+  assert.ok(
+    decision.concerns.includes("security"),
+    `security concern must survive continuity, got ${decision.concerns}`,
+  );
 });
 
 test("decide(): execute follow-up converts advice into mutation", async () => {

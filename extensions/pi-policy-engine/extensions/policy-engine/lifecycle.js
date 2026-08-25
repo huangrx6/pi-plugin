@@ -21,6 +21,7 @@
 import { classifyPlanResponse } from "../../src/core/approval.js";
 import { classifyTask } from "../../src/core/classifier.js";
 import { loadRoutingConfig } from "../../src/core/config.js";
+import { loadModelRules, modelPolicyId } from "../../src/core/router.js";
 import {
   composeAllPolicies,
   renderPolicyBlock,
@@ -47,7 +48,11 @@ import {
  * decision's loaded/truncated bookkeeping. Shared by every branch that
  * injects a system-prompt block.
  */
-function buildBlock({ packageRoot, cwd, config, decision, phase }) {
+function buildBlock({ packageRoot, cwd, config, decision, phase, model }) {
+  // v0.21: model adaptation always reflects the CURRENT model — a restored
+  // strict plan or a mid-session /model switch must not replay a stale
+  // modelPolicy (it is no longer persisted at all).
+  decision.modelPolicy = modelPolicyId(model, loadModelRules(packageRoot));
   // v0.17: one TOTAL byte budget — project policies participate in
   // policyMaxBytes after built-ins (composeAllPolicies).
   const {
@@ -59,12 +64,12 @@ function buildBlock({ packageRoot, cwd, config, decision, phase }) {
     builtInBytes,
     projectBytes,
   } = composeAllPolicies({
-      packageRoot,
-      cwd,
-      decision,
-      config,
-      phase,
-    });
+    packageRoot,
+    cwd,
+    decision,
+    config,
+    phase,
+  });
   decision.loadedPolicies = [...policies, ...projectPolicies].map((p) => p.id);
   decision.truncatedPolicies = truncated;
   decision.missingPolicies = missing;
@@ -133,7 +138,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         cfg.historyFile,
         ctx?.cwd ?? process.cwd(),
       );
-      const sPath = strictStatePath(hPath);
+      const sPath = strictStatePath(hPath, ctx?.cwd ?? process.cwd());
       if (sPath) {
         const restored = await loadStrictState(sPath, {
           cwd: ctx?.cwd ?? process.cwd(),
@@ -202,7 +207,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         // Question about the plan: answer it, keep waiting for approval.
         const decision = { ...state.lastDecision };
         state.lastDecision = decision;
-        const block = buildBlock({
+        const block = buildBlock({ model: ctx?.model ?? state.currentModel,
           packageRoot,
           cwd,
           config: cfgAwait,
@@ -228,7 +233,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         const prev = state.lastDecision;
         const delta = classifyTask(prompt, loadRoutingConfig(packageRoot), []);
         const RANK = { low: 0, medium: 1, high: 2 };
-        const risk = RANK[delta.risk] > RANK[prev.risk] ? delta.risk : prev.risk;
+        const risk =
+          RANK[delta.risk] > RANK[prev.risk] ? delta.risk : prev.risk;
         const domainCap = Math.max(2, (prev.domains ?? []).length);
         const domains = [
           ...new Set([...(prev.domains ?? []), ...(delta.domains ?? [])]),
@@ -264,7 +270,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         };
         state.lastDecision = decision;
         state.phase = "planning";
-        const block = buildBlock({
+        const block = buildBlock({ model: ctx?.model ?? state.currentModel,
           packageRoot,
           cwd,
           config: cfgAwait,
@@ -283,7 +289,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         clearAwaitState(cfgAwait, cwd).catch(() => {});
         const decision = { ...state.lastDecision };
         state.lastDecision = decision;
-        const block = buildBlock({
+        const block = buildBlock({ model: ctx?.model ?? state.currentModel,
           packageRoot,
           cwd,
           config: cfgAwait,
@@ -299,7 +305,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
 
       // unknown: not approval-shaped. Keep awaiting approval and say so,
       // otherwise a casual "继续" would silently sit in limbo.
-      const block = buildBlock({
+      const block = buildBlock({ model: ctx?.model ?? state.currentModel,
         packageRoot,
         cwd,
         config: cfgAwait,
@@ -351,7 +357,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       state.phase = "executing";
     }
 
-    const block = buildBlock({
+    const block = buildBlock({ model: ctx?.model ?? state.currentModel,
       packageRoot,
       cwd,
       config,
@@ -382,6 +388,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (cfg.historyFile) {
       const sPath = strictStatePath(
         resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd()),
+        ctx?.cwd ?? process.cwd(),
       );
       if (sPath) {
         if (state.phase === "awaiting_approval" && state.lastDecision) {

@@ -270,14 +270,55 @@ function modality(clause, lower, hit) {
  *   "negated-read-only"  a read-only verb was explicitly revoked here
  *   null                 no signal (ambiguous/narration/bare topic)
  */
+/**
+ * Scoped negation (v0.21): "不要改数据库" / "don't touch the schema" attach
+ * a TARGET to the negated verb — that is a scope CONSTRAINT on an otherwise
+ * live task, not a global revocation. "修复 bug，但不要改数据库" must stay
+ * mutate. A BARE negated verb ("不要修改" / "先别改") carries no target and
+ * revokes globally. Pronouns/quantifiers (任何/所有/it/anything) do not
+ * count as targets.
+ */
+function isScopedNegation(lower, hit) {
+        const after = lower
+                .slice(hit.end, hit.end + 8)
+                .replace(/^[\s的]+/, "");
+        if (!after) return false;
+        if (/^(?:任何|所有|每)/.test(after)) return false;
+        if (/^(?:it|them|anything|everything|any |all )/i.test(after)) {
+                return false;
+        }
+        return /^[\p{L}\p{N}_]/u.test(after);
+}
+
+// Planning deliverables (v0.21): the DESIGN/PLAN ITSELF is the requested
+// product — "帮我设计一个微服务迁移方案" / "规划一下迁移步骤". Default
+// read-only; an implementation marker in the SAME clause ("并实施"/"并实现"
+// / apply it) keeps it a live mutation task.
+const PLANNING_DELIVERABLE_RE =
+        /(设计|规划|制定|起草|草拟|拟一个|梳理)(?:一[个份套下点])?|(?<!不)(?:给我|出)[^，。;；]{0,8}(方案|计划|步骤|路线图)/;
+const IMPLEMENT_MARKER_RE =
+        /(并实施|并执行|并实现|以及实施|和实施|然后实施|然后实现|然后落地|直接落地|顺便实施|apply it|implement it|and implement|then implement)/i;
+
+function isPlanningDeliverable(clause) {
+        if (!PLANNING_DELIVERABLE_RE.test(clause)) return false;
+        return !IMPLEMENT_MARKER_RE.test(clause);
+}
+
 function classifyClause(clause) {
         const lower = clause.toLowerCase();
+        // Planning deliverable first (v0.21): when the plan itself is the
+        // product, the clause is a read-only request — UNLESS the clause
+        // also carries an implementation marker (checked above).
+        if (isPlanningDeliverable(clause)) {
+                return { kind: "read-only", via: "planning-deliverable" };
+        }
         const liveMut = [];
         const advisoryMut = [];
         let negatedMut = false;
         for (const h of findTerms(lower, MUTATION_VERBS)) {
                 if (isNegated(clause, h.idx)) {
-                        negatedMut = true;
+                        // Scoped negation = constraint, not revocation.
+                        if (!isScopedNegation(lower, h)) negatedMut = true;
                         continue;
                 }
                 const m = modality(clause, lower, h);
@@ -302,7 +343,10 @@ function classifyClause(clause) {
         ) {
                 return {
                         kind: "read-only",
-                        via: advisoryMut[0]?.term ?? roHits[0]?.term ?? "communication",
+                        via:
+                                advisoryMut[0]?.term ??
+                                roHits[0]?.term ??
+                                "communication",
                 };
         }
         if (negatedMut) return { kind: "negated-mutate" };
@@ -340,6 +384,24 @@ const CORRECTION_HEAD_RE =
  * @returns {"read-only" | "mutate" | "unclear"}
  */
 export function extractExecutionIntent(prompt) {
+        return extractExecutionMeta(prompt).executionIntent;
+}
+
+// Explicit approval gate (v0.21 P0): the user states that execution happens
+// only after their confirmation. "先别改，给我方案，确认后再执行" must land
+// in the strict planning phase (approval gate), NOT auto-routed by risk.
+// This outranks risk heuristics: an explicit user gate beats an implicit
+// "medium risk → standard" guess.
+const DEFERRED_APPROVAL_RE =
+        /(确认|批准|同意|点头|okay|ok|approve[ds]?)[^，。;,]{0,6}(后|之后|再)[^，。;,]{0,8}(执行|做|改|动|动手|实施|落地|上线|继续|deploy|execute|apply|proceed)|等我(确认|批准|点头|同意)|待(我)?(确认|批准)后|after (i |you )?(confirm|approve|okay)|once (i |you )?(approve|confirm|okay)|wait for (my |your )?(approval|confirmation|okay|go.?ahead)/i;
+
+/**
+ * Full execution meta (v0.21): intent + timing + explicit approval.
+ *
+ * @returns { executionIntent, executionTiming: "now"|"deferred",
+ *             approvalRequired: "explicit"|null }
+ */
+export function extractExecutionMeta(prompt) {
         const clauses = splitClauses(prompt);
         let active = null;
         for (const clause of clauses) {
@@ -353,7 +415,20 @@ export function extractExecutionIntent(prompt) {
                         if (active === "read-only") active = null;
                 }
         }
-        return active ?? "unclear";
+        const approvalRequired = DEFERRED_APPROVAL_RE.test(
+                String(prompt ?? ""),
+        )
+                ? "explicit"
+                : null;
+        // A deferred execution clause ("确认后再执行") reads as mutate via
+        // the live 执行 verb, but its timing is deferred.
+        const executionTiming =
+                approvalRequired === "explicit" ? "deferred" : "now";
+        return {
+                executionIntent: active ?? "unclear",
+                executionTiming,
+                approvalRequired,
+        };
 }
 
 // ---------------------------------------------------------------------------
@@ -458,7 +533,8 @@ export function extractIntentFrame(prompt) {
         let lastCorrectionIdx = -1;
 
         clauses.forEach((clause, i) => {
-                if (CORRECTION_HEAD_RE.test(clause.trim())) lastCorrectionIdx = i;
+                if (CORRECTION_HEAD_RE.test(clause.trim()))
+                        lastCorrectionIdx = i;
                 const lower = clause.toLowerCase();
                 for (const { id, terms } of FRAME_ACTIONS) {
                         const hits = findTerms(lower, terms);
@@ -520,15 +596,15 @@ export function extractIntentFrame(prompt) {
 // through full classification. Tails are capped at 4 separator-free chars
 // so "继续，只分析" (carries an instruction) never matches.
 const FOLLOWUP_PATTERNS = [
-  /^(?:继续|接着)[^，。,;；]{0,4}$/,
-  /^再(?:看看|试试|检查一下|跑一下|来一次|来一遍)$/,
-  /^还是(?:不对|不行|没好|没修好|没解决|有报错|报错|失败|出错)$/,
-  /^没(?:修好|解决|生效|好|弄好)$/,
-  /^(?:刚才|前面|上面)(?:那个|这个|说的)?(?:问题|地方|报错|bug|文件|函数)?(?:呢|吧)?$/,
-  /^(?:那个|这个)(?:问题|地方|报错|bug)(?:呢|吧)?$/,
-  /^按(?:这个|计划|方案)(?:做|来|执行|改)$/,
-  /^就按(?:这个|计划|方案)(?:来|做|执行)?$/,
-  /^还(?:差一点|没完成|没弄完|有问题)$/,
+        /^(?:继续|接着)[^，。,;；]{0,4}$/,
+        /^再(?:看看|试试|检查一下|跑一下|来一次|来一遍)$/,
+        /^还是(?:不对|不行|没好|没修好|没解决|有报错|报错|失败|出错)$/,
+        /^没(?:修好|解决|生效|好|弄好)$/,
+        /^(?:刚才|前面|上面)(?:那个|这个|说的)?(?:问题|地方|报错|bug|文件|函数)?(?:呢|吧)?$/,
+        /^(?:那个|这个)(?:问题|地方|报错|bug)(?:呢|吧)?$/,
+        /^按(?:这个|计划|方案)(?:做|来|执行|改)$/,
+        /^就按(?:这个|计划|方案)(?:来|做|执行)?$/,
+        /^还(?:差一点|没完成|没弄完|有问题)$/,
 ];
 
 /**
@@ -543,11 +619,11 @@ export function isFollowUpPrompt(prompt) {
 // Action follow-ups convert advice into execution ("按这个做" after a
 // read-only analysis must become mutate, not inherit read-only).
 const FOLLOWUP_EXECUTE_RE =
-  /^(?:按(?:这个|计划|方案|刚才的?)(?:做|来|执行|改|实施)|就按(?:这个|计划|方案)(?:来|做|执行|实施)?|照(?:这个|计划|方案)(?:做|来|执行)|继续(?:修|改|执行|部署|删|加|创建|写|实施|落地)|去(?:改|修|执行|做)吧?|动手吧|开工吧|直接做|do it|apply it|go ahead|make the change|apply the plan)$/;
+        /^(?:按(?:这个|计划|方案|刚才的?)(?:做|来|执行|改|实施)|就按(?:这个|计划|方案)(?:来|做|执行|实施)?|照(?:这个|计划|方案)(?:做|来|执行)|继续(?:修|改|执行|部署|删|加|创建|写|实施|落地)|去(?:改|修|执行|做)吧?|动手吧|开工吧|直接做|do it|apply it|go ahead|make the change|apply the plan)$/;
 
 // Inspection follow-ups keep looking without asserting mutation.
 const FOLLOWUP_INSPECT_RE =
-  /^(?:再(?:看看|试试|检查一下|跑一下|看一遍|查一遍)|look again|check again|try again)$/;
+        /^(?:再(?:看看|试试|检查一下|跑一下|看一遍|查一遍)|look again|check again|try again)$/;
 
 /**
  * Classify a whole-message follow-up (v0.20):
@@ -557,12 +633,13 @@ const FOLLOWUP_INSPECT_RE =
  *   "none"    — not a follow-up; full classification applies
  */
 export function classifyFollowUp(prompt) {
-  const t = String(prompt ?? "")
-    .replace(/[。.!！？?\s]+$/u, "")
-    .trim();
-  if (!t || t.length > 20) return { type: "none" };
-  if (FOLLOWUP_EXECUTE_RE.test(t)) return { type: "execute" };
-  if (FOLLOWUP_INSPECT_RE.test(t)) return { type: "inspect" };
-  if (FOLLOWUP_PATTERNS.some((re) => re.test(t))) return { type: "neutral" };
-  return { type: "none" };
+        const t = String(prompt ?? "")
+                .replace(/[。.!！？?\s]+$/u, "")
+                .trim();
+        if (!t || t.length > 20) return { type: "none" };
+        if (FOLLOWUP_EXECUTE_RE.test(t)) return { type: "execute" };
+        if (FOLLOWUP_INSPECT_RE.test(t)) return { type: "inspect" };
+        if (FOLLOWUP_PATTERNS.some((re) => re.test(t)))
+                return { type: "neutral" };
+        return { type: "none" };
 }

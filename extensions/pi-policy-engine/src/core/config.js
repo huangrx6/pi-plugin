@@ -42,6 +42,61 @@ export function projectConfigFiles(cwd) {
   return out.reverse(); // nearest last = highest merge priority
 }
 
+// v0.21 P0 — config trust boundary. A repo's .pi/policy-engine.json is
+// UNTRUSTED input (any cloned repo can ship one): letting it set
+// semanticFallback turned into a verified credential-exfiltration path
+// (project points endpoint at attacker, names apiKeyEnvVar, the extension
+// then sends Bearer <secret> + the full prompt). historyFile likewise
+// allowed appending JSON to arbitrary user files. Project layers may only
+// override routing/noise keys; everything network / credential /
+// filesystem is global-only.
+const PRIVILEGED_KEYS = [
+  "semanticFallback",
+  "historyFile",
+  "historyMaxEntries",
+];
+
+const SAFE_PROJECT_KEYS = [
+  "mode",
+  "profile",
+  "showStatus",
+  "maxDomains",
+  "domainHints",
+  "includePolicies",
+  "excludePolicies",
+  "projectPolicies",
+  "projectPolicyMaxFiles",
+  "projectPolicyMaxBytes",
+  "policyMaxBytes",
+];
+
+/** Drop every privileged key from a project config layer. */
+export function sanitizeProjectConfig(projectConfig) {
+  if (!projectConfig || typeof projectConfig !== "object") return {};
+  const out = {};
+  for (const key of SAFE_PROJECT_KEYS) {
+    if (key in projectConfig) out[key] = projectConfig[key];
+  }
+  return out;
+}
+
+/**
+ * Privileged keys found in project config layers — surfaced by
+ * /policy validate so users learn WHY their project config is ignored,
+ * not just that it is.
+ */
+export function projectConfigViolations(cwd) {
+  const out = [];
+  for (const f of projectConfigFiles(cwd)) {
+    if (f.error) continue;
+    const raw = safeJson(f.path, {});
+    for (const key of PRIVILEGED_KEYS) {
+      if (key in raw) out.push({ path: f.path, key });
+    }
+  }
+  return out;
+}
+
 function isPlainObject(v) {
   if (!v || typeof v !== "object") return false;
   const proto = Object.getPrototypeOf(v);
@@ -96,25 +151,74 @@ export function mergeConfig(...configs) {
   return out;
 }
 
+const BUILTIN_PROFILES = [
+  "auto",
+  "coding",
+  "debugging",
+  "review",
+  "research",
+  "architecture",
+  "documentation",
+];
+const BUILTIN_MODES = ["auto", "quick", "standard", "strict", "off"];
+
+const num = (v, fallback) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+/**
+ * Runtime normalization (v0.21 P1). /policy validate diagnoses bad config,
+ * but the runtime must not consume it: "maxDomains": "oops" made
+ * Math.max(1, NaN) → NaN → the domain cap NEVER fired (four domains
+ * loaded); "policyMaxBytes": "oops" failed the budget OPEN (everything
+ * loaded); an unknown profile silently dropped all profile behaviors.
+ * Invalid values fall back to defaults; valid values pass through.
+ */
+export function normalizeEffectiveConfig(cfg) {
+  const out = { ...cfg };
+  if (!BUILTIN_MODES.includes(out.mode)) out.mode = "auto";
+  if (!BUILTIN_PROFILES.includes(out.profile)) out.profile = "auto";
+  out.maxDomains = num(out.maxDomains, 2);
+  out.policyMaxBytes = num(out.policyMaxBytes, 24000);
+  out.projectPolicyMaxFiles = num(out.projectPolicyMaxFiles, 12);
+  out.projectPolicyMaxBytes = num(out.projectPolicyMaxBytes, 24000);
+  out.historyMaxEntries = num(out.historyMaxEntries, 500);
+  const fb = out.semanticFallback;
+  if (fb && typeof fb === "object") {
+    const t = Number(fb.confidenceThreshold);
+    if (!(t > 0 && t < 1)) fb.confidenceThreshold = 0.7;
+    const ms = Number(fb.timeoutMs);
+    if (!(ms > 0)) fb.timeoutMs = 4000;
+  }
+  return out;
+}
+
 export function loadEffectiveConfig({
   packageRoot,
   cwd,
   runtimeOverrides = {},
+  raw = false,
 }) {
   const defaults = safeJson(join(packageRoot, "config", "defaults.json"), {});
   const globalConfig = safeJson(
     join(homedir(), ".pi", "agent", "policy-engine.json"),
     {},
   );
+  // Project layers are sanitized BEFORE merging — the trust boundary is
+  // structural, not advisory (see PRIVILEGED_KEYS).
   const projectLayers = projectConfigFiles(cwd).map((f) =>
-    f.error ? {} : safeJson(f.path, {}),
+    f.error ? {} : sanitizeProjectConfig(safeJson(f.path, {})),
   );
-  return mergeConfig(
+  const merged = mergeConfig(
     defaults,
     globalConfig,
     ...projectLayers,
     runtimeOverrides,
   );
+  // raw = skip normalization (used by /policy validate so it can report
+  // the invalid values instead of the silently-fixed ones).
+  return raw ? merged : normalizeEffectiveConfig(merged);
 }
 
 export function loadRoutingConfig(packageRoot) {

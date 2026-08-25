@@ -183,7 +183,22 @@ strict 的 plan 批准**不是工具拦截**，而是注入给模型的明确指
 
 ### Strict 计划跨会话恢复（v0.20）
 
-strict 计划在 awaiting approval 时退出 pi（或 /resume 旧会话），恢复后状态不再丢失：awaiting 状态与最小决策会持久化在 history 文件旁，下次 session_start 恢复（同项目目录匹配、最多 7 天，`/policy cancel` 丢弃）。"晚上生成计划，第二天 resume 后批准" 现在会正确走审批分类器。同一项目同时开两个会话时该文件共享——后写者胜，失败方向是安全的（宁可再问一次，绝不自动放行）。
+strict 计划在 awaiting approval 时退出 pi（或 /resume 旧会话），恢复后状态不再丢失：awaiting 状态与最小决策会持久化在 history 文件旁，下次 session_start 恢复（同项目目录匹配、最多 7 天，`/policy cancel` 丢弃）。"晚上生成计划，第二天 resume 后批准" 现在会正确走审批分类器。持久化文件按项目目录哈希分文件（`strict-state-<hash>.json`），不同项目互不覆盖；同一项目同时开两个会话时共享该项目文件——后写者胜，失败方向是安全的（宁可再问一次，绝不自动放行）。
+
+### 执行时机与显式审批（v0.21）
+
+执行意图之外还有两个内部维度：**执行时机**（now/deferred）和**审批要求**（explicit/none）。用户明确说"确认后再执行 / 等我批准"时，显式审批**优先于自动风险判断**——直接进入 strict 的 plan → 等待批准 → 执行流程，无论 risk 算出多少。
+
+相关语义细化：
+
+- **设计交付物**：`帮我设计一个迁移方案` / `规划一下部署步骤` 里方案本身就是产物 → read-only；同句出现 `并实施 / 并实现 / apply it` 才回到 mutate
+- **范围性否定**：`修复 bug，但不要改数据库` 保持 mutate——否定的动词带宾语时是**范围约束**，只有裸否定（`不要修改`）才是撤销
+
+### 配置信任边界（v0.21）
+
+项目里的 `.pi/policy-engine.json` 是**不可信输入**（clone 任何仓库都会带上它）。项目层只能覆盖路由/降噪类配置；`semanticFallback`（可指向任意 endpoint + 任意环境变量名）、`historyFile`、`historyMaxEntries` 等**网络/凭据/文件系统特权键只允许全局配置**（`~/.pi/agent/policy-engine.json`）。试图在项目层写特权键会被直接丢弃，`/policy validate` 会明确报告"global-only, ignored"。
+
+非法配置值在运行时也会回退默认（`maxDomains: "oops"` 不再让域数上限失效），而不是只在 validate 里报错。
 
 ### 任务连续性（v0.18）
 

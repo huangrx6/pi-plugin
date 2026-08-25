@@ -125,7 +125,7 @@ function validateSemanticResponse(parsed) {
  * Conservative merge: semantic resolves ambiguity, never hard evidence.
  * See module header for the per-field rules.
  */
-function conservativeMerge(deterministic, semantic) {
+function conservativeMerge(deterministic, semantic, opts = {}) {
   const reasons = [...(deterministic.reasons ?? [])];
   const notes = [
     `semantic-fallback: taskType=${semantic.taskType} risk=${semantic.risk}`,
@@ -153,7 +153,15 @@ function conservativeMerge(deterministic, semantic) {
 
   // Domains: deterministic always kept; semantic adds enum-valid extras
   // up to the cap. Never drops a deterministic domain.
-  const cap = Math.max(2, deterministic.domains?.length ?? 0);
+  // v0.21: the cap honors config.maxDomains — it was hardcoded ≥2, so a
+  // maxDomains:1 config could still end up with two domains after merge.
+  const cap = Math.max(
+    1,
+    Number.isFinite(Number(opts.maxDomains)) && Number(opts.maxDomains) > 0
+      ? Number(opts.maxDomains)
+      : 2,
+    deterministic.domains?.length ?? 0,
+  );
   const domains = [
     ...new Set([...(deterministic.domains ?? []), ...semantic.domains]),
   ];
@@ -179,6 +187,20 @@ function conservativeMerge(deterministic, semantic) {
 
   // Confidence stays the engine's own (deterministic) number.
   merged.confidence = deterministic.confidence;
+
+  // v0.21 P1: invariant re-run. The deterministic classifier guarantees
+  // task-based risk floors (architecture → high); semantic taskType
+  // arbitration must not silently break them. All floors applied here, in
+  // ONE place, after the merge — never scattered per-field.
+  const RISK_FLOOR_BY_TASK = { architecture: "high" };
+  const floor = RISK_FLOOR_BY_TASK[merged.taskType];
+  if (floor && RISK_RANK[merged.risk] < RISK_RANK[floor]) {
+    notes.push(
+      `risk raised ${merged.risk} → ${floor} by task invariant (${merged.taskType} floor re-applied post-merge)`,
+    );
+    merged.risk = floor;
+  }
+
   merged.reasons = [...reasons, notes.join("; ")];
   return merged;
 }
@@ -245,7 +267,9 @@ export async function maybeSemanticClassify(
     const validated = validateSemanticResponse(parsed);
     if (!validated) return null;
 
-    return conservativeMerge(classification, validated);
+    return conservativeMerge(classification, validated, {
+      maxDomains: Number(fb.maxDomains ?? config?.maxDomains ?? 2),
+    });
   } catch {
     return null;
   } finally {

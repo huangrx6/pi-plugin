@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 
 import {
   extractExecutionIntent,
+  extractExecutionMeta,
   extractIntentFrame,
 } from "../src/core/intent.js";
 
@@ -136,14 +137,35 @@ test("v0.17 advisory never swallows direct commands", () => {
   }
 });
 
-test("v0.17 bare plan-noun stays dead: 设计迁移方案 routes via risk, not intent", () => {
-  // No communication frame, no direct verb — the plan-noun is a discussed
-  // topic (dead evidence), so intent is unclear and strict rigor holds.
+test("v0.21 design/plan deliverables are read-only; 并实施 flips them back", () => {
+  // v0.17 called this "dead" (unclear); the user's final ruling: the plan
+  // IS the product → read-only. Rigor lands standard via the read-only
+  // downgrade, risk stays high, task stays architecture.
   assert.equal(
     extractExecutionIntent(
       "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚",
     ),
-    "unclear",
+    "read-only",
+  );
+  // An implementation marker in the same clause keeps it a mutation task.
+  assert.equal(
+    extractExecutionIntent("设计生产环境 PostgreSQL 数据库迁移方案并实施"),
+    "mutate",
+  );
+});
+
+test("v0.21 explicit approval gate + scoped negation meta", () => {
+  assert.deepEqual(
+    extractExecutionMeta("先别改，给我方案，确认后再执行"),
+    {
+      executionIntent: "mutate",
+      executionTiming: "deferred",
+      approvalRequired: "explicit",
+    },
+  );
+  assert.equal(
+    extractExecutionMeta("修复这个 bug，但不要改数据库").approvalRequired,
+    null,
   );
 });
 

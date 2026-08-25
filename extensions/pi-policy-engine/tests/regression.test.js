@@ -43,6 +43,20 @@ for (const { prompt, expect, because } of corpus.cases) {
         `${because} (executionIntent)`,
       );
     }
+    if (expect.approvalRequired !== undefined) {
+      assert.equal(
+        x.approvalRequired,
+        expect.approvalRequired,
+        `${because} (approvalRequired)`,
+      );
+    }
+    if (expect.executionTiming !== undefined) {
+      assert.equal(
+        x.executionTiming,
+        expect.executionTiming,
+        `${because} (executionTiming)`,
+      );
+    }
     if (expect.workflow !== undefined) {
       assert.equal(
         chooseRigor(x, "auto"),

@@ -20,7 +20,7 @@
 // - Writes never throw to the caller; errors are swallowed so an append
 //   failure (disk full, permissions) doesn't break the agent loop.
 
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
@@ -158,14 +158,28 @@ export async function readHistory(filePath, limit = 50, fs = null) {
 // stale restore keeps awaiting_approval (asks again) and never releases
 // execution on its own.
 
-/** Path of the strict-state file next to a resolved history file. */
-export function strictStatePath(historyFilePath) {
+/**
+ * Path of the strict-state file next to a resolved history file, NAMESPACED
+ * by project cwd (v0.21): with the default shared historyFile, all projects
+ * wrote one strict-state.json and the last project to save stole the
+ * restore (verified: A saves, B saves, A can no longer restore). The
+ * loadStrictState cwd check remains as a second layer.
+ */
+export function strictStatePath(historyFilePath, cwd = null) {
   if (typeof historyFilePath !== "string" || !historyFilePath) return null;
-  return join(dirname(historyFilePath), "strict-state.json");
+  const dir = dirname(historyFilePath);
+  if (typeof cwd !== "string" || !cwd) {
+    return join(dir, "strict-state.json"); // caller without cwd: legacy name
+  }
+  const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+  return join(dir, `strict-state-${hash}.json`);
 }
 
 // Only routing-relevant decision fields are persisted — bookkeeping
 // (loadedPolicies etc.) is recomputed per turn anyway.
+// v0.21: modelPolicy is NOT persisted — it is recomputed from the CURRENT
+// model on every use, so a plan drafted under MiniMax-M3 and approved after
+// /model deepseek gets the right adaptation instead of a stale one.
 const STRICT_DECISION_FIELDS = [
   "taskType",
   "risk",
@@ -176,12 +190,12 @@ const STRICT_DECISION_FIELDS = [
   "rigor",
   "flow",
   "profile",
-  "modelPolicy",
   "reasons",
 ];
 
 export async function saveStrictState(filePath, state, fs = null) {
-  if (!filePath || !state?.decision) return { ok: false, reason: "missing args" };
+  if (!filePath || !state?.decision)
+    return { ok: false, reason: "missing args" };
   const lib = fs ?? (await import("node:fs/promises"));
   const decision = {};
   for (const k of STRICT_DECISION_FIELDS) decision[k] = state.decision?.[k];
@@ -234,6 +248,11 @@ export async function loadStrictState(
     if (typeof cwd === "string" && parsed.cwd !== cwd) return null;
     if (typeof parsed?.ts === "number" && Date.now() - parsed.ts > maxAgeMs) {
       return null;
+    }
+    // v0.21: strip legacy modelPolicy (v0.20 files persisted it); it is
+    // recomputed from the CURRENT model at use time.
+    if (parsed.decision && "modelPolicy" in parsed.decision) {
+      delete parsed.decision.modelPolicy;
     }
     return { phase: "awaiting_approval", decision: parsed.decision };
   } catch {

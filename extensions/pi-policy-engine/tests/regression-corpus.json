@@ -267,6 +267,74 @@
       "expect": {
         "risk": "high"
       }
+    },
+    {
+      "prompt": "修复这个 bug，但不要改数据库",
+      "because": "v0.21: scoped negation (不要改数据库) is a constraint, not a revocation",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "只改 README，不要改代码",
+      "because": "v0.21: scoped negation family",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "帮我设计一个微服务迁移方案",
+      "because": "v0.21: the plan IS the deliverable — design/plan requests are read-only",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "规划一下数据库迁移步骤",
+      "because": "v0.21: planning deliverable",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "制定一个重构计划",
+      "because": "v0.21: planning deliverable",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "设计一个生产数据库迁移方案并实施",
+      "because": "v0.21: implementation marker keeps a design request a mutation task",
+      "expect": {
+        "executionIntent": "mutate"
+      }
+    },
+    {
+      "prompt": "先别改，给我方案，确认后再执行",
+      "because": "v0.21 P0: explicit approval gate outranks risk-based routing",
+      "expect": {
+        "executionIntent": "mutate",
+        "approvalRequired": "explicit",
+        "workflow": "strict"
+      }
+    },
+    {
+      "prompt": "先分析，等我确认后再修改",
+      "because": "v0.21 P0: explicit approval gate family",
+      "expect": {
+        "executionIntent": "mutate",
+        "approvalRequired": "explicit",
+        "workflow": "strict"
+      }
+    },
+    {
+      "prompt": "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚",
+      "because": "v0.21: pure design deliverable — read-only standard, risk stays high, task stays architecture",
+      "expect": {
+        "executionIntent": "read-only",
+        "workflow": "standard"
+      }
     }
   ]
 }

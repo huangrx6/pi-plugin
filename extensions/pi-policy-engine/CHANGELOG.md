@@ -1,5 +1,60 @@
 # Changelog
 
+## 0.21.0
+
+Release-candidate hardening #2 — trust boundary + explicit approval gate.
+
+- **P0 security: config trust boundary.** A project's .pi/policy-engine.json
+  is untrusted input (any cloned repo ships one); it could previously set
+  semanticFallback to an arbitrary endpoint + apiKeyEnvVar — verified
+  exfiltration of the env secret as a Bearer token together with the full
+  prompt — and historyFile to append JSONL to arbitrary user files
+  (~/.zshrc). Project layers now pass through sanitizeProjectConfig: only
+  routing/noise keys are accepted; semanticFallback, historyFile,
+  historyMaxEntries (and any future network/credential/filesystem keys)
+  are global-only and dropped. /policy validate reports ignored
+  privileged keys explicitly.
+- **P0 semantics: explicit approval gate.** "先别改，给我方案，确认后再
+  执行" routed standard (mutate/medium) — the user's explicit
+  confirm-before-execute never formed a gate. New execution meta:
+  executionTiming (now/deferred) + approvalRequired (explicit). An
+  explicit gate outranks risk heuristics → strict planning phase.
+  Exposed via extractExecutionMeta; classification and decisions carry
+  the fields; /policy why shows the reason.
+- **Planning deliverables are read-only**: 设计/规划/制定/给我方案
+  requests default to read-only (the plan IS the product); an
+  implementation marker in the same clause (并实施/并实现/apply it)
+  keeps it a mutation task. "帮我设计一个微服务迁移方案" →
+  architecture/high/read-only/standard (was strict PLAN-ONLY for a
+  deliverable nobody asked to execute).
+- **Scoped negation**: "修复 bug，但不要改数据库" stays mutate — a
+  negated verb with an attached target is a scope constraint, not a
+  global revocation; bare negation ("不要修改") still revokes.
+  Pronouns/quantifiers (任何/all/it) count as bare.
+- **Semantic merge hardened**: honors config.maxDomains (was hardcoded
+  ≥2) and re-applies task risk invariants post-merge (semantic
+  coding→architecture with risk medium now lands high, like the
+  deterministic classifier itself).
+- **Strict state namespaced per project**: strict-state.json is now
+  `strict-state-<sha256(cwd)[:16]>.json` — with the shared default history file,
+  the last project to save stole every other project's restore
+  (verified A/B). Legacy modelPolicy fields are stripped on restore.
+- **modelPolicy recomputed per use**: no longer persisted; a plan drafted
+  under MiniMax-M3 and approved after /model deepseek gets the DeepSeek
+  adaptation (E2E-tested).
+- **Runtime config normalization**: invalid values fall back to defaults
+  at load time — maxDomains "oops" (NaN cap → four domains loaded),
+  policyMaxBytes "oops" (fail-open budget), unknown profile (silently
+  dropped all profile behaviors) are all dead. /policy validate sees the
+  RAW config so it still diagnoses the actual mistakes.
+- **Unified budget priority** (P2): one budget walk —
+  core > project > rigor/flow > concern > domain > profile > model. A
+  repo's own constraints are no longer the first thing dropped so
+  model.minimax-* can fit.
+- History-file dead static imports removed; test count 148 → 168;
+  regression corpus 36 → 45 (scoped negation, planning deliverables,
+  explicit gate, design-vs-implement).
+
 ## 0.20.0
 
 1.0 audit hardening — boundary semantics + security fix. No new features.
@@ -62,10 +117,12 @@
   retitled Security Concern.
 - Tests 130 → 148; regression corpus 30 → 36.
 
-## 1.0.0
+## [Unreleased] 1.0.0 — schema/config/terminology freeze (pending final approval)
 
-**First stable release — schema, config, and terminology freeze.** No
-new features in 1.0; the surface below is the supported contract.
+Not yet released: the original 1.0.0 entry was published out of order
+(package stayed 0.x). 0.20–0.21 constitute the release-candidate series;
+1.0.0 is cut from this surface once the audit blockers are confirmed
+closed. No new features — the surface below is the supported contract.
 
 Frozen surface:
 

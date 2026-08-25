@@ -467,7 +467,7 @@ test("history-store: disk rotation compacts oversized files", async () => {
     },
   };
   const { appendHistory, ROTATE_THRESHOLD } = await import(
-    "../src/core/history-store.js",
+    "../src/core/history-store.js"
   );
   // Build an oversized file: 1002 entries via direct writes.
   const entries = Array.from({ length: 1002 }, (_, i) =>
@@ -478,7 +478,13 @@ test("history-store: disk rotation compacts oversized files", async () => {
   const r = await appendHistory("/mem/hist.jsonl", { ts: 9999 }, fs);
   assert.equal(r.ok, true);
   const lines = stored.split("\n").filter(Boolean);
-  assert.ok(lines.length <= 1002, `rotated file should be compact (got ${lines.length})`);
-  assert.ok(lines.length >= 1000, `rotation keeps the most recent entries (got ${lines.length})`);
+  assert.ok(
+    lines.length <= 1002,
+    `rotated file should be compact (got ${lines.length})`,
+  );
+  assert.ok(
+    lines.length >= 1000,
+    `rotation keeps the most recent entries (got ${lines.length})`,
+  );
   assert.equal(JSON.parse(lines[lines.length - 1]).ts, 9999);
 });

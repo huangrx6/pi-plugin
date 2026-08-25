@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.20
+# Design — pi-policy-engine v0.21
 
 ## 1. Design goal
 
@@ -114,7 +114,10 @@ could reach `policyMaxBytes + projectPolicyMaxBytes` while
 `/policy preview` reported only the built-in share — verified 700-byte
 budget injecting 1433 bytes. `budgetUsedPct` now reports the true total.
 
-Priority order (high → low): core > profile behaviors > rigor/flow > domain > concern > model > project.
+Priority order (v0.21, one budget walk): core > **project** > rigor/flow >
+concern > domain > profile behaviors > model. A repo's own constraints
+outrank generic model adaptation when the budget is tight — project
+policies used to be dropped first, which inverted that.
 
 ## 4. Classification: deterministic first, semantic as opt-in fallback
 
@@ -258,6 +261,20 @@ itself produced a `risk:` reason — the no-evidence default "medium"
 never escalates a quick task to standard. Off-rigor or absent
 lastDecision disables continuity. Every inheritance is recorded in
 reasons as `task-continuity: ...` for /policy why.
+
+## 7b. Config trust boundary (v0.21)
+
+Project config layers (`.pi/policy-engine.json` upward to the git root)
+are UNTRUSTED input. `sanitizeProjectConfig` reduces them to an allowlist
+of routing/noise keys; `semanticFallback`, `historyFile`,
+`historyMaxEntries` — anything network / credential / filesystem — are
+global-only and silently dropped at load (surfaced by /policy validate).
+A verified exfiltration path (project-level fallback endpoint +
+apiKeyEnvVar sending the env secret + full prompt as a Bearer request)
+motivated this. Invalid VALUES are normalized at load time
+(normalizeEffectiveConfig): unknown mode/profile → auto, non-numeric
+byte/domain caps → defaults; validate consumes the RAW config so it
+still diagnoses the actual mistakes.
 
 ## 8. Configuration merging
 
