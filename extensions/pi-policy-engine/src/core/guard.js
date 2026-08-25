@@ -385,12 +385,3 @@ export function isPlanRevisionPrompt(prompt) {
     text,
   );
 }
-
-export const __test = {
-  ALL_CATEGORIES,
-  MUTATING_SHELL_PATTERNS,
-  resolveEnabledCategories,
-  splitShellSegments,
-  matchSegment,
-  compileCustomPatterns,
-};

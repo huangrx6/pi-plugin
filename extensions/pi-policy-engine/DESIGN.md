@@ -1,4 +1,7 @@
-# Design — pi-policy-engine v0.8
+# Design — pi-policy-engine v0.11
+
+<!-- markdownlint-disable MD013 -->
+<!-- 维护者文档，按 80 字符硬折行会破坏表格/状态图可读性 -->
 
 ## 1. Design goal
 
@@ -233,6 +236,38 @@ Useful for verifying `guard.customPatterns` and `disabledCategories` without fir
 
 Prints the **resolved effective config** (defaults < global < project < runtime merged). Sections: routing / policies / guard / semanticFallback. Shows resolved values only, not which layer overrode which.
 
+### `/policy diff <promptA> || <promptB>`
+
+Runs the full preview pipeline for two prompts in parallel and shows the resulting decisions side by side, plus a Differences list of fields that changed. Pure read — no agent invocation, no state mutation, no semantic fallback HTTP call.
+
+Separator is `||` (no surrounding spaces required). Falls back to a usage warning if the separator is missing.
+
+Uses `compareDecisions(left, right)` from state.js and `formatDiff(...)` from format.js.
+
+### `/policy validate`
+
+Proactively checks the resolved config for common mistakes before they bite at runtime:
+
+- `guard.customPatterns`: unknown category / unparseable regex / empty label / empty regex → errors (reuses `compileCustomPatterns` from guard.js).
+- `includePolicies` / `excludePolicies`: ids not in the package manifest and not under `core.*` / `model.*` → warnings. The composer silently ignores unknown ids.
+- `policies/manifest.json`: each entry's path checked against the filesystem → errors when missing.
+- `profiles/*.json`: each entry checked against manifest + built-in prefixes → errors when unknown.
+
+Output: one-line verdict (`OK` / `OK (with warnings)` / `FAIL (N errors)`), Errors block, Warnings block.
+
+Pure read — safe to run in CI. Uses `validateConfig({ config, packageRoot })` from state.js and `formatValidation(...)` from format.js.
+
+### `/policy history [N]` / `/policy history clear-disk`
+
+In-memory routing history (default 5, cap 50). When `historyFile` is configured (default `~/.pi/agent/policy-engine/history.jsonl`), entries are also persisted to disk and reloaded at `session_start`:
+
+- Append-only writes to a JSONL file (`{ts, source, prompt, task, risk, workflow, profile, gate, confidence}` per line).
+- On read: tail-scan the file for the most recent `historyMaxEntries` lines (default 500), parsed and reversed into chronological order.
+- Best-effort writes: any I/O failure (EACCES, ENOSPC) is swallowed; the in-memory history still works.
+- `clear-disk` truncates the file (also clears the in-memory list).
+
+Wired in `lifecycle.js::session_start` (load) and after each `recordHistory()` call (append). The `/policy preview` handler also appends. Persistence module: `src/core/history-store.js`.
+
 ## 10. Extensibility
 
 Global reusable policies use a manifest (`policies/manifest.json`) and profiles
@@ -249,16 +284,17 @@ Gate categories are data-driven in `src/core/guard.js` `MUTATING_SHELL_PATTERNS`
 
 For project/company-specific patterns without forking: use `guard.customPatterns` (v0.4).
 
-## 11. Extension file layout (v0.8)
+## 11. Extension file layout (v0.11)
 
 ```text
 extensions/policy-engine/
 ├── index.js          # thin assembly: createState, register command + lifecycle
 ├── commands.js       # /policy command + interactive selector + all subcommands
-├── lifecycle.js      # pi event handlers + strict-workflow state machine
-├── state.js          # createState + decide/preview glue + history recording
+├── lifecycle.js      # pi event handlers + strict-workflow state machine + disk history
+├── state.js          # createState + decide/preview/compareDecisions/validateConfig glue + history recording
 ├── format.js         # formatDecision / formatStatusSummary / formatPreview /
-│                     #   formatHistory / formatGuardPreview / formatConfig
+│                     #   formatHistory / formatGuardPreview / formatConfig /
+│                     #   formatDiff / formatValidation
 └── helpers.js        # findPackageRoot / cleanModel / notify / setStatus / parsePolicyCommand
 
 src/core/             # pure modules, no pi import dependency — testable in isolation
@@ -267,7 +303,8 @@ src/core/             # pure modules, no pi import dependency — testable in is
 ├── loader.js         # loadManifest / loadProfile / loadProjectPolicies / composePolicies / renderPolicyBlock
 ├── guard.js          # shouldBlockTool / previewGuard / splitShellSegments / compileCustomPatterns / findMutatingShell
 ├── config.js         # loadEffectiveConfig / mergeConfig
-└── semantic.js       # maybeSemanticClassify (opt-in OpenAI-compatible fallback)
+├── semantic.js       # maybeSemanticClassify (opt-in OpenAI-compatible fallback)
+└── history-store.js  # appendHistory / readHistory / clearHistory / resolveHistoryPath (best-effort JSONL persistence)
 ```
 
 ## 12. Non-goals
