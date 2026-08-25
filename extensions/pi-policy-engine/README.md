@@ -196,7 +196,7 @@ strict 计划在 awaiting approval 时退出 pi（或 /resume 旧会话），恢
 
 ### 配置信任边界（v0.21）
 
-项目里的 `.pi/policy-engine.json` 是**不可信输入**（clone 任何仓库都会带上它）。项目层只能覆盖路由/降噪类配置；`semanticFallback`（可指向任意 endpoint + 任意环境变量名）、`historyFile`、`historyMaxEntries` 等**网络/凭据/文件系统特权键只允许全局配置**（`~/.pi/agent/policy-engine.json`）。试图在项目层写特权键会被直接丢弃，`/policy validate` 会明确报告"global-only, ignored"。
+项目里的 `.pi/policy-engine.json` 采用**双信任模型**：路由与行为定制（mode、策略选择、预算——仓库携带自己的约定是合理的）**可信**；主机凭据、任意网络目的地、任意文件系统目的地**永不可信**。因此项目层可以设置路由/降噪类配置，但`semanticFallback`（可指向任意 endpoint + 任意环境变量名）、`historyFile`、`historyMaxEntries` 等**网络/凭据/文件系统特权键只允许全局配置**（`~/.pi/agent/policy-engine.json`）。试图在项目层写特权键会被直接丢弃，`/policy validate` 会明确报告"global-only, ignored"。
 
 非法配置值在运行时也会回退默认（`maxDomains: "oops"` 不再让域数上限失效），而不是只在 validate 里报错。
 

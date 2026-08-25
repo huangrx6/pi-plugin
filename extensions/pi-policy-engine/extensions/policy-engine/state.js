@@ -198,6 +198,89 @@ export async function decide({
  *
  * Returns { ok, issues: [{ severity: 'error' | 'warning', message }] }.
  */
+/**
+ * Merge a plan REVISION into the pending decision (v0.22).
+ *
+ * Two kinds of revision:
+ *  - CONSTRAINT ("批准，但是不要改 schema"): task/flow/intent untouched;
+ *    risk only up; domains/concerns merged conservatively — now honoring
+ *    the effective config (maxDomains, domainHints), which the previous
+ *    inline lifecycle copy ignored (cap was hardcoded ≥2, no hints).
+ *  - REPLACEMENT ("不实施了，改成只更新 README" / "不要执行了，改成只分析
+ *    风险"): a correction/replacement frame redirects the work — full
+ *    reroute on the fresh classification, previous risk kept as a floor,
+ *    still strict + planning (the new plan needs approval again).
+ */
+export function mergeRevisionDecision({
+  previous,
+  prompt,
+  config,
+  packageRoot,
+}) {
+  const routing = loadRoutingConfig(packageRoot);
+  const delta = classifyTask(prompt, routing, config.domainHints ?? [], {
+    maxDomains: config.maxDomains,
+  });
+  const RANK = { low: 0, medium: 1, high: 2 };
+
+  const REPLACEMENT_RE =
+    /(不实施了?|别实施了?|不要实施|先不实施|不要执行了?|先不做了?|改成只|换成只|改为只|不干了，?改|don'?t implement|don'?t execute)/;
+  if (REPLACEMENT_RE.test(prompt)) {
+    const decision = buildDecision({
+      classification: delta,
+      mode: "strict",
+      profile: config.profile ?? "auto",
+      model: null,
+    });
+    decision.risk =
+      RANK[delta.risk] > RANK[previous.risk] ? delta.risk : previous.risk;
+    decision.reasons = [
+      ...(previous.reasons ?? []),
+      `plan-revision: task replaced (${previous.taskType}/${previous.executionIntent} → ${decision.taskType}/${decision.executionIntent}); re-routed fresh, approval still required`,
+      ...(delta.reasons ?? []),
+    ];
+    return decision;
+  }
+
+  const risk =
+    RANK[delta.risk] > RANK[previous.risk] ? delta.risk : previous.risk;
+  // v0.22: the domain cap honors the CURRENT config — a maxDomains:1
+  // session no longer lets a revision grow to 2 (verified bug).
+  const cap = Math.max(1, Number(config.maxDomains ?? 2));
+  const domains = [
+    ...new Set([...(previous.domains ?? []), ...(delta.domains ?? [])]),
+  ].slice(0, cap);
+  const concerns = [
+    ...new Set([...(previous.concerns ?? []), ...(delta.concerns ?? [])]),
+  ];
+  const notes = [];
+  if (risk !== previous.risk) notes.push(`risk ${previous.risk}→${risk}`);
+  const addedDomains = domains.filter(
+    (d) => !(previous.domains ?? []).includes(d),
+  );
+  if (addedDomains.length > 0) notes.push(`+domains ${addedDomains}`);
+  const addedConcerns = concerns.filter(
+    (c) => !(previous.concerns ?? []).includes(c),
+  );
+  if (addedConcerns.length > 0) notes.push(`+concerns ${addedConcerns}`);
+  return {
+    ...previous,
+    risk,
+    domains,
+    concerns,
+    reasons: [
+      ...(previous.reasons ?? []),
+      `plan-revision: ${notes.length > 0 ? notes.join("; ") : "no routing change"}`,
+      ...delta.reasons.filter(
+        (r) =>
+          r.startsWith("risk:") ||
+          r.startsWith("domain:") ||
+          r.startsWith("concern:"),
+      ),
+    ],
+  };
+}
+
 export function validateConfig({ config, packageRoot, cwd = null }) {
   const issues = [];
   const push = (severity, message) => issues.push({ severity, message });

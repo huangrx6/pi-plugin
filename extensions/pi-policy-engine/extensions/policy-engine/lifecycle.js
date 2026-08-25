@@ -19,8 +19,6 @@
 // v0.12 note still applies: no tool_call handler — model-behavior layer only.
 
 import { classifyPlanResponse } from "../../src/core/approval.js";
-import { classifyTask } from "../../src/core/classifier.js";
-import { loadRoutingConfig } from "../../src/core/config.js";
 import { loadModelRules, modelPolicyId } from "../../src/core/router.js";
 import {
   composeAllPolicies,
@@ -40,6 +38,7 @@ import {
   HISTORY_CAP,
   buildEffectiveConfig,
   decide,
+  mergeRevisionDecision,
   recordHistory,
 } from "./state.js";
 
@@ -207,7 +206,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         // Question about the plan: answer it, keep waiting for approval.
         const decision = { ...state.lastDecision };
         state.lastDecision = decision;
-        const block = buildBlock({ model: ctx?.model ?? state.currentModel,
+        const block = buildBlock({
+          model: ctx?.model ?? state.currentModel,
           packageRoot,
           cwd,
           config: cfgAwait,
@@ -230,47 +230,19 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         // 这是生产数据库，不要改 schema" used to keep risk=medium
         // domains=[backend] concerns=[] while the plan was re-scoped to
         // production/database/security.
-        const prev = state.lastDecision;
-        const delta = classifyTask(prompt, loadRoutingConfig(packageRoot), []);
-        const RANK = { low: 0, medium: 1, high: 2 };
-        const risk =
-          RANK[delta.risk] > RANK[prev.risk] ? delta.risk : prev.risk;
-        const domainCap = Math.max(2, (prev.domains ?? []).length);
-        const domains = [
-          ...new Set([...(prev.domains ?? []), ...(delta.domains ?? [])]),
-        ].slice(0, domainCap);
-        const concerns = [
-          ...new Set([...(prev.concerns ?? []), ...(delta.concerns ?? [])]),
-        ];
-        const notes = [];
-        if (risk !== prev.risk) notes.push(`risk ${prev.risk}→${risk}`);
-        const addedDomains = domains.filter(
-          (d) => !(prev.domains ?? []).includes(d),
-        );
-        if (addedDomains.length > 0) notes.push(`+domains ${addedDomains}`);
-        const addedConcerns = concerns.filter(
-          (c) => !(prev.concerns ?? []).includes(c),
-        );
-        if (addedConcerns.length > 0) notes.push(`+concerns ${addedConcerns}`);
-        const decision = {
-          ...prev,
-          risk,
-          domains,
-          concerns,
-          reasons: [
-            ...(prev.reasons ?? []),
-            `plan-revision: ${notes.length > 0 ? notes.join("; ") : "no routing change"}`,
-            ...delta.reasons.filter(
-              (r) =>
-                r.startsWith("risk:") ||
-                r.startsWith("domain:") ||
-                r.startsWith("concern:"),
-            ),
-          ],
-        };
+        // v0.22: revision classification is unified in
+        // mergeRevisionDecision — same config as decide() (maxDomains,
+        // domainHints), plus task-replacement rerouting.
+        const decision = mergeRevisionDecision({
+          previous: state.lastDecision,
+          prompt,
+          config: cfgAwait,
+          packageRoot,
+        });
         state.lastDecision = decision;
         state.phase = "planning";
-        const block = buildBlock({ model: ctx?.model ?? state.currentModel,
+        const block = buildBlock({
+          model: ctx?.model ?? state.currentModel,
           packageRoot,
           cwd,
           config: cfgAwait,
@@ -289,7 +261,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         clearAwaitState(cfgAwait, cwd).catch(() => {});
         const decision = { ...state.lastDecision };
         state.lastDecision = decision;
-        const block = buildBlock({ model: ctx?.model ?? state.currentModel,
+        const block = buildBlock({
+          model: ctx?.model ?? state.currentModel,
           packageRoot,
           cwd,
           config: cfgAwait,
@@ -305,7 +278,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
 
       // unknown: not approval-shaped. Keep awaiting approval and say so,
       // otherwise a casual "继续" would silently sit in limbo.
-      const block = buildBlock({ model: ctx?.model ?? state.currentModel,
+      const block = buildBlock({
+        model: ctx?.model ?? state.currentModel,
         packageRoot,
         cwd,
         config: cfgAwait,
@@ -357,7 +331,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       state.phase = "executing";
     }
 
-    const block = buildBlock({ model: ctx?.model ?? state.currentModel,
+    const block = buildBlock({
+      model: ctx?.model ?? state.currentModel,
       packageRoot,
       cwd,
       config,

@@ -238,11 +238,14 @@ test("v0.21: merge respects config.maxDomains", async () => {
     "x",
     det({ domains: ["security"], confidence: 0.4 }),
     enabledCfg({ maxDomains: 1 }),
-    { fetcher: async () => okResponse({
-      taskType: "coding",
-      risk: "medium",
-      domains: ["frontend", "backend"],
-    }) },
+    {
+      fetcher: async () =>
+        okResponse({
+          taskType: "coding",
+          risk: "medium",
+          domains: ["frontend", "backend"],
+        }),
+    },
   );
   assert.equal(merged.domains.length, 1, JSON.stringify(merged.domains));
   assert.deepEqual(merged.domains, ["security"]); // deterministic kept
@@ -257,11 +260,14 @@ test("v0.21: task-invariant risk floor re-applied post-merge", async () => {
     "x",
     det({ taskType: "coding", risk: "medium", confidence: 0.4 }),
     enabledCfg(),
-    { fetcher: async () => okResponse({
-      taskType: "architecture",
-      risk: "medium",
-      domains: [],
-    }) },
+    {
+      fetcher: async () =>
+        okResponse({
+          taskType: "architecture",
+          risk: "medium",
+          domains: [],
+        }),
+    },
   );
   assert.equal(merged.taskType, "architecture");
   assert.equal(merged.risk, "high");

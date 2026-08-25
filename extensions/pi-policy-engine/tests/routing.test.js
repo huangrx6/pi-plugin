@@ -19,12 +19,20 @@ const routing = JSON.parse(
   readFileSync(join(root, "config", "routing.json"), "utf8"),
 );
 
-test("modelPolicyId maps via config/models.json rules", () => {
-  const rules = loadModelRules(join(root, ".."));
+test("modelPolicyId maps via config/models.json rules (v0.22 structured)", () => {
+  const rules = loadModelRules(root);
   assert.ok(Array.isArray(rules) && rules.length >= 2);
   assert.equal(
     modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M3" }, rules),
     "model.minimax-m3",
+  );
+  // substring era bugs: M30 ate the M3 policy; notdeepseek matched deepseek.
+  assert.equal(modelPolicyId({ provider: "minimax-cn", id: "MiniMax-M30" }, rules), null);
+  assert.equal(modelPolicyId({ provider: "notdeepseek", id: "x" }, rules), null);
+  // provider-scoped rule covers every model of that provider.
+  assert.equal(
+    modelPolicyId({ provider: "deepseek", id: "deepseeker" }, rules),
+    "model.deepseek",
   );
 });
 
@@ -87,6 +95,16 @@ test("workflow routing matrix", () => {
 
   const gated = classifyTask("先别改，给我方案，确认后再执行", routing, []);
   assert.equal(chooseRigor(gated, "auto"), "strict");
+
+  // v0.22 P0: the CURRENT-prompt explicit gate outranks a pinned runtime
+  // mode — /policy standard must not silence 确认后再执行. Only /policy off
+  // wins; a per-prompt negation lifts the gate so the pin applies again.
+  assert.equal(chooseRigor(gated, "quick"), "strict");
+  assert.equal(chooseRigor(gated, "standard"), "strict");
+  assert.equal(chooseRigor(gated, "off"), "off");
+  const lifted = classifyTask("不需要确认后再执行，直接修改代码", routing, []);
+  assert.equal(lifted.approvalRequired, null);
+  assert.equal(chooseRigor(lifted, "quick"), "quick");
 
   const k8s = classifyTask(
     "k8s deployment 的 hostPath 挂载需要调整，生产环境不能停机",

@@ -335,6 +335,105 @@
         "executionIntent": "read-only",
         "workflow": "standard"
       }
+    },
+    {
+      "prompt": "不需要确认后再执行，直接修改代码",
+      "because": "v0.22 P0: negated approval must not create a gate (bare regex fired)",
+      "expect": {
+        "executionIntent": "mutate",
+        "approvalRequired": null
+      }
+    },
+    {
+      "prompt": "如果确认后再执行，会发生什么？",
+      "because": "v0.22 P0: hypothetical question about the gate is not a demand",
+      "expect": {
+        "executionIntent": "read-only",
+        "approvalRequired": null
+      }
+    },
+    {
+      "prompt": "把 README 里的“确认后再执行”改成“确认后部署”",
+      "because": "v0.22 P0: quoted-text edit mentioning the phrase must not create a gate",
+      "expect": {
+        "taskType": "documentation",
+        "executionIntent": "mutate",
+        "approvalRequired": null
+      }
+    },
+    {
+      "prompt": "执行这个命令会发生什么？",
+      "because": "v0.22 P1: hypothetical mutation — a question about consequences, not a request",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "删除这个文件会有什么影响？",
+      "because": "v0.22 P1: hypothetical mutation family",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "如果修改生产数据库 schema 会怎样？",
+      "because": "v0.22 P1: hypothetical mutation — risk/domains/concerns stay, intent becomes read-only",
+      "expect": {
+        "executionIntent": "read-only",
+        "workflow": "standard",
+        "domainsIncludes": [
+          "database"
+        ]
+      }
+    },
+    {
+      "prompt": "为什么要修改这个文件？",
+      "because": "v0.22 P1: why-question mutation family",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "我想知道修改这个文件有什么风险",
+      "because": "v0.22 P1: risk-inquiry mutation family",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "批准，但先别动数据库，其他按计划执行",
+      "because": "v0.22 P1: scoped rejection must revise, not cancel the whole plan",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "不要执行第二步，其他按计划做",
+      "because": "v0.22 P1: scoped rejection family",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "hold off on database changes, proceed with the rest",
+      "because": "v0.22 P1: EN scoped rejection",
+      "expect": {
+        "planResponse": "revise"
+      }
+    },
+    {
+      "prompt": "算了，还是按原计划执行",
+      "because": "v0.22 P1: correction after cancel — last effective instruction wins",
+      "expect": {
+        "planResponse": "approve"
+      }
+    },
+    {
+      "prompt": "cancel the plan—actually, go ahead",
+      "because": "v0.22 P1: EN correction after cancel",
+      "expect": {
+        "planResponse": "approve"
+      }
     }
   ]
 }

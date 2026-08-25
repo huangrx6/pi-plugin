@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.21
+# Design — pi-policy-engine v0.22
 
 ## 1. Design goal
 
@@ -158,6 +158,27 @@ live mutation short-circuits" let "先修改代码，不要修改，只分析"
 classify as mutate. The intent frame skips clauses before the last
 correction, so "帮我修复，不对，先别改，只分析原因" anchors on 分析.
 
+### Approval-gate modality (v0.22)
+
+The deferred-approval phrase (确认后再执行) is classified per clause
+(`classifyApprovalRequirement`): a NEGATOR lifts any gate (不需要确认后
+再执行 → none), quoted/hypothetical/advisory mentions are ignored (把
+README 里的"确认后再执行"改成… / 如果确认后再执行会怎样 / 解释一下…),
+and only a bare demand creates the gate. Precedence in chooseRigor:
+`/policy off` > current-prompt explicit gate > pinned runtime mode >
+risk routing — a stale /policy standard can never silence a gate the
+user demands in the current prompt; the gate is lifted per-prompt by
+saying so.
+
+### Plan-response sequential resolution (v0.22)
+
+classifyPlanResponse resolves clauses IN ORDER: a whole-CLAUSE cancel
+(anchored — 先别动数据库 is scoped, not global) sets cancel; correction
+heads (不对/等等/还是/actually…) reset everything and their remainder
+becomes the new instruction; constraints (scoped rejection 不要执行第
+二步, negated targets, contrast, added instructions) are STICKY revise —
+later generic approval does not un-stick them, only a correction does.
+
 ## 5. Strict rigor state machine
 
 `phase` is the single source of truth (the pre-0.15 `pendingApproval` boolean
@@ -262,11 +283,15 @@ never escalates a quick task to standard. Off-rigor or absent
 lastDecision disables continuity. Every inheritance is recorded in
 reasons as `task-continuity: ...` for /policy why.
 
-## 7b. Config trust boundary (v0.21)
+## 7b. Config trust boundary (v0.21, dual-trust clarified in v0.22)
 
 Project config layers (`.pi/policy-engine.json` upward to the git root)
-are UNTRUSTED input. `sanitizeProjectConfig` reduces them to an allowlist
-of routing/noise keys; `semanticFallback`, `historyFile`,
+follow a DUAL-TRUST model: trusted for routing/behavior customization
+(mode, policy selection, budgets — a repo may carry its own conventions
+exactly like project instructions), NEVER trusted with host credentials,
+arbitrary network destinations, or arbitrary filesystem destinations.
+`sanitizeProjectConfig` enforces the second half via an allowlist of
+routing/noise keys; `semanticFallback`, `historyFile`,
 `historyMaxEntries` — anything network / credential / filesystem — are
 global-only and silently dropped at load (surfaced by /policy validate).
 A verified exfiltration path (project-level fallback endpoint +

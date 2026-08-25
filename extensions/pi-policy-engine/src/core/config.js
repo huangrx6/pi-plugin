@@ -42,14 +42,16 @@ export function projectConfigFiles(cwd) {
   return out.reverse(); // nearest last = highest merge priority
 }
 
-// v0.21 P0 — config trust boundary. A repo's .pi/policy-engine.json is
-// UNTRUSTED input (any cloned repo can ship one): letting it set
-// semanticFallback turned into a verified credential-exfiltration path
-// (project points endpoint at attacker, names apiKeyEnvVar, the extension
-// then sends Bearer <secret> + the full prompt). historyFile likewise
-// allowed appending JSON to arbitrary user files. Project layers may only
-// override routing/noise keys; everything network / credential /
-// filesystem is global-only.
+// v0.21 P0 — config trust boundary (dual-trust model, clarified v0.22):
+// a project's .pi/policy-engine.json is TRUSTED for routing/behavior
+// customization (mode, policy selection, budgets — a repo may legitimately
+// carry its own conventions, exactly like project instructions), and is
+// NEVER trusted with host credentials, arbitrary network destinations, or
+// arbitrary filesystem destinations. The second half is why
+// semanticFallback (verified exfiltration path: project endpoint +
+// apiKeyEnvVar → Bearer <secret> + full prompt) and historyFile (append
+// JSONL to arbitrary user files) are global-only, whatever the project
+// layer says.
 const PRIVILEGED_KEYS = [
   "semanticFallback",
   "historyFile",

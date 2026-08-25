@@ -279,9 +279,7 @@ function modality(clause, lower, hit) {
  * count as targets.
  */
 function isScopedNegation(lower, hit) {
-        const after = lower
-                .slice(hit.end, hit.end + 8)
-                .replace(/^[\s的]+/, "");
+        const after = lower.slice(hit.end, hit.end + 8).replace(/^[\s的]+/, "");
         if (!after) return false;
         if (/^(?:任何|所有|每)/.test(after)) return false;
         if (/^(?:it|them|anything|everything|any |all )/i.test(after)) {
@@ -304,6 +302,14 @@ function isPlanningDeliverable(clause) {
         return !IMPLEMENT_MARKER_RE.test(clause);
 }
 
+// Hypothetical frame (v0.22): the mutation is DISCUSSED, not requested.
+// "如果修改 schema 会怎样" / "删除这个文件会有什么影响" / "为什么要修改
+// 这个文件" / "what happens if X" — questions about consequences. The
+// marker must share the CLAUSE with the verb: "如果测试通过，就部署" splits
+// into two clauses and 部署 stays live (conditional execution ≠ question).
+const HYPOTHETICAL_RE =
+        /(如果|假如|假设|要是|万一|会发生什么|会怎么样|会怎样|有什么影响|有什么后果|有什么风险|为什么要|what (?:happens|would happen|if)|what are the (?:risks?|impacts?|consequences)|why (?:would|should|do|does))/i;
+
 function classifyClause(clause) {
         const lower = clause.toLowerCase();
         // Planning deliverable first (v0.21): when the plan itself is the
@@ -312,6 +318,7 @@ function classifyClause(clause) {
         if (isPlanningDeliverable(clause)) {
                 return { kind: "read-only", via: "planning-deliverable" };
         }
+        const hypothetical = HYPOTHETICAL_RE.test(clause);
         const liveMut = [];
         const advisoryMut = [];
         let negatedMut = false;
@@ -322,8 +329,12 @@ function classifyClause(clause) {
                         continue;
                 }
                 const m = modality(clause, lower, h);
-                if (m === "live") liveMut.push(h);
-                else if (m === "advisory") advisoryMut.push(h);
+                if (m === "live") {
+                        // Hypothetical mutations are discussed consequences —
+                        // they read as read-only questions, not requests.
+                        if (hypothetical) advisoryMut.push(h);
+                        else liveMut.push(h);
+                } else if (m === "advisory") advisoryMut.push(h);
                 // "dead": narrated or bare topic mention — no signal either way.
         }
         if (liveMut.length > 0) {
@@ -395,6 +406,43 @@ export function extractExecutionIntent(prompt) {
 const DEFERRED_APPROVAL_RE =
         /(确认|批准|同意|点头|okay|ok|approve[ds]?)[^，。;,]{0,6}(后|之后|再)[^，。;,]{0,8}(执行|做|改|动|动手|实施|落地|上线|继续|deploy|execute|apply|proceed)|等我(确认|批准|点头|同意)|待(我)?(确认|批准)后|after (i |you )?(confirm|approve|okay)|once (i |you )?(approve|confirm|okay)|wait for (my |your )?(approval|confirmation|okay|go.?ahead)/i;
 
+// Approval-gate MODALITY (v0.22 P0): the phrase 确认后再执行 can be
+// demanded, negated, asked about, or quoted — only a demand creates a
+// gate. Verified failures of the bare whole-prompt regex:
+//   "不需要确认后再执行，直接修改代码" → gate (WRONG — the user lifted it)
+//   把 README 里的"确认后再执行"改成"确认后部署" → gate (WRONG — doc edit)
+//   "如果确认后再执行，会发生什么？" → gate (WRONG — a question)
+const APPROVAL_NEGATOR_RE =
+        /(不需要?|不用|无需|不必|别)[^，。;,]{0,4}(等)?[^，。;,]{0,4}(确认|批准|审批|同意|点头|approval|confirmation|confirm)|no need (?:to wait|for|to)|don'?t (?:wait|need)|without (?:my |your )?(?:approval|confirmation)/i;
+const APPROVAL_QUOTE_RE = /[“”「」『』"'][^“”「」『』"']{0,30}[“”「」『』"']/;
+const APPROVAL_HYPOTHETICAL_RE =
+        /^(如果|假如|假设|要是|万一)|会发生什么|会怎么样|会怎样|有什么影响|what (?:happens|would happen)/i;
+
+/**
+ * Classify whether the prompt DEMANDS an approval gate. Clause-wise, last
+ * effective instruction wins: a negator LIFTS any prior gate; quoted,
+ * hypothetical, or advisory mentions are ignored; a bare deferred-approval
+ * phrase demands one.
+ * @returns {"explicit" | null}
+ */
+export function classifyApprovalRequirement(prompt) {
+        const clauses = splitClauses(prompt);
+        let required = null;
+        for (const clause of clauses) {
+                const t = clause.trim();
+                if (APPROVAL_NEGATOR_RE.test(t)) {
+                        required = null; // "不用等我确认" lifts the gate
+                        continue;
+                }
+                if (!DEFERRED_APPROVAL_RE.test(t)) continue;
+                if (APPROVAL_QUOTE_RE.test(t)) continue; // quoted text edit
+                if (APPROVAL_HYPOTHETICAL_RE.test(t)) continue; // asking about it
+                if (ADVISORY_HEAD_RE.test(t)) continue; // explain-it request
+                required = "explicit";
+        }
+        return required;
+}
+
 /**
  * Full execution meta (v0.21): intent + timing + explicit approval.
  *
@@ -415,11 +463,7 @@ export function extractExecutionMeta(prompt) {
                         if (active === "read-only") active = null;
                 }
         }
-        const approvalRequired = DEFERRED_APPROVAL_RE.test(
-                String(prompt ?? ""),
-        )
-                ? "explicit"
-                : null;
+        const approvalRequired = classifyApprovalRequirement(prompt);
         // A deferred execution clause ("确认后再执行") reads as mutate via
         // the live 执行 verb, but its timing is deferred.
         const executionTiming =

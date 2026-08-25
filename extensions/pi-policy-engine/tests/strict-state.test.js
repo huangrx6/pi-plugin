@@ -137,17 +137,22 @@ test("legacy v0.20 payloads with modelPolicy are stripped on restore", async () 
       return v;
     },
   };
-  store.set("/f.json", JSON.stringify({
-    version: 1,
-    cwd: "/x",
-    ts: Date.now(),
-    phase: "awaiting_approval",
-    decision: {
-      taskType: "coding", risk: "high", rigor: "strict",
-      modelPolicy: "model.minimax-m3", // stale v0.20 field
-      domains: [],
-    },
-  }));
+  store.set(
+    "/f.json",
+    JSON.stringify({
+      version: 1,
+      cwd: "/x",
+      ts: Date.now(),
+      phase: "awaiting_approval",
+      decision: {
+        taskType: "coding",
+        risk: "high",
+        rigor: "strict",
+        modelPolicy: "model.minimax-m3", // stale v0.20 field
+        domains: [],
+      },
+    }),
+  );
   const restored = await loadStrictState("/f.json", { cwd: "/x" }, fs);
   assert.ok(restored);
   assert.equal("modelPolicy" in restored.decision, false);
@@ -188,7 +193,10 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
     const a1 = makeSession(repoA, { provider: "minimax-cn", id: "MiniMax-M3" });
     await a1.handlers.get("session_start")({}, a1.ctx);
     await a1.handlers.get("before_agent_start")(
-      { prompt: "设计生产环境 PostgreSQL 迁移方案并实施，需要回滚", systemPrompt: "B" },
+      {
+        prompt: "设计生产环境 PostgreSQL 迁移方案并实施，需要回滚",
+        systemPrompt: "B",
+      },
       a1.ctx,
     );
     await a1.handlers.get("agent_end")({}, a1.ctx);
@@ -212,8 +220,10 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
     );
     assert.match(approved.systemPrompt, /## Approved/);
     assert.match(approved.systemPrompt, /model\.deepseek/);
-    assert.ok(!/model\.minimax-m3/.test(approved.systemPrompt),
-      "stale MiniMax adaptation must not replay after a model switch");
+    assert.ok(
+      !/model\.minimax-m3/.test(approved.systemPrompt),
+      "stale MiniMax adaptation must not replay after a model switch",
+    );
     assert.match(approved.systemPrompt, /Task type: architecture/); // A's plan
 
     // Restart in B: B's own plan restores (not A's).
@@ -224,7 +234,10 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
       b2.ctx,
     );
     assert.match(approvedB.systemPrompt, /Task type: architecture/);
-    assert.match(approvedB.systemPrompt, /concern\.security|Concerns: security/);
+    assert.match(
+      approvedB.systemPrompt,
+      /concern\.security|Concerns: security/,
+    );
   } finally {
     process.env.HOME = realHome;
     rmSync(home, { recursive: true, force: true });

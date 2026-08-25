@@ -155,14 +155,11 @@ test("v0.21 design/plan deliverables are read-only; 并实施 flips them back", 
 });
 
 test("v0.21 explicit approval gate + scoped negation meta", () => {
-  assert.deepEqual(
-    extractExecutionMeta("先别改，给我方案，确认后再执行"),
-    {
-      executionIntent: "mutate",
-      executionTiming: "deferred",
-      approvalRequired: "explicit",
-    },
-  );
+  assert.deepEqual(extractExecutionMeta("先别改，给我方案，确认后再执行"), {
+    executionIntent: "mutate",
+    executionTiming: "deferred",
+    approvalRequired: "explicit",
+  });
   assert.equal(
     extractExecutionMeta("修复这个 bug，但不要改数据库").approvalRequired,
     null,

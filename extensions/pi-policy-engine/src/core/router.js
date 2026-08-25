@@ -22,9 +22,14 @@ const FLOW_BY_TASK = {
 
 // Fallback rules when config/models.json is absent. Kept in sync with the
 // shipped file; the file wins when present.
+//
+// v0.22: STRUCTURED matching (exact provider + exact-or-glob model). The
+// previous substring rule array matched "minimax/m30" to the M3 policy and
+// "notdeepseek/anything" to deepseek — verified. A trailing "*" in model
+// is a prefix glob; everything else is exact (case-insensitive).
 const DEFAULT_MODEL_RULES = [
-  { match: ["minimax", "m3"], policy: "model.minimax-m3" },
-  { match: ["deepseek"], policy: "model.deepseek" },
+  { provider: "minimax-cn", model: "MiniMax-M3", policy: "model.minimax-m3" },
+  { provider: "deepseek", policy: "model.deepseek" },
 ];
 
 export function loadModelRules(packageRoot) {
@@ -32,43 +37,70 @@ export function loadModelRules(packageRoot) {
     const raw = JSON.parse(
       readFileSync(join(packageRoot, "config", "models.json"), "utf8"),
     );
-    if (Array.isArray(raw?.rules)) return raw.rules;
+    if (!Array.isArray(raw?.rules)) return DEFAULT_MODEL_RULES;
+    // Reject legacy substring rules outright: they silently matched the
+    // wrong models (m30→m3). Structured rules only.
+    const structured = raw.rules.filter(
+      (r) =>
+        r &&
+        (typeof r.provider === "string" || typeof r.model === "string") &&
+        !Array.isArray(r.match),
+    );
+    return structured.length > 0 ? structured : DEFAULT_MODEL_RULES;
   } catch {
     // No/invalid config — fall back to built-in rules.
   }
   return DEFAULT_MODEL_RULES;
 }
 
-/** First rule whose every pattern token appears in "provider/id" wins. */
+/**
+ * v0.22 structured matching: provider must equal exactly (ci); model, when
+ * declared, must equal exactly (ci) or prefix-match a trailing "*" glob.
+ * A rule with neither field never matches. Legacy "match" substring arrays
+ * are rejected at load (loadModelRules) — see models.json.
+ */
 export function modelPolicyId(model, rules = DEFAULT_MODEL_RULES) {
   const provider = String(model?.provider ?? "").toLowerCase();
   const id = String(model?.id ?? model?.name ?? "").toLowerCase();
-  const all = `${provider}/${id}`;
   for (const rule of rules ?? []) {
-    const patterns = Array.isArray(rule?.match) ? rule.match : [];
-    if (patterns.length > 0 && patterns.every((p) => all.includes(p))) {
-      return rule.policy ?? null;
+    if (typeof rule?.provider === "string" && rule.provider.toLowerCase() !== provider) {
+      continue;
     }
+    if (typeof rule?.model === "string") {
+      const want = rule.model.toLowerCase();
+      const hit = want.endsWith("*")
+        ? id.startsWith(want.slice(0, -1))
+        : id === want;
+      if (!hit) continue;
+    }
+    if (!rule.provider && !rule.model) continue; // empty rule never matches
+    if (rule.policy) return rule.policy;
   }
   return null;
 }
 
 export function chooseRigor(classification, requestedMode = "auto") {
-  if (
-    ["off", "quick", "standard", "strict"].includes(requestedMode) &&
-    requestedMode !== "auto"
-  ) {
-    return requestedMode;
-  }
+  // v0.22 P0: precedence is off > CURRENT-PROMPT explicit gate > pinned
+  // runtime mode > risk routing. A stale /policy quick|standard must never
+  // swallow a gate the user demands in the CURRENT prompt ("先给方案，确认
+  // 后再执行" while runtime=standard used to route standard). The gate can
+  // be lifted per-prompt too: "不用等我确认，直接执行" classifies null and
+  // the pinned mode applies again. Only /policy off disables the engine
+  // entirely and wins over everything.
+  if (requestedMode === "off") return "off";
 
-  // v0.21 P0: an EXPLICIT user approval gate ("确认后再执行") outranks the
-  // risk heuristic — the user asked for the plan-approval cycle directly.
-  // Only an explicit mode override (/policy quick|standard|off) beats it.
   if (
     classification.approvalRequired === "explicit" &&
     classification.executionIntent !== "read-only"
   ) {
     return "strict";
+  }
+
+  if (
+    ["quick", "standard", "strict"].includes(requestedMode) &&
+    requestedMode !== "auto"
+  ) {
+    return requestedMode;
   }
 
   // Read-only intent never needs the strict approval cycle — downgrade to a
@@ -105,10 +137,7 @@ export function buildDecision({
 }) {
   const rigor = chooseRigor(classification, mode);
   const selectedProfile = chooseProfile(classification, profile);
-  const modelPolicy = modelPolicyId(
-    model,
-    modelRules ?? DEFAULT_MODEL_RULES,
-  );
+  const modelPolicy = modelPolicyId(model, modelRules ?? DEFAULT_MODEL_RULES);
 
   return {
     taskType: classification.taskType,

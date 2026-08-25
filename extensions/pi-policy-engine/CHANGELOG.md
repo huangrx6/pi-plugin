@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.22.0
+
+Release-candidate hardening #3 — approval-gate modality + sequential
+plan-response resolution. No architecture changes.
+
+- **P0: approval-gate modality.** The deferred-approval phrase was a bare
+  whole-prompt regex: "不需要确认后再执行，直接修改代码" still created a
+  gate (the user lifted it), and 把 README 里的"确认后再执行"改成"确认
+  后部署" — a doc edit — sent a low-risk task to strict. New
+  classifyApprovalRequirement resolves per clause: negators LIFT the
+  gate, quoted/hypothetical/advisory mentions are ignored, only a bare
+  demand gates. English negation ("no need to wait for my approval")
+  included.
+- **P0: current-prompt gate outranks pinned runtime mode.** /policy
+  quick|standard used to swallow an explicit "确认后再执行" in the
+  current prompt. Precedence is now: /policy off > explicit gate >
+  pinned mode > risk routing. Lifting the gate per prompt (不用等我
+  确认) restores the pinned mode.
+- **Hypothetical mutations read as read-only**: "执行这个命令会发生
+  什么？" / "删除这个文件会有什么影响？" / "如果修改生产数据库 schema
+  会怎样？" were mutate (→ strict for the last one). A hypothetical
+  marker sharing the clause with the verb (如果/会发生什么/有什么影响/
+  为什么要/what happens if…) downgrades it to a question; markers in
+  OTHER clauses stay live ("如果测试通过，就部署" still mutates).
+- **Plan responses resolve sequentially**: "批准，但先别动数据库，其他
+  按计划执行" cancelled the whole plan (unanchored CANCEL_RE); "算了，
+  还是按原计划执行" also cancelled (no last-instruction logic). Now:
+  whole-CLAUSE cancel only (先别动数据库 = scoped), correction heads
+  reset and their remainder wins, constraints are sticky revise. EN
+  scoped rejection ("hold off on database changes, proceed with the
+  rest") and dash-splits ("cancel the plan—actually, go ahead" →
+  approve) handled.
+- **Revision merge unified** (mergeRevisionDecision): honors the
+  effective config (maxDomains — a maxDomains:1 session no longer grows
+  to 2 on revision; domainHints) and handles task REPLACEMENT
+  ("不实施了，改成只更新 README" / "不要执行了，改成只分析风险" re-routes
+  the task fresh, keeps the previous risk floor, still strict +
+  awaiting approval). The lifecycle inline copy is gone.
+- **Model routing structured**: exact provider + exact-or-glob model
+  (trailing *). The substring rules loaded MiniMax-M30 with the M3
+  policy and matched notdeepseek as deepseek (verified). Legacy
+  {match:[...]} arrays are rejected at load.
+- Trust-boundary docs clarified to the dual-trust model: project config
+  is trusted for routing/behavior customization, NEVER trusted with
+  credentials/network/filesystem.
+- Regression corpus 45 → 58 (13 new: gate modality ×3, hypothetical ×5,
+  plan-response ×5); routing tests pin gate-vs-pinned-mode precedence
+  and the structured matcher.
+
 ## 0.21.0
 
 Release-candidate hardening #2 — trust boundary + explicit approval gate.

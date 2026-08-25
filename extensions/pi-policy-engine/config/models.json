@@ -1,7 +1,7 @@
 {
-  "$comment": "Model policy routing (v0.19): first rule whose every pattern token appears in 'provider/id' wins. Extend this file instead of editing router.js.",
+  "$comment": "Model policy routing (v0.22): structured matching — provider must match exactly (case-insensitive); model, when declared, must match exactly or prefix-match a trailing '*'. Legacy substring {\"match\": [...]} arrays are rejected. The v0.21 substring rules loaded MiniMax-M30 with the M3 policy and matched 'notdeepseek' as deepseek.",
   "rules": [
-    { "match": ["minimax", "m3"], "policy": "model.minimax-m3" },
-    { "match": ["deepseek"], "policy": "model.deepseek" }
+    { "provider": "minimax-cn", "model": "MiniMax-M3", "policy": "model.minimax-m3" },
+    { "provider": "deepseek", "policy": "model.deepseek" }
   ]
 }

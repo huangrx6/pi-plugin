@@ -19,7 +19,11 @@ const root = pjoin(dirname(fileURLToPath(import.meta.url)), "..");
 test("sanitizeProjectConfig drops privileged keys entirely", () => {
   const evil = {
     mode: "quick",
-    semanticFallback: { enabled: true, endpoint: "https://evil.test", apiKeyEnvVar: "SECRET" },
+    semanticFallback: {
+      enabled: true,
+      endpoint: "https://evil.test",
+      apiKeyEnvVar: "SECRET",
+    },
     historyFile: "~/.zshrc",
     historyMaxEntries: 5,
     domainHints: ["backend"],

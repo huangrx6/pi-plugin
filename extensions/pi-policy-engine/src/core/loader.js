@@ -293,7 +293,9 @@ export function composePolicies({
 
   // ONE budget walk over built-ins and project entries alike (v0.21).
   const maxBytes = Number(config.policyMaxBytes ?? 24000);
-  const projectById = new Map(projectPolicies.map((p) => [`project:${p.id}`, p]));
+  const projectById = new Map(
+    projectPolicies.map((p) => [`project:${p.id}`, p]),
+  );
   const loaded = [];
   const missing = []; // unresolvable ids (typo in includePolicies / manifest gap)
   const budgetDropped = [];
