@@ -80,7 +80,7 @@ export const ADAPTERS = {
 
   opencode: {
     display: "⚡OC",
-    providerNames: ["opencode-go"],
+    providerNames: ["opencode", "opencode-go"],
     apiKeyEnvVar: "OPENCODE_API_KEY",
     endpoint: ENDPOINTS.opencode,
     async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
