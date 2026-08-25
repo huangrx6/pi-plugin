@@ -35,7 +35,7 @@ Given the user prompt below, output a JSON object with EXACTLY these fields:
 - taskType: one of "documentation" | "debugging" | "review" | "research" | "architecture" | "coding"
 - risk: "low" | "medium" | "high"
 - domains: array, any subset of ["database", "kubernetes", "security", "backend", "frontend", "documentation"]
-- analysisOnly: boolean (true ONLY if the user explicitly says do-not-modify / review-only / analyze-only)
+- executionIntent: one of "read-only" | "mutate" | "unclear"
 
 Deterministic hint (from keyword matching) is provided for context. The prompt may be in any language.
 Output JSON only. No prose, no markdown fences.`;
@@ -47,7 +47,7 @@ export function buildSemanticPrompt(prompt, deterministic) {
       taskType: deterministic.taskType,
       risk: deterministic.risk,
       domains: deterministic.domains,
-      analysisOnly: deterministic.analysisOnly,
+      executionIntent: deterministic.executionIntent,
       confidence: deterministic.confidence,
     },
   });
@@ -82,15 +82,25 @@ function validateSemanticResponse(parsed) {
   for (const d of parsed.domains) {
     if (typeof d !== "string") return null;
   }
-  if (typeof parsed.analysisOnly !== "boolean") return null;
-  return {
+  const validIntents = ["read-only", "mutate", "unclear"];
+  if (
+    parsed.executionIntent !== undefined &&
+    !validIntents.includes(parsed.executionIntent)
+  )
+    return null;
+  const result = {
     taskType: parsed.taskType,
     risk: parsed.risk,
     domains: parsed.domains,
-    analysisOnly: parsed.analysisOnly,
     confidence:
       typeof parsed.confidence === "number" ? parsed.confidence : 0.85,
   };
+  // Only override intent when the model actually asserted one; otherwise
+  // the spread-merge keeps the deterministic executionIntent untouched.
+  if (parsed.executionIntent !== undefined) {
+    result.executionIntent = parsed.executionIntent;
+  }
+  return result;
 }
 
 /**

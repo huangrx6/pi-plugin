@@ -192,7 +192,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       return undefined;
     }
 
-    if (decision.workflow === "strict" && !decision.analysisOnly) {
+    if (decision.workflow === "strict" && decision.executionIntent !== "read-only") {
       state.pendingApproval = true;
       state.phase = "planning";
     } else {

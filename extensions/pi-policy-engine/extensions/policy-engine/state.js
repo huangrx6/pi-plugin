@@ -40,7 +40,7 @@ function summarizePrompt(prompt) {
   const oneLine = String(prompt ?? "")
     .replace(/\s+/g, " ")
     .trim();
-  return oneLine.length > 80 ? oneLine.slice(0, 77) + "..." : oneLine;
+  return oneLine.length > 80 ? `${oneLine.slice(0, 77)}...` : oneLine;
 }
 
 /**
@@ -79,7 +79,7 @@ export function buildEffectiveConfig({ packageRoot, cwd, state }) {
 
 function resolvePreviewPhase(decision) {
   if (decision.workflow === "off") return "idle";
-  if (decision.workflow === "strict" && !decision.analysisOnly)
+  if (decision.workflow === "strict" && decision.executionIntent !== "read-only")
     return "planning";
   return "executing";
 }
@@ -224,9 +224,9 @@ export function compareDecisions(left, right) {
       right?.decision?.modelPolicy ?? "default",
     ],
     [
-      "analysis only",
-      left?.decision?.analysisOnly,
-      right?.decision?.analysisOnly,
+      "execution intent",
+      left?.decision?.executionIntent,
+      right?.decision?.executionIntent,
     ],
     [
       "would require approval",
@@ -291,7 +291,8 @@ export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
     projectPolicies,
     truncated,
     wouldRequireApproval:
-      decision.workflow === "strict" && !decision.analysisOnly,
+      decision.workflow === "strict" &&
+      decision.executionIntent !== "read-only",
     stats: {
       builtInCount: policies.length,
       builtInBytes,

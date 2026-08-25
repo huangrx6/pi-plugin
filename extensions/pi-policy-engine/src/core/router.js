@@ -15,7 +15,10 @@ export function chooseWorkflow(classification, requestedMode = "auto") {
     return requestedMode;
   }
 
-  if (classification.analysisOnly) {
+  // Read-only intent never needs the strict approval cycle — downgrade to a
+  // standard (or quick) read-only flow. "unclear" keeps full rigor: we can't
+  // prove it won't mutate.
+  if (classification.executionIntent === "read-only") {
     if (classification.risk === "high") return "standard";
     return classification.taskType === "research" ||
       classification.taskType === "review"
@@ -57,7 +60,7 @@ export function buildDecision({ classification, mode, profile, model }) {
     taskType: classification.taskType,
     risk: classification.risk,
     confidence: classification.confidence,
-    analysisOnly: classification.analysisOnly,
+    executionIntent: classification.executionIntent,
     domains: classification.domains,
     workflow,
     profile: selectedProfile,

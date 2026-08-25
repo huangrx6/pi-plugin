@@ -1,6 +1,6 @@
 {
   "name": "pi-policy-engine",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "Task-flow policy router for Pi coding agent: routes prompts to quick/standard/strict workflows and injects execution-discipline constraints into the system prompt.",
   "type": "module",
   "license": "MIT",

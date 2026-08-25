@@ -12,6 +12,7 @@ import {
   renderPolicyBlock,
 } from "../src/core/loader.js";
 import { isApprovalPrompt } from "../src/core/approval.js";
+import { extractExecutionIntent } from "../src/core/intent.js";
 import { mergeConfig } from "../src/core/config.js";
 import { createRequire as _createRequire } from "node:module";
 const require = _createRequire(import.meta.url);
@@ -87,8 +88,40 @@ function c(prompt) {
 
 {
   const x = c("只分析这个数据库迁移方案，不要修改任何文件");
-  assert.equal(x.analysisOnly, true);
+  assert.equal(x.executionIntent, "read-only");
   assert.equal(chooseWorkflow(x, "auto"), "standard");
+}
+
+// v0.14 executionIntent: replaces analysisOnly boolean (negation-scoping bug).
+{
+  const cases = [
+    // [prompt, expected]
+    ["只分析，不要修改", "read-only"],
+    ["不要只分析，直接修改代码", "mutate"],              // 否定作用域修复
+    ["帮我修复这个 bug", "mutate"],
+    ["先分析问题，然后修改", "mutate"],                  // 后子句优先
+    ["帮我看看这个", "unclear"],                         // 模糊动词不算信号
+    ["分析一下这个数据库迁移方案的风险", "read-only"],     // 迁移方案=名词话题
+    ["不需要改代码，审查一下这次提交", "read-only"],
+    ["修复登录超时的问题", "mutate"],
+    ["please fix the login timeout bug", "mutate"],
+    ["just analyze the logs, dont touch anything", "read-only"],
+    ["review this PR", "read-only"],
+    ["优化这段代码的性能", "mutate"],
+    ["这个接口为什么不工作", "unclear"],
+    ["排查 PostgreSQL API 为什么偶尔返回旧数据", "read-only"],
+    ["继续", "unclear"],
+    ["帮我做数据库迁移", "mutate"],
+    ["写一个迁移方案文档", "mutate"],
+    ["看看 README 里写了什么配置说明", "unclear"],         // 写了=过去叙述
+    ["分析下文档里描述的架构", "read-only"],
+    // 文本层无存活修改动词 → unclear；plan 回复场景由 approval 分类
+    ["批准，但是不要改数据库", "unclear"],
+  ];
+  for (const [prompt, want] of cases) {
+    const got = extractExecutionIntent(prompt);
+    assert.equal(got, want, `executionIntent("${prompt.slice(0, 30)}")`);
+  }
 }
 
 // v0.13 noise reduction: weak keywords need co-occurrence; strong hits fire alone.
@@ -200,7 +233,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
     taskType: "coding",
     risk: "high",
     confidence: 0.9,
-    analysisOnly: false,
+    executionIntent: "mutate",
     domains: ["database", "kubernetes"],
     workflow: "strict",
     profile: "coding",
@@ -228,7 +261,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
     taskType: "coding",
     risk: "low",
     confidence: 0.9,
-    analysisOnly: false,
+    executionIntent: "mutate",
     domains: [],
     workflow: "quick",
     profile: "coding",
@@ -296,7 +329,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
     taskType: "coding",
     risk: "low",
     domains: [],
-    analysisOnly: false,
+    executionIntent: "mutate",
     confidence: 0.6,
     reasons: [],
   });
@@ -325,7 +358,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "documentation",
       risk: "low",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.5,
     },
     { semanticFallback: { enabled: false } },
@@ -348,7 +381,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "debugging",
       risk: "low",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.95,
     },
     {
@@ -385,7 +418,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
                 taskType: "architecture",
                 risk: "high",
                 domains: ["database", "kubernetes"],
-                analysisOnly: false,
+                executionIntent: "mutate",
                 confidence: 0.9,
               }),
             },
@@ -400,7 +433,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "coding",
       risk: "medium",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.5,
       reasons: ["task:coding matched ..."],
     },
@@ -419,7 +452,8 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
   assert.equal(merged.taskType, "architecture");
   assert.equal(merged.risk, "high");
   assert.deepEqual(merged.domains, ["database", "kubernetes"]);
-  assert.equal(merged.analysisOnly, false);
+  // Semantic response asserted no executionIntent → deterministic one stands.
+  assert.equal(merged.executionIntent, "mutate");
   assert.equal(merged.confidence, 0.9);
   assert.ok(merged.reasons.some((r) => r.startsWith("semantic-fallback:")));
   assert.equal(lastBody.model, "test-model");
@@ -440,7 +474,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "coding",
       risk: "low",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.4,
     },
     {
@@ -466,7 +500,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "coding",
       risk: "low",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.4,
     },
     {
@@ -495,7 +529,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "coding",
       risk: "low",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.4,
     },
     {
@@ -529,7 +563,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       taskType: "coding",
       risk: "low",
       domains: [],
-      analysisOnly: false,
+      executionIntent: "mutate",
       confidence: 0.4,
     },
     {
@@ -715,7 +749,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
     domains: ["database"],
     profile: "architecture",
     modelPolicy: "model.minimax-m3",
-    analysisOnly: false,
+    executionIntent: "mutate",
   };
   const preview = {
     decision,
@@ -735,7 +769,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       domains: ["database"],
       profile: "architecture",
       modelPolicy: null,
-      analysisOnly: false,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: true,
   };
@@ -748,7 +782,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       domains: [],
       profile: "coding",
       modelPolicy: null,
-      analysisOnly: false,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: false,
   };
@@ -792,7 +826,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
     domains: [],
     profile: "coding",
     modelPolicy: null,
-    analysisOnly: false,
+    executionIntent: "mutate",
   };
   const preview = { decision, wouldRequireApproval: false };
   const text = formatDiff({
@@ -818,7 +852,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       domains: ["database"],
       profile: "architecture",
       modelPolicy: "model.minimax-m3",
-      analysisOnly: false,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: true,
   };
@@ -831,7 +865,7 @@ assert.equal(isApprovalPrompt("改一下 step 2 再执行"), false);
       domains: [],
       profile: "coding",
       modelPolicy: null,
-      analysisOnly: false,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: false,
   };

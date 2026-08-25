@@ -27,13 +27,11 @@ function normalize(text) {
   return String(text ?? "").trim().toLowerCase();
 }
 
-function includesAny(text, terms = []) {
-  return terms.some((term) => text.includes(String(term).toLowerCase()));
-}
-
-function matchedTerms(text, terms = []) {
-  return terms.filter((term) => text.includes(String(term).toLowerCase()));
-}
+// v0.14: keyword matching now goes through matcher.js (word boundary +
+// longest-match-wins). Fixes the substring nesting bug family:
+//   "reproduction steps" matched risk:high via production → prod.
+import { matchedTerms } from "./matcher.js";
+import { extractExecutionIntent } from "./intent.js";
 
 /** Accept both legacy array rules and the current {strong, weak} shape. */
 function parseDomainRule(rule) {
@@ -146,7 +144,7 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   const highMatches = matchedTerms(text, routing.highRisk ?? []);
   const mediumMatches = matchedTerms(text, routing.mediumRisk ?? []);
   const simpleMatches = matchedTerms(text, routing.simpleHints ?? []);
-  const analysisOnly = includesAny(text, routing.analysisOnlyHints ?? []);
+  const executionIntent = extractExecutionIntent(prompt);
 
   let risk = "medium";
   if (highMatches.length > 0) {
@@ -166,8 +164,8 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     reasons.push(`risk:low matched simple hint ${simpleMatches.slice(0, 2).join(", ")}`);
   }
 
-  if (analysisOnly && risk === "high") {
-    reasons.push("analysis-only request detected; mutation is not requested");
+  if (executionIntent === "read-only" && risk === "high") {
+    reasons.push("read-only intent detected; mutation is not requested");
   }
 
   // ---- confidence: base from top score, penalized by candidate dispersion
@@ -199,7 +197,7 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     domains: [...domains],
     risk,
     confidence,
-    analysisOnly,
+    executionIntent,
     reasons,
   };
 }

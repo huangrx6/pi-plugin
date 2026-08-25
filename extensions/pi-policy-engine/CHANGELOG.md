@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.14.0
+
+- **executionIntent replaces analysisOnly** (v1.0 P0-2). The old boolean
+  had a negation-scoping bug: "不要只分析，直接修改代码" was classified as
+  analysis-only because the substring 只分析 matched while 不要 went
+  unnoticed. New three-value intent, extracted per-clause with negation
+  windows:
+  - "mutate" — any live mutation verb (修复 / 修改 / refactor …)
+  - "read-only" — live read-only verb and no mutation (分析 / review / 排查 …)
+  - "unclear" — only ambiguous verbs (看看 / check out) or nothing
+  - Topic-mention suppression: 迁移方案 / 写了 are nouns/narration, not
+    action requests.
+- Strict workflow now keys off `intent === "read-only"` to skip the
+  approval cycle; "unclear" keeps full rigor (can't prove it won't mutate).
+- Risk keyword matching moved to matcher.js — fixes "reproduction steps"
+  matching risk:high via production → prod substring nesting.
+- Semantic fallback schema: executionIntent is an optional enum field;
+  when absent the deterministic intent stands (conservative merge).
+- Removed deprecated analysisOnlyHints from routing.json / config fallback.
+- Version alignment: package.json was stuck at 0.12.0 while CHANGELOG said
+  0.13.0 (AGENTS.md rule #2 violation).
+
 ## 0.13.0
 
 - **Classifier noise reduction** (宁可不加载，不要加载错):

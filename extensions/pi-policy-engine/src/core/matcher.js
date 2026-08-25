@@ -25,8 +25,8 @@
  * Letters, digits, underscore, and any CJK ideograph / kana / hangul.
  */
 function isWordChar(ch) {
-  if (!ch) return false;
-  return /[\p{L}\p{N}_]/u.test(ch);
+ if (!ch) return false;
+ return /[\p{L}\p{N}_]/u.test(ch);
 }
 
 /**
@@ -35,7 +35,7 @@ function isWordChar(ch) {
  * nested Chinese terms are resolved by longest-match-wins instead.
  */
 function hasCJK(s) {
-  return /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(s);
+ return /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(s);
 }
 
 /**
@@ -55,39 +55,78 @@ function hasCJK(s) {
  *   → { "production": 1 } (prod swallowed)
  */
 export function matchTerms(text, terms) {
-  const t = String(text ?? "");
-  const candidates = [];
-  for (const raw of terms) {
-    const term = String(raw ?? "").toLowerCase();
-    if (!term) continue;
-    const needsBoundary = !hasCJK(term);
-    let from = 0;
-    while (from <= t.length) {
-      const idx = t.indexOf(term, from);
-      if (idx === -1) break;
-      const end = idx + term.length;
-      if (needsBoundary) {
-        const before = idx > 0 ? t[idx - 1] : "";
-        const after = t[end] ?? "";
-        if (isWordChar(before) || isWordChar(after)) {
-          from = idx + 1;
-          continue;
-        }
-      }
-      candidates.push({ term, idx, end });
-      from = idx + 1;
+ const t = String(text ?? "");
+ const candidates = [];
+ for (const raw of terms) {
+  const term = String(raw ?? "").toLowerCase();
+  if (!term) continue;
+  const needsBoundary = !hasCJK(term);
+  let from = 0;
+  while (from <= t.length) {
+   const idx = t.indexOf(term, from);
+   if (idx === -1) break;
+   const end = idx + term.length;
+   if (needsBoundary) {
+    const before = idx > 0 ? t[idx - 1] : "";
+    const after = t[end] ?? "";
+    if (isWordChar(before) || isWordChar(after)) {
+     from = idx + 1;
+     continue;
     }
+   }
+   candidates.push({ term, idx, end });
+   from = idx + 1;
   }
-  // Longest first; ties broken by earlier position.
-  candidates.sort((a, b) => b.term.length - a.term.length || a.idx - b.idx);
-  const taken = [];
-  const counts = new Map();
-  for (const c of candidates) {
-    if (taken.some((r) => c.idx < r.end && c.end > r.idx)) continue; // overlap
-    taken.push(c);
-    counts.set(c.term, (counts.get(c.term) ?? 0) + 1);
+ }
+ // Longest first; ties broken by earlier position.
+ candidates.sort((a, b) => b.term.length - a.term.length || a.idx - b.idx);
+ const taken = [];
+ const counts = new Map();
+ for (const c of candidates) {
+  if (taken.some((r) => c.idx < r.end && c.end > r.idx)) continue; // overlap
+  taken.push(c);
+  counts.set(c.term, (counts.get(c.term) ?? 0) + 1);
+ }
+ return counts;
+}
+
+/**
+ * Positional variant of matchTerms: returns the accepted hits as
+ * [{ term, idx, end }] so callers can reason about what surrounds a
+ * match (e.g. negation scope in intent.js). Same matching rules:
+ * longest-match-wins, Latin boundary check, CJK free.
+ */
+export function findTerms(text, terms) {
+ const t = String(text ?? "");
+ const candidates = [];
+ for (const raw of terms) {
+  const term = String(raw ?? "").toLowerCase();
+  if (!term) continue;
+  const needsBoundary = !hasCJK(term);
+  let from = 0;
+  while (from <= t.length) {
+   const idx = t.indexOf(term, from);
+   if (idx === -1) break;
+   const end = idx + term.length;
+   if (needsBoundary) {
+    const before = idx > 0 ? t[idx - 1] : "";
+    const after = t[end] ?? "";
+    if (isWordChar(before) || isWordChar(after)) {
+     from = idx + 1;
+     continue;
+    }
+   }
+   candidates.push({ term, idx, end });
+   from = idx + 1;
   }
-  return counts;
+ }
+ candidates.sort((a, b) => b.term.length - a.term.length || a.idx - b.idx);
+ const taken = [];
+ for (const c of candidates) {
+  if (taken.some((r) => c.idx < r.end && c.end > r.idx)) continue;
+  taken.push(c);
+ }
+ return taken.sort((a, b) => a.idx - b.idx);
 }
 
 /**
@@ -97,14 +136,14 @@ export function matchTerms(text, terms) {
  *   [{ group: "api", terms: [...] }, …]  → explicit grouping (aliases dedupe)
  */
 export function toSignalGroups(termsOrGroups) {
-  if (!Array.isArray(termsOrGroups)) return [];
-  return termsOrGroups.map((entry, i) => {
-    if (typeof entry === "string") {
-      return { id: entry, terms: [entry] };
-    }
-    const terms = (entry?.terms ?? []).map(String);
-    return { id: entry?.group ?? `signal-${i}`, terms };
-  });
+ if (!Array.isArray(termsOrGroups)) return [];
+ return termsOrGroups.map((entry, i) => {
+  if (typeof entry === "string") {
+   return { id: entry, terms: [entry] };
+  }
+  const terms = (entry?.terms ?? []).map(String);
+  return { id: entry?.group ?? `signal-${i}`, terms };
+ });
 }
 
 /**
@@ -117,24 +156,24 @@ export function toSignalGroups(termsOrGroups) {
  * "api" + "接口" alone                                → 1 hit (same group).
  */
 export function matchSignalGroups(text, groups) {
-  const allTerms = [];
-  for (const g of groups) for (const term of g.terms) allTerms.push(term);
-  const counts = matchTerms(text, allTerms);
+ const allTerms = [];
+ for (const g of groups) for (const term of g.terms) allTerms.push(term);
+ const counts = matchTerms(text, allTerms);
 
-  const hits = [];
-  const seen = new Set();
-  for (const g of groups) {
-    for (const term of g.terms) {
-      if ((counts.get(term) ?? 0) > 0 && !seen.has(g.id)) {
-        seen.add(g.id);
-        // Record which concrete term fired, for explainability.
-        const fired = g.terms.find((t) => (counts.get(t) ?? 0) > 0);
-        hits.push({ id: g.id, term: fired ?? term });
-        break;
-      }
-    }
+ const hits = [];
+ const seen = new Set();
+ for (const g of groups) {
+  for (const term of g.terms) {
+   if ((counts.get(term) ?? 0) > 0 && !seen.has(g.id)) {
+    seen.add(g.id);
+    // Record which concrete term fired, for explainability.
+    const fired = g.terms.find((t) => (counts.get(t) ?? 0) > 0);
+    hits.push({ id: g.id, term: fired ?? term });
+    break;
+   }
   }
-  return { hits, score: hits.length };
+ }
+ return { hits, score: hits.length };
 }
 
 /**
@@ -144,8 +183,8 @@ export function matchSignalGroups(text, groups) {
  * Returns array of matched terms (longest-match-wins, deduped).
  */
 export function matchedTerms(text, terms) {
-  const counts = matchTerms(text, terms);
-  const out = [];
-  for (const [term] of counts) out.push(term);
-  return out;
+ const counts = matchTerms(text, terms);
+ const out = [];
+ for (const [term] of counts) out.push(term);
+ return out;
 }

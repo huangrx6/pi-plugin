@@ -86,6 +86,5 @@ export function loadRoutingConfig(packageRoot) {
     highRisk: [],
     mediumRisk: [],
     simpleHints: [],
-    analysisOnlyHints: [],
   });
 }
