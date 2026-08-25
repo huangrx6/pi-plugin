@@ -4,12 +4,10 @@
     "core.evidence-priority": "policies/core/evidence-priority.md",
     "core.constraint-retention": "policies/core/constraint-retention.md",
     "core.verification": "policies/core/verification.md",
-
     "behavior.execution-discipline": "policies/behaviors/execution-discipline.md",
     "behavior.minimal-change": "policies/behaviors/minimal-change.md",
     "behavior.context-hygiene": "policies/behaviors/context-hygiene.md",
     "behavior.tool-discipline": "policies/behaviors/tool-discipline.md",
-
     "workflow.quick": "policies/workflows/quick.md",
     "workflow.standard": "policies/workflows/standard.md",
     "workflow.strict-plan": "policies/workflows/strict-plan.md",
@@ -17,14 +15,13 @@
     "workflow.debug-first": "policies/workflows/debug-first.md",
     "workflow.review-first": "policies/workflows/review-first.md",
     "workflow.research-first": "policies/workflows/research-first.md",
-
     "domain.documentation": "policies/domains/documentation.md",
     "domain.database": "policies/domains/database.md",
     "domain.kubernetes": "policies/domains/kubernetes.md",
-    "domain.security": "policies/domains/security.md",
     "domain.backend": "policies/domains/backend.md",
     "domain.frontend": "policies/domains/frontend.md",
-
+    "concern.security": "policies/concerns/security.md",
+    "concern.production": "policies/concerns/production.md",
     "model.minimax-m3": "policies/models/minimax-m3.md",
     "model.deepseek": "policies/models/deepseek.md"
   }

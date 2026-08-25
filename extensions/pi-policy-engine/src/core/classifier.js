@@ -190,6 +190,24 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     }
   }
 
+  // ---- concerns: cross-cutting risk dimensions (v0.18) -------------------
+  //
+  // A concern (security / production / …) answers "what must extra care
+  // be paid to", not "where does this happen". Concerns NEVER compete
+  // with domains for maxDomains slots: "postgresql schema + spring
+  // controller + jwt 鉴权" loads database+backend AND security.
+  const concerns = [];
+  for (const [concern, rule] of Object.entries(routing.concernRules ?? {})) {
+    const result = scoreDomain(text, rule);
+    if (!result) continue;
+    if (result.triggered === false) {
+      reasons.push(`concern:${concern} dropped (${result.evidence[0]})`);
+      continue;
+    }
+    concerns.push(concern);
+    reasons.push(`concern:${concern} loaded (${result.evidence[0]})`);
+  }
+
   // ---- risk --------------------------------------------------------------
 
   const highMatches = matchedTerms(text, routing.highRisk ?? []);
@@ -251,6 +269,7 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
     taskType,
     runnerUpTask: ranked[1]?.[0],
     domains: [...domains],
+    concerns,
     risk,
     confidence,
     executionIntent,

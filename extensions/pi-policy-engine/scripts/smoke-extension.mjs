@@ -50,6 +50,21 @@ assert.match(quick.systemPrompt, /MiniMax M3 Adaptation/);
 
 await handlers.get("agent_end")({}, ctx);
 
+// Task Continuity (v0.18): a bare follow-up inherits the previous task.
+// After the quick documentation task, "继续" must stay documentation —
+// not re-classify as coding.
+const followUp = await handlers.get("before_agent_start")(
+  {
+    prompt: "继续",
+    systemPrompt: "BASE",
+  },
+  ctx,
+);
+assert.match(followUp.systemPrompt, /Task type: documentation/);
+assert.match(followUp.systemPrompt, /Workflow: quick/);
+
+await handlers.get("agent_end")({}, ctx);
+
 // Strict workflow: PLAN-ONLY, model is instructed to stop and ask.
 const strict = await handlers.get("before_agent_start")(
   {

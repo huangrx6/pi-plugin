@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 
 function readJson(path, fallback = null) {
   try {
@@ -53,51 +53,114 @@ function walkMarkdown(dir, maxFiles, out = []) {
   return out;
 }
 
-export function loadProjectPolicies(cwd, config = {}) {
-  const base = join(cwd, ".pi", "policies");
+/**
+ * Discover .pi/policies directories from cwd upward (v0.18). Nearest
+ * first; the walk stops after the first ancestor containing .git (the
+ * project root, checked INCLUSIVELY — its .pi/policies is collected).
+ * Without this, starting pi in repo/backend/service-a never saw
+ * repo/.pi/policies.
+ */
+export function projectPolicyRoots(cwd) {
+  const roots = [];
+  let cur = resolve(String(cwd ?? "."));
+  for (;;) {
+    const base = join(cur, ".pi", "policies");
+    if (existsSync(base)) roots.push(base);
+    if (existsSync(join(cur, ".git"))) break;
+    const parent = dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return roots; // nearest first
+}
+
+/**
+ * A manifest entry loads when ANY of its filters matches the decision —
+ * tasks containing taskType, domains/concerns intersecting the decision's.
+ * An entry with no filters always loads.
+ */
+function manifestEntryMatches(entry, decision) {
+  const tasks = Array.isArray(entry?.tasks) ? entry.tasks : [];
+  const domains = Array.isArray(entry?.domains) ? entry.domains : [];
+  const concerns = Array.isArray(entry?.concerns) ? entry.concerns : [];
+  if (tasks.length === 0 && domains.length === 0 && concerns.length === 0) {
+    return true;
+  }
+  if (decision?.taskType && tasks.includes(decision.taskType)) return true;
+  const doms = decision?.domains ?? [];
+  if (domains.some((d) => doms.includes(d))) return true;
+  const cons = decision?.concerns ?? [];
+  if (concerns.some((c) => cons.includes(c))) return true;
+  return false;
+}
+
+export function loadProjectPolicies(cwd, config = {}, decision = null) {
   const maxFiles = Number(config.projectPolicyMaxFiles ?? 12);
   const maxBytes = Number(config.projectPolicyMaxBytes ?? 24000);
   const allowList = Array.isArray(config.projectPolicies)
     ? new Set(config.projectPolicies)
     : null;
 
-  const files = walkMarkdown(base, maxFiles * 2);
   const result = [];
+  const seen = new Set(); // nearest .pi/policies shadows ancestor duplicates
   let used = 0;
 
-  for (const full of files) {
-    if (result.length >= maxFiles || used >= maxBytes) break;
-    const rel = relative(base, full).replaceAll("\\", "/");
+  const pushFile = (full, rel) => {
+    if (result.length >= maxFiles || used >= maxBytes) return false;
     if (
       allowList &&
       allowList.size > 0 &&
       !allowList.has(rel) &&
       !allowList.has(basename(rel))
     )
-      continue;
+      return true; // filtered out; keep scanning
     let size = 0;
     try {
       size = statSync(full).size;
     } catch {
-      continue;
+      return true;
     }
-    if (size > maxBytes || used + size > maxBytes) continue;
+    if (size > maxBytes || used + size > maxBytes) return true;
     try {
       const content = readText(full);
+      const id = `project.${rel}`;
+      if (seen.has(id)) return true; // shadowed by a nearer root
+      seen.add(id);
       result.push({
-        id: `project.${rel}`,
+        id,
         source: `.pi/policies/${rel}`,
         content,
       });
       used += size;
+      return true;
     } catch {
-      // Ignore unreadable project policy files.
+      return true; // Ignore unreadable project policy files.
+    }
+  };
+
+  for (const base of projectPolicyRoots(cwd)) {
+    // Conditional mode (v0.18): a manifest.json in .pi/policies gates
+    // which files load for THIS decision. Files not listed in the manifest
+    // are not loaded — a 30-file project stays quiet.
+    const manifestPath = join(base, "manifest.json");
+    if (existsSync(manifestPath)) {
+      const manifest = readJson(manifestPath, {});
+      for (const [key, entry] of Object.entries(manifest ?? {})) {
+        const rel = String(entry?.path ?? key).replaceAll("\\", "/");
+        if (!manifestEntryMatches(entry, decision)) continue;
+        if (!pushFile(join(base, rel), rel)) break;
+      }
+      continue; // manifest mode consumes this root entirely
+    }
+    // Directory mode: every .md file loads (pre-manifest behavior).
+    for (const full of walkMarkdown(base, maxFiles * 2)) {
+      const rel = relative(base, full).replaceAll("\\", "/");
+      if (!pushFile(full, rel)) break;
     }
   }
 
   return result;
 }
-
 export function composePolicies({
   packageRoot,
   decision,
@@ -134,6 +197,12 @@ export function composePolicies({
   }
   for (const domain of decision.domains ?? []) {
     const id = `domain.${domain}`;
+    if (manifest?.policies?.[id]) ordered.push(id);
+  }
+  // Concerns (v0.18): cross-cutting policies load alongside domains and
+  // never compete for domain slots.
+  for (const concern of decision.concerns ?? []) {
+    const id = `concern.${concern}`;
     if (manifest?.policies?.[id]) ordered.push(id);
   }
   if (decision.modelPolicy) ordered.push(decision.modelPolicy);
@@ -194,10 +263,14 @@ export function composeAllPolicies({
     Number(config.projectPolicyMaxBytes ?? 24000),
     remaining,
   );
-  const projectPolicies = loadProjectPolicies(cwd, {
-    ...config,
-    projectPolicyMaxBytes: projectCap,
-  });
+  const projectPolicies = loadProjectPolicies(
+    cwd,
+    {
+      ...config,
+      projectPolicyMaxBytes: projectCap,
+    },
+    decision,
+  );
   const projectBytes = projectPolicies.reduce(
     (n, p) => n + Buffer.byteLength(p.content, "utf8"),
     0,
@@ -221,6 +294,7 @@ export function renderPolicyBlock({
     `Phase: ${phase}`,
     `Profile: ${decision.profile}`,
     `Domains: ${(decision.domains ?? []).join(", ") || "none"}`,
+    `Concerns: ${(decision.concerns ?? []).join(", ") || "none"}`,
     `Model policy: ${decision.modelPolicy ?? "default"}`,
     "",
     "The following policies are active for this turn. Treat them as execution constraints, not as user-visible output requirements unless a policy explicitly says so.",

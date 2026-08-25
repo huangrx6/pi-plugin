@@ -42,7 +42,6 @@
 const DOMAIN_ENUM = [
   "database",
   "kubernetes",
-  "security",
   "backend",
   "frontend",
   "documentation",
@@ -66,7 +65,7 @@ const SCHEMA_INSTRUCTIONS = `You are a task classifier for a coding agent.
 Given the user prompt below, output a JSON object with EXACTLY these fields:
 - taskType: one of "documentation" | "debugging" | "review" | "research" | "architecture" | "coding"
 - risk: "low" | "medium" | "high"
-- domains: array, any subset of ["database", "kubernetes", "security", "backend", "frontend", "documentation"]
+- domains: array, any subset of ["database", "kubernetes", "backend", "frontend", "documentation"]
 - executionIntent: one of "read-only" | "mutate" | "unclear"
 
 Deterministic hint (from keyword matching) is provided for context. The prompt may be in any language.

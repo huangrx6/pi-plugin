@@ -126,13 +126,14 @@ Policy Router
   - strong（`postgres`、`react`、`jwt`、`kubectl` …）：命中即加载该领域
   - weak（`组件`、`api`、`权限`、`sql` …）：单独出现**不触发**；同领域凑满 2 个弱信号，或搭配一个框架词（`React` + `组件`）才触发
 - 触发的领域按得分排序，最多加载 `maxDomains` 个（默认 2），其余在 reasons 里写明裁剪原因
+- **Domain 与 Concern 分离（v0.18）**：Domain 回答"问题发生在哪"（database / backend …），Concern 回答"要额外注意什么"（security / production …）。concern **不占** `maxDomains` 名额：`postgresql schema + spring controller + jwt 鉴权` 会同时加载 database、backend 两个领域和 security 这个关注点，不会再出现"security 被裁掉"
 - confidence 计入候选分散度：多个 task type 打平时置信度主动下调（最高 -0.35），碾压级胜出不受影响——不再出现"三个候选打平还给 0.95"的虚假数字
 
 每个裁剪/降权决定都写进 `/policy why` 的 reasons，可审计：
 
 ```text
 domain:backend dropped (weak-only: 接口 (score 0.5 < 1, needs a frame term or a second signal))
-domain:security dropped (capped at 2; weaker than database, frontend)
+concern:security dropped (weak-only: 密钥 (score 0.5 < 1, needs a frame term or a second signal))
 confidence penalized: candidates dispersed (top=6, runner-up=6, dominance=0.00)
 ```
 
@@ -171,7 +172,13 @@ strict 的 plan 批准**不是工具拦截**，而是注入给模型的明确指
 - **否定作用域**：「不要只分析」里的"分析"不算数——否定词窗口内的动词是死证据；所以 "不要只分析，直接修改代码" = mutate（旧版 analysisOnly 在这句会判错）
 - **名词话题抑制**：「迁移**方案**的风险」「README 里**写了**什么」是提及不是请求——Intent beats mention
 - read-only 意图会自动把 strict 降级为 standard/quick（纯阅读不需要审批循环）；`unclear` 保持完整严格度（无法证明不会改动）
-- 语义兑底若未明确断言 intent，则保留确定性判定结果
+- 语义兜底若未明确断言 intent，则保留确定性判定结果
+
+### 任务连续性（v0.18）
+
+一轮任务结束后（`agent_end`），用户常发不带新指令的短跟进：`继续` / `还是不对` / `再看看` / `按这个做`。这类 prompt 自身没有可分类的内容，按全新任务分类会得到 `coding / medium / 无领域`——模型从此脱离上一轮的约束上下文。
+
+现在这类**整句仅为跟进**的 prompt（带逗号后续指令的不算）会继承上一轮的 task 和 domains，重算执行意图（新意图优先，无信号则沿用），risk 只升不降——且只有跟进语本身携带真实风险证据（如出现生产关键词）才升。
 
 ### 调试命令
 
@@ -331,11 +338,23 @@ runtime /policy override           ← 进程内（/policy 命令）
 
 ### 项目配置示例
 
+`.pi/policies` 会从 cwd **逐层向上发现**（到 git 根为止，就近优先、同名遮蔽）：在 `repo/backend/service-a` 启动也能用到 `repo/.pi/policies`。
+
+policy 文件多于几个时，可以加一份 `manifest.json` 做**条件加载**——只加载与当前决策相关的条目，未列出的文件不加载：
+
+```json
+{
+  "db-migration": { "path": "database-migration.md", "tasks": ["architecture"], "domains": ["database"] },
+  "always": { "path": "team-conventions.md" }
+}
+```
+
 ```text
 my-project/
 └── .pi/
     ├── policy-engine.json
     └── policies/
+        ├── manifest.json
         ├── compatibility.md
         └── architecture.md
 ```

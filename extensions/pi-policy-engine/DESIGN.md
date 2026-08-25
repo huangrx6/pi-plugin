@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.17
+# Design — pi-policy-engine v0.18
 
 ## 1. Design goal
 
@@ -66,7 +66,9 @@ Behavior
 Workflow
   └─ quick / standard / strict / debug / review / research
 Domain
-  └─ database / kubernetes / security / backend / frontend / docs
+  └─ database / kubernetes / backend / frontend / docs
+Concern
+  └─ security / production            ← cross-cutting, not capped (v0.18)
 Model
   └─ model-specific adaptation                    ← MiniMax M3 / DeepSeek
 Project
@@ -174,12 +176,34 @@ because the strict state machine needs phrase recognition.
 
 ## 7. Project policy discovery
 
-Project policies live at `<cwd>/.pi/policies/**/*.md`. Limits prevent unbounded
-context growth:
+Project policies live at `.pi/policies/**/*.md`, discovered from cwd
+**upward** to the enclosing git root (v0.18) — starting pi in
+`repo/backend/service-a` now sees `repo/.pi/policies`. Nearest root wins
+on duplicate relative ids (shadowing). Limits prevent unbounded growth:
 
 - `projectPolicyMaxFiles` (default 12)
-- `projectPolicyMaxBytes` (default 24000)
+- `projectPolicyMaxBytes` (default 24000; participates in the unified
+  policyMaxBytes budget via composeAllPolicies)
 - `projectPolicies` allowlist (optional)
+
+**Conditional loading (v0.18)**: when a `.pi/policies/manifest.json`
+exists, only its listed entries load, each gated by optional
+`tasks` / `domains` / `concerns` filters against the current decision
+(no filters = always). Unlisted files do not load — a 30-file project
+stays quiet.
+
+## 7a. Task continuity (v0.18)
+
+`agent_end` leaves the previous decision in state. A whole-message
+follow-up ("继续" / "还是不对" / "按这个做" — see intent.js
+FOLLOWUP_PATTERNS) carries no instructions of its own, so decide()
+inherits taskType + domains from the last decision, recomputes
+executionIntent (a live intent on the follow-up wins; unclear falls
+back to the inherited one), and escalates risk ONLY when the follow-up
+itself produced a `risk:` reason — the no-evidence default "medium"
+never escalates a quick task to standard. Off-workflow or absent
+lastDecision disables continuity. Every inheritance is recorded in
+reasons as `task-continuity: ...` for /policy why.
 
 ## 8. Configuration merging
 

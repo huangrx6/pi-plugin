@@ -9,6 +9,7 @@ import {
   composeAllPolicies,
   composePolicies,
   loadProjectPolicies,
+  projectPolicyRoots,
   renderPolicyBlock,
 } from "../src/core/loader.js";
 import { mergeConfig } from "../src/core/config.js";
@@ -242,4 +243,105 @@ test("composeAllPolicies: total (built-in + project) never exceeds policyMaxByte
   assert.ok(roomy.builtInBytes + roomy.projectBytes <= 24000);
 
   await fs.rm(projectDir, { recursive: true, force: true });
+});
+
+// ---- v0.18-3: ancestor project policy discovery -------------------------
+
+test("projectPolicyRoots walks up from cwd to the git root", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-ancestor-"));
+  await fs.mkdir(join(repo, ".git"), { recursive: true });
+  await fs.mkdir(join(repo, ".pi", "policies"), { recursive: true });
+  await fs.mkdir(join(repo, "backend", "service-a"), { recursive: true });
+
+  // From a nested cwd: only the repo root's .pi/policies exists → found.
+  const roots = projectPolicyRoots(join(repo, "backend", "service-a"));
+  assert.equal(roots.length, 1);
+  assert.ok(roots[0].startsWith(repo));
+
+  // Nested .pi takes nearest-first ordering.
+  await fs.mkdir(join(repo, "backend", ".pi", "policies"), { recursive: true });
+  const two = projectPolicyRoots(join(repo, "backend", "service-a"));
+  assert.equal(two.length, 2);
+  assert.ok(two[0].includes(join("backend", ".pi"))); // nearest first
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+test("loadProjectPolicies discovers ancestor policies from a nested cwd", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-ancestor-"));
+  await fs.mkdir(join(repo, ".git"), { recursive: true });
+  await fs.mkdir(join(repo, ".pi", "policies"), { recursive: true });
+  await fs.mkdir(join(repo, "backend", "service-a"), { recursive: true });
+  await fs.writeFile(join(repo, ".pi", "policies", "root.md"), "# Root policy\n");
+
+  const found = loadProjectPolicies(join(repo, "backend", "service-a"), {});
+  assert.equal(found.length, 1);
+  assert.equal(found[0].id, "project.root.md");
+  assert.match(found[0].content, /Root policy/);
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+test("nearest .pi/policies shadows an ancestor's duplicate id", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-shadow-"));
+  await fs.mkdir(join(repo, ".git"), { recursive: true });
+  await fs.mkdir(join(repo, ".pi", "policies"), { recursive: true });
+  await fs.mkdir(join(repo, "sub", ".pi", "policies"), { recursive: true });
+  await fs.writeFile(join(repo, ".pi", "policies", "shared.md"), "ANCESTOR");
+  await fs.writeFile(join(repo, "sub", ".pi", "policies", "shared.md"), "NEAREST");
+
+  const found = loadProjectPolicies(join(repo, "sub"), {});
+  assert.equal(found.length, 1);
+  assert.equal(found[0].content, "NEAREST");
+
+  await fs.rm(repo, { recursive: true, force: true });
+});
+
+// ---- v0.18-4: conditional project policies (manifest.json) --------------
+
+test("manifest.json gates which project policies load per decision", async () => {
+  const fs = await import("node:fs/promises");
+  const repo = await fs.mkdtemp(join(tmpdir(), "pi-policy-manifest-"));
+  const base = join(repo, ".pi", "policies");
+  await fs.mkdir(base, { recursive: true });
+  await fs.writeFile(join(base, "arch.md"), "ARCH POLICY");
+  await fs.writeFile(join(base, "db.md"), "DB POLICY");
+  await fs.writeFile(join(base, "always.md"), "ALWAYS POLICY");
+  // Not listed in the manifest → never loads in manifest mode.
+  await fs.writeFile(join(base, "unlisted.md"), "SHOULD NOT LOAD");
+  await fs.writeFile(
+    join(base, "manifest.json"),
+    JSON.stringify({
+      "arch-guide": { path: "arch.md", tasks: ["architecture"] },
+      "db-guide": { path: "db.md", domains: ["database"] },
+      "always": { path: "always.md" },
+    }),
+  );
+
+  // architecture task: arch.md (tasks match) + always.md; db.md filtered out.
+  const archDecision = { taskType: "architecture", domains: [], concerns: [] };
+  const forArch = loadProjectPolicies(repo, {}, archDecision);
+  assert.equal(forArch.length, 2);
+  assert.ok(forArch.some((p) => p.content === "ARCH POLICY"));
+  assert.ok(forArch.some((p) => p.content === "ALWAYS POLICY"));
+
+  // database domain: db.md + always.md.
+  const dbDecision = { taskType: "coding", domains: ["database"], concerns: [] };
+  const forDb = loadProjectPolicies(repo, {}, dbDecision);
+  assert.equal(forDb.length, 2);
+  assert.ok(forDb.some((p) => p.content === "DB POLICY"));
+
+  // unrelated decision: only the unconditional entry.
+  const other = loadProjectPolicies(repo, {}, { taskType: "coding", domains: [], concerns: [] });
+  assert.equal(other.length, 1);
+  assert.equal(other[0].content, "ALWAYS POLICY");
+  // unlisted.md never loaded in any mode.
+  for (const list of [forArch, forDb, other]) {
+    assert.ok(!list.some((p) => p.content === "SHOULD NOT LOAD"));
+  }
+
+  await fs.rm(repo, { recursive: true, force: true });
 });

@@ -1,13 +1,37 @@
 {
   "taskRules": {
     "documentation": [
-      { "group": "readme", "terms": ["readme"] },
+      {
+        "group": "readme",
+        "terms": [
+          "readme"
+        ]
+      },
       {
         "group": "docs",
-        "terms": ["doc", "docs", "documentation", "markdown", "文档", "说明文档"]
+        "terms": [
+          "doc",
+          "docs",
+          "documentation",
+          "markdown",
+          "文档",
+          "说明文档"
+        ]
       },
-      { "group": "polish", "terms": ["typo", "拼写", "措辞"] },
-      { "group": "comments", "terms": ["注释"] }
+      {
+        "group": "polish",
+        "terms": [
+          "typo",
+          "拼写",
+          "措辞"
+        ]
+      },
+      {
+        "group": "comments",
+        "terms": [
+          "注释"
+        ]
+      }
     ],
     "debugging": [
       {
@@ -43,9 +67,29 @@
           "失败"
         ]
       },
-      { "group": "regression", "terms": ["regression", "regressions", "回归"] },
-      { "group": "not-working", "terms": ["不工作", "不生效", "坏了"] },
-      { "group": "why", "terms": ["为什么", "why"] }
+      {
+        "group": "regression",
+        "terms": [
+          "regression",
+          "regressions",
+          "回归"
+        ]
+      },
+      {
+        "group": "not-working",
+        "terms": [
+          "不工作",
+          "不生效",
+          "坏了"
+        ]
+      },
+      {
+        "group": "why",
+        "terms": [
+          "为什么",
+          "why"
+        ]
+      }
     ],
     "review": [
       {
@@ -95,111 +139,359 @@
           "领域边界"
         ]
       },
-      { "group": "microservice", "terms": ["microservice", "微服务"] },
+      {
+        "group": "microservice",
+        "terms": [
+          "microservice",
+          "微服务"
+        ]
+      },
       {
         "group": "migration-plan",
-        "terms": ["migration plan", "迁移方案", "拆分", "重构整个"]
+        "terms": [
+          "migration plan",
+          "迁移方案",
+          "拆分",
+          "重构整个"
+        ]
       }
     ]
   },
   "domainRules": {
     "database": {
       "strong": [
-        { "group": "postgres", "terms": ["postgres", "postgresql"] },
-        { "group": "oracle", "terms": ["oracle"] },
-        { "group": "schema", "terms": ["schema"] },
-        { "group": "transaction", "terms": ["transaction", "事务"] },
-        { "group": "表结构", "terms": ["表结构"] },
-        { "group": "迁移方案", "terms": ["迁移方案"] },
-        { "group": "数据迁移", "terms": ["数据迁移"] },
-        { "group": "分库分表", "terms": ["分库分表"] }
+        {
+          "group": "postgres",
+          "terms": [
+            "postgres",
+            "postgresql"
+          ]
+        },
+        {
+          "group": "oracle",
+          "terms": [
+            "oracle"
+          ]
+        },
+        {
+          "group": "schema",
+          "terms": [
+            "schema"
+          ]
+        },
+        {
+          "group": "transaction",
+          "terms": [
+            "transaction",
+            "事务"
+          ]
+        },
+        {
+          "group": "表结构",
+          "terms": [
+            "表结构"
+          ]
+        },
+        {
+          "group": "迁移方案",
+          "terms": [
+            "迁移方案"
+          ]
+        },
+        {
+          "group": "数据迁移",
+          "terms": [
+            "数据迁移"
+          ]
+        },
+        {
+          "group": "分库分表",
+          "terms": [
+            "分库分表"
+          ]
+        }
       ],
       "weak": [
-        { "group": "sql", "terms": ["sql"] },
-        { "group": "数据库", "terms": ["数据库"] },
-        { "group": "索引", "terms": ["索引", "index"] },
-        { "group": "migration", "terms": ["migration", "迁移"] },
-        { "group": "rollback", "terms": ["rollback", "回滚"] },
-        { "group": "主从", "terms": ["主从"] }
+        {
+          "group": "sql",
+          "terms": [
+            "sql"
+          ]
+        },
+        {
+          "group": "数据库",
+          "terms": [
+            "数据库"
+          ]
+        },
+        {
+          "group": "索引",
+          "terms": [
+            "索引",
+            "index"
+          ]
+        },
+        {
+          "group": "migration",
+          "terms": [
+            "migration",
+            "迁移"
+          ]
+        },
+        {
+          "group": "rollback",
+          "terms": [
+            "rollback",
+            "回滚"
+          ]
+        },
+        {
+          "group": "主从",
+          "terms": [
+            "主从"
+          ]
+        }
       ]
     },
     "kubernetes": {
       "strong": [
-        { "group": "kubernetes", "terms": ["kubernetes", "k8s"] },
-        { "group": "helm", "terms": ["helm"] },
-        { "group": "kubectl", "terms": ["kubectl"] },
-        { "group": "workload", "terms": ["deployment", "statefulset", "daemonset"] },
-        { "group": "ingress", "terms": ["ingress"] },
-        { "group": "configmap", "terms": ["configmap"] },
-        { "group": "容器编排", "terms": ["容器编排"] }
+        {
+          "group": "kubernetes",
+          "terms": [
+            "kubernetes",
+            "k8s"
+          ]
+        },
+        {
+          "group": "helm",
+          "terms": [
+            "helm"
+          ]
+        },
+        {
+          "group": "kubectl",
+          "terms": [
+            "kubectl"
+          ]
+        },
+        {
+          "group": "workload",
+          "terms": [
+            "deployment",
+            "statefulset",
+            "daemonset"
+          ]
+        },
+        {
+          "group": "ingress",
+          "terms": [
+            "ingress"
+          ]
+        },
+        {
+          "group": "configmap",
+          "terms": [
+            "configmap"
+          ]
+        },
+        {
+          "group": "容器编排",
+          "terms": [
+            "容器编排"
+          ]
+        }
       ],
       "weak": [
-        { "group": "pod", "terms": ["pod"] },
+        {
+          "group": "pod",
+          "terms": [
+            "pod"
+          ]
+        },
         {
           "group": "volume",
-          "terms": ["volume", "hostpath", "volumemount", "挂载"]
+          "terms": [
+            "volume",
+            "hostpath",
+            "volumemount",
+            "挂载"
+          ]
         },
-        { "group": "滚动更新", "terms": ["滚动更新"] }
-      ]
-    },
-    "security": {
-      "strong": [
-        { "group": "oauth", "terms": ["oauth", "oauth2", "sso"] },
-        { "group": "jwt", "terms": ["jwt"] },
-        { "group": "鉴权", "terms": ["鉴权"] },
-        { "group": "认证体系", "terms": ["认证体系"] },
-        { "group": "credential", "terms": ["credential"] },
         {
-          "group": "secret-rotation",
-          "terms": ["secret rotation", "密钥轮换"]
-        },
-        { "group": "权限模型", "terms": ["权限模型"] }
-      ],
-      "weak": [
-        {
-          "group": "auth",
-          "terms": ["auth", "authentication", "authorization", "认证", "授权"]
-        },
-        { "group": "安全", "terms": ["安全"] },
-        { "group": "权限", "terms": ["权限", "permission"] },
-        { "group": "密钥", "terms": ["密钥", "secret", "password"] },
-        { "group": "加密", "terms": ["加密"] }
+          "group": "滚动更新",
+          "terms": [
+            "滚动更新"
+          ]
+        }
       ]
     },
     "backend": {
       "strong": [
-        { "group": "spring", "terms": ["spring", "spring mvc"] },
-        { "group": "controller", "terms": ["controller"] },
-        { "group": "rest-api", "terms": ["rest api", "restful"] },
-        { "group": "microservice", "terms": ["microservice", "微服务"] },
-        { "group": "后端服务", "terms": ["后端服务"] },
-        { "group": "grpc", "terms": ["grpc"] }
+        {
+          "group": "spring",
+          "terms": [
+            "spring",
+            "spring mvc"
+          ]
+        },
+        {
+          "group": "controller",
+          "terms": [
+            "controller"
+          ]
+        },
+        {
+          "group": "rest-api",
+          "terms": [
+            "rest api",
+            "restful"
+          ]
+        },
+        {
+          "group": "microservice",
+          "terms": [
+            "microservice",
+            "微服务"
+          ]
+        },
+        {
+          "group": "后端服务",
+          "terms": [
+            "后端服务"
+          ]
+        },
+        {
+          "group": "grpc",
+          "terms": [
+            "grpc"
+          ]
+        }
       ],
       "weak": [
-        { "group": "java", "terms": ["java"] },
-        { "group": "api", "terms": ["api", "接口", "endpoint"] },
-        { "group": "service", "terms": ["service", "服务层"] },
-        { "group": "backend", "terms": ["backend", "后端"] },
-        { "group": "rpc", "terms": ["rpc", "中间件"] }
+        {
+          "group": "java",
+          "terms": [
+            "java"
+          ]
+        },
+        {
+          "group": "api",
+          "terms": [
+            "api",
+            "接口",
+            "endpoint"
+          ]
+        },
+        {
+          "group": "service",
+          "terms": [
+            "service",
+            "服务层"
+          ]
+        },
+        {
+          "group": "backend",
+          "terms": [
+            "backend",
+            "后端"
+          ]
+        },
+        {
+          "group": "rpc",
+          "terms": [
+            "rpc",
+            "中间件"
+          ]
+        }
       ]
     },
     "frontend": {
       "strong": [
-        { "group": "react", "terms": ["react", "jsx"] },
-        { "group": "vue", "terms": ["vue"] },
-        { "group": "angular", "terms": ["angular"] },
-        { "group": "tsx", "terms": ["tsx"] },
-        { "group": "nextjs", "terms": ["next.js"] },
-        { "group": "前端页面", "terms": ["前端页面"] },
-        { "group": "组件库", "terms": ["组件库"] }
+        {
+          "group": "react",
+          "terms": [
+            "react",
+            "jsx"
+          ]
+        },
+        {
+          "group": "vue",
+          "terms": [
+            "vue"
+          ]
+        },
+        {
+          "group": "angular",
+          "terms": [
+            "angular"
+          ]
+        },
+        {
+          "group": "tsx",
+          "terms": [
+            "tsx"
+          ]
+        },
+        {
+          "group": "nextjs",
+          "terms": [
+            "next.js"
+          ]
+        },
+        {
+          "group": "前端页面",
+          "terms": [
+            "前端页面"
+          ]
+        },
+        {
+          "group": "组件库",
+          "terms": [
+            "组件库"
+          ]
+        }
       ],
       "weak": [
-        { "group": "css", "terms": ["css"] },
-        { "group": "dom", "terms": ["dom", "browser", "浏览器"] },
-        { "group": "前端", "terms": ["前端", "frontend", "页面"] },
-        { "group": "组件", "terms": ["组件"] },
-        { "group": "样式", "terms": ["样式"] },
-        { "group": "布局", "terms": ["布局"] }
+        {
+          "group": "css",
+          "terms": [
+            "css"
+          ]
+        },
+        {
+          "group": "dom",
+          "terms": [
+            "dom",
+            "browser",
+            "浏览器"
+          ]
+        },
+        {
+          "group": "前端",
+          "terms": [
+            "前端",
+            "frontend",
+            "页面"
+          ]
+        },
+        {
+          "group": "组件",
+          "terms": [
+            "组件"
+          ]
+        },
+        {
+          "group": "样式",
+          "terms": [
+            "样式"
+          ]
+        },
+        {
+          "group": "布局",
+          "terms": [
+            "布局"
+          ]
+        }
       ]
     }
   },
@@ -255,5 +547,110 @@
     "readme",
     "文档",
     "注释"
-  ]
+  ],
+  "concernRules": {
+    "security": {
+      "strong": [
+        {
+          "group": "oauth",
+          "terms": [
+            "oauth",
+            "oauth2",
+            "sso"
+          ]
+        },
+        {
+          "group": "jwt",
+          "terms": [
+            "jwt"
+          ]
+        },
+        {
+          "group": "鉴权",
+          "terms": [
+            "鉴权"
+          ]
+        },
+        {
+          "group": "认证体系",
+          "terms": [
+            "认证体系"
+          ]
+        },
+        {
+          "group": "credential",
+          "terms": [
+            "credential"
+          ]
+        },
+        {
+          "group": "secret-rotation",
+          "terms": [
+            "secret rotation",
+            "密钥轮换"
+          ]
+        },
+        {
+          "group": "权限模型",
+          "terms": [
+            "权限模型"
+          ]
+        }
+      ],
+      "weak": [
+        {
+          "group": "auth",
+          "terms": [
+            "auth",
+            "authentication",
+            "authorization",
+            "认证",
+            "授权"
+          ]
+        },
+        {
+          "group": "安全",
+          "terms": [
+            "安全"
+          ]
+        },
+        {
+          "group": "权限",
+          "terms": [
+            "权限",
+            "permission"
+          ]
+        },
+        {
+          "group": "密钥",
+          "terms": [
+            "密钥",
+            "secret",
+            "password"
+          ]
+        },
+        {
+          "group": "加密",
+          "terms": [
+            "加密"
+          ]
+        }
+      ]
+    },
+    "production": {
+      "strong": [
+        "生产环境",
+        "生产",
+        "线上",
+        "production",
+        "prod"
+      ],
+      "weak": [
+        "发布",
+        "上线",
+        "release",
+        "deploy to prod"
+      ]
+    }
+  }
 }

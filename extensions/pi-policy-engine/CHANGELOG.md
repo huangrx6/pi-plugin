@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.18.0
+
+Task continuity + Domain/Concern split + project-policy discovery upgrade.
+
+- **Task Continuity**: whole-message follow-ups ("继续" / "还是不对" /
+  "再看看" / "按这个做") inherit taskType + domains from the previous
+  decision instead of re-classifying as coding/medium/none (which dropped
+  the model off its constraint context). Execution intent is recomputed
+  (a live intent on the follow-up wins; unclear falls back to the
+  inherited one); risk escalates ONLY when the follow-up itself produced
+  a risk reason — the no-evidence default "medium" never turns a quick
+  task into standard (smoke caught exactly that during implementation).
+  Follow-ups carrying their own instructions ("继续，只分析") do NOT
+  match. Continuity is off when the last workflow was off or absent.
+- **Domain / Concern split**: a concern (security, production) answers
+  "what needs extra care", not "where does this happen" — it never
+  competes for maxDomains slots. routing.json gains `concernRules`;
+  "postgresql schema + spring controller + jwt 鉴权" now loads
+  database + backend domains AND the security concern (previously
+  security lost the cap race and was dropped). New
+  policies/concerns/{security,production}.md; manifest ids
+  concern.security / concern.production; concerns flow through
+  buildDecision, compareDecisions, and the injected block summary;
+  semantic fallback's domain enum no longer includes security
+  (concerns are deterministic-only).
+- **Ancestor project-policy discovery**: .pi/policies is found from cwd
+  upward to the enclosing git root — starting pi in repo/backend/service-a
+  now sees repo/.pi/policies. Nearest root shadows duplicate relative ids.
+- **Conditional project policies**: an optional .pi/policies/manifest.json
+  gates loading — each entry may filter by tasks / domains / concerns
+  against the current decision (no filters = always); unlisted files do
+  not load, so a large policy directory stays quiet.
+
 ## 0.17.0
 
 Advisory-vs-mutation intent + unified policy budget (v1.0 P0 follow-ups).

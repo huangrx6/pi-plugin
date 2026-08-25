@@ -5,6 +5,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { classifyTask } from "../../src/core/classifier.js";
+import { isFollowUpPrompt } from "../../src/core/intent.js";
 import {
   loadEffectiveConfig,
   loadRoutingConfig,
@@ -62,7 +63,7 @@ export function recordHistory(state, { source, prompt, decision }) {
   while (state.history.length > HISTORY_CAP) state.history.shift();
 }
 
-export function stateRuntimeOverrides(state) {
+function stateRuntimeOverrides(state) {
   const out = {};
   if (state.runtimeMode) out.mode = state.runtimeMode;
   if (state.runtimeProfile) out.profile = state.runtimeProfile;
@@ -109,6 +110,48 @@ export async function decide({
   let classification = classifyTask(prompt, routing, config.domainHints ?? [], {
     maxDomains: config.maxDomains,
   });
+
+  // v0.18 Task Continuity: a bare follow-up ("继续" / "还是不对") carries
+  // no instructions of its own — it points at the PREVIOUS task. Inherit
+  // task + domains from the last decision, recompute intent from the
+  // follow-up text (fresh intent wins; unclear falls back to inherited),
+  // and never let risk DROP across turns (escalation only). Without this,
+  // a bare follow-up after a debugging/database task re-classified as
+  // coding/none and drifted the model off its constraints.
+  const last = state.lastDecision;
+  if (last && last.workflow !== "off" && isFollowUpPrompt(prompt)) {
+    const fresh = classification;
+    const RANK = { low: 0, medium: 1, high: 2 };
+    // A bare follow-up carries no risk signal of its own — the fresh
+    // classification's "medium" is the no-evidence DEFAULT, not a finding.
+    // Escalate only when the fresh pass found an actual risk reason;
+    // otherwise "继续" after a quick task would silently become standard.
+    const freshHasRiskSignal = (fresh.reasons ?? []).some((r) =>
+      r.startsWith("risk:"),
+    );
+    const risk =
+      freshHasRiskSignal && RANK[fresh.risk] > RANK[last.risk]
+        ? fresh.risk
+        : last.risk;
+    const executionIntent =
+      fresh.executionIntent === "unclear"
+        ? (last.executionIntent ?? "unclear")
+        : fresh.executionIntent;
+    classification = {
+      ...fresh,
+      taskType: last.taskType,
+      runnerUpTask: fresh.taskType,
+      domains: last.domains ?? [],
+      risk,
+      executionIntent,
+      reasons: [
+        `task-continuity: follow-up inherits task=${last.taskType} domains=[${(last.domains ?? []).join(
+          ",",
+        )}] from the previous turn; intent/risk recomputed (risk never drops)`,
+        ...fresh.reasons,
+      ],
+    };
+  }
   const mode = explicitMode ?? state.onceMode ?? config.mode ?? "auto";
 
   // Optional semantic fallback (DESIGN §4). Disabled by default. Any
@@ -219,6 +262,11 @@ export function compareDecisions(left, right) {
       "domains",
       (left?.decision?.domains ?? []).join(","),
       (right?.decision?.domains ?? []).join(","),
+    ],
+    [
+      "concerns",
+      (left?.decision?.concerns ?? []).join(","),
+      (right?.decision?.concerns ?? []).join(","),
     ],
     ["profile", left?.decision?.profile, right?.decision?.profile],
     [

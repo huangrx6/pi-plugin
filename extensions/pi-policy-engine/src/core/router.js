@@ -62,6 +62,7 @@ export function buildDecision({ classification, mode, profile, model }) {
     confidence: classification.confidence,
     executionIntent: classification.executionIntent,
     domains: classification.domains,
+    concerns: classification.concerns,
     workflow,
     profile: selectedProfile,
     modelPolicy,

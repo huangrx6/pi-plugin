@@ -107,6 +107,27 @@ test("domain count is capped (default 2), ranked by score", () => {
   assert.ok(x.reasons.some((r) => r.includes("dropped (capped at 2")));
 });
 
+test("v0.18 concerns are cross-cutting and never compete for domain slots", () => {
+  // The flagship case: postgresql schema + spring controller + jwt 鉴权.
+  // v0.17: security was a domain, lost the cap race, and got dropped.
+  const x = c(
+    "postgresql schema 加上 spring controller 和 jwt 鉴权",
+  );
+  assert.deepEqual([...x.domains].sort(), ["backend", "database"]);
+  assert.ok(x.concerns.includes("security"));
+  assert.ok(x.reasons.some((r) => r.startsWith("concern:security loaded")));
+});
+
+test("production concern fires on prod keywords", () => {
+  const x = c("调整生产环境的超时配置");
+  assert.ok(x.concerns.includes("production"));
+});
+
+test("concerns without evidence stay empty", () => {
+  const x = c("帮我改一下 README 的措辞");
+  assert.deepEqual(x.concerns, []);
+});
+
 test("confidence reflects candidate dispersion", () => {
   // Near-tie across task types → honest low confidence.
   const tie = c("文档 docs markdown 里有个错误要定位，顺便架构拆分一下");
