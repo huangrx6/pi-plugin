@@ -164,7 +164,45 @@ export function composePolicies({
     used += size;
   }
   const truncated = ids.filter((id) => !loaded.some((p) => p.id === id));
-  return { policies: loaded, truncated };
+  return { policies: loaded, truncated, builtInBytes: used };
+}
+
+/**
+ * Compose built-in AND project policies under ONE total byte budget
+ * (v0.17). Previously the two lists were capped independently, so the
+ * injected block could reach policyMaxBytes + projectPolicyMaxBytes —
+ * /policy preview reported only the built-in share, hiding the overflow.
+ * Now: built-ins load first (priority order), project policies get
+ * min(projectPolicyMaxBytes, policyMaxBytes - builtInBytes).
+ */
+export function composeAllPolicies({
+  packageRoot,
+  cwd,
+  decision,
+  config,
+  phase = "executing",
+}) {
+  const { policies, truncated, builtInBytes } = composePolicies({
+    packageRoot,
+    decision,
+    config,
+    phase,
+  });
+  const total = Number(config.policyMaxBytes ?? 24000);
+  const remaining = Math.max(0, total - builtInBytes);
+  const projectCap = Math.min(
+    Number(config.projectPolicyMaxBytes ?? 24000),
+    remaining,
+  );
+  const projectPolicies = loadProjectPolicies(cwd, {
+    ...config,
+    projectPolicyMaxBytes: projectCap,
+  });
+  const projectBytes = projectPolicies.reduce(
+    (n, p) => n + Buffer.byteLength(p.content, "utf8"),
+    0,
+  );
+  return { policies, projectPolicies, truncated, builtInBytes, projectBytes };
 }
 
 export function renderPolicyBlock({

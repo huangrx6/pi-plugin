@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.17.0
+
+Advisory-vs-mutation intent + unified policy budget (v1.0 P0 follow-ups).
+
+- **Action modality: "tell me how" ≠ "do it"**. intent.js now classifies
+  each mutation-verb hit as live / advisory / dead before any verdict:
+  - clause-initial communication verbs (告诉我/解释/建议/show me…),
+  - interrogative scope (怎么/如何/how to/what should) before the verb,
+  - plan-noun compounds under a communication frame (给我部署步骤/修复方案)
+  → ADVISORY mutations are read-only requests for guidance. Verified fixes:
+  "告诉我如何修复这个问题，不要修改代码" / "不要改代码，只告诉我应该怎么
+  修改" / "分析一下怎么修改这个接口" / "不要部署，只给我部署步骤" were all
+  mutate (strict would have demanded approval for a change nobody asked
+  for); now read-only. A BARE plan-noun without a communication frame
+  ("设计…迁移方案") stays dead evidence — intent unclear, strict rigor
+  holds via risk. Public enum unchanged (read-only/mutate/unclear).
+- Direct commands sharpened: 实施/执行/change added to MUTATION_VERBS —
+  "…迁移方案并实施" now correctly reads mutate (was unclear), so the
+  flagship strict scenario gets its approval gate.
+- **Approval grammar widened safely**: 并 added to filler, bare 开始 and
+  "looks good" added to approval phrases. "批准并执行" / "没问题，直接
+  开始" / "looks good, proceed" are approve again (were revise). No
+  reverse enumeration reintroduced — strip-then-inspect-remainder
+  unchanged; constraint-bearing approvals still revise.
+- **Unified policy budget** (real bug): composePolicies and
+  loadProjectPolicies were each capped independently, so the injected
+  block could reach policyMaxBytes + projectPolicyMaxBytes (verified 700
+  budget → 1433 bytes injected) while /policy preview reported only the
+  built-in share. New composeAllPolicies composes both under ONE
+  policyMaxBytes (built-ins first, project gets the remainder); lifecycle
+  and preview both use it; budgetUsedPct and the preview budget line now
+  report the true total.
+- Regression corpus +7 (advisory×5, approval×3 minus dup) → 30 cases.
+
 ## 0.16.0
 
 Pure classification-correctness release (v1.0 P0 batch complete). No new

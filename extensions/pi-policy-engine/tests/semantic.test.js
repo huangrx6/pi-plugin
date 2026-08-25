@@ -96,11 +96,14 @@ test("low confidence merges conservatively", async () => {
     "我们线上 deploy 经常回滚",
     det({ risk: "medium", domains: [], executionIntent: "mutate" }),
     enabledCfg(),
-    { fetcher: async () => okResponse({
-      taskType: "architecture",
-      risk: "high",
-      domains: ["database", "kubernetes"],
-    }) },
+    {
+      fetcher: async () =>
+        okResponse({
+          taskType: "architecture",
+          risk: "high",
+          domains: ["database", "kubernetes"],
+        }),
+    },
   );
   assert.ok(merged);
   assert.equal(merged.taskType, "architecture");
@@ -119,12 +122,15 @@ test("risk can only go UP, never down (hard evidence rule)", async () => {
     "x",
     det({ risk: "high", domains: ["security"], executionIntent: "mutate" }),
     enabledCfg(),
-    { fetcher: async () => okResponse({
-      taskType: "documentation",
-      risk: "low",
-      domains: ["frontend", "backend", "database"],
-      executionIntent: "read-only",
-    }) },
+    {
+      fetcher: async () =>
+        okResponse({
+          taskType: "documentation",
+          risk: "low",
+          domains: ["frontend", "backend", "database"],
+          executionIntent: "read-only",
+        }),
+    },
   );
   assert.equal(merged.risk, "high");
   assert.equal(merged.executionIntent, "mutate"); // locked (not unclear)
@@ -140,11 +146,14 @@ test("hallucinated domains are enum-filtered before merge", async () => {
     "x",
     det({ domains: [] }),
     enabledCfg(),
-    { fetcher: async () => okResponse({
-      taskType: "coding",
-      risk: "medium",
-      domains: ["made-up", "whatever", "backend"],
-    }) },
+    {
+      fetcher: async () =>
+        okResponse({
+          taskType: "coding",
+          risk: "medium",
+          domains: ["made-up", "whatever", "backend"],
+        }),
+    },
   );
   assert.deepEqual(merged.domains, ["backend"]);
   assert.ok(!merged.reasons.some((r) => r.includes("made-up")));
@@ -157,12 +166,15 @@ test("intent resolved only when deterministic said unclear", async () => {
     "x",
     det({ executionIntent: "unclear" }),
     enabledCfg(),
-    { fetcher: async () => okResponse({
-      taskType: "coding",
-      risk: "medium",
-      domains: [],
-      executionIntent: "read-only",
-    }) },
+    {
+      fetcher: async () =>
+        okResponse({
+          taskType: "coding",
+          risk: "medium",
+          domains: [],
+          executionIntent: "read-only",
+        }),
+    },
   );
   assert.equal(merged.executionIntent, "read-only");
   delete process.env.PI_POLICY_TEST_KEY;
@@ -174,7 +186,11 @@ test("fetcher throws — null, deterministic stands", async () => {
     "x",
     det({ confidence: 0.4 }),
     enabledCfg(),
-    { fetcher: async () => { throw new Error("network down"); } },
+    {
+      fetcher: async () => {
+        throw new Error("network down");
+      },
+    },
   );
   assert.equal(merged, null);
   delete process.env.PI_POLICY_TEST_KEY;
@@ -196,7 +212,9 @@ test("response not ok — null", async () => {
     "x",
     det({ confidence: 0.4 }),
     enabledCfg(),
-    { fetcher: async () => ({ ok: false, status: 401, json: async () => ({}) }) },
+    {
+      fetcher: async () => ({ ok: false, status: 401, json: async () => ({}) }),
+    },
   );
   assert.equal(merged, null);
   delete process.env.PI_POLICY_TEST_KEY;

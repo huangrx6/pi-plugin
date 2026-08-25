@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.16
+# Design — pi-policy-engine v0.17
 
 ## 1. Design goal
 
@@ -77,6 +77,15 @@ Project
 (default `policyMaxBytes: 24000`). When the running total exceeds the budget
 the current policy is dropped entirely (no partial truncation — policies are
 semantic units). Dropped ids surface via `/policy why` and `decision.truncatedPolicies`.
+
+**v0.17 unified budget**: built-in and project policies share ONE
+`policyMaxBytes`. `composeAllPolicies` loads built-ins first (priority
+order), then gives project policies the remaining space
+(`min(projectPolicyMaxBytes, policyMaxBytes - builtInBytes)`). Before
+v0.17 the two lists were capped independently, so the injected block
+could reach `policyMaxBytes + projectPolicyMaxBytes` while
+`/policy preview` reported only the built-in share — verified 700-byte
+budget injecting 1433 bytes. `budgetUsedPct` now reports the true total.
 
 Priority order (high → low): core > profile behaviors > workflow > domain > model > project.
 

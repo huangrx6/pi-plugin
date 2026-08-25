@@ -37,7 +37,11 @@ const fakeDecision = {
 test("recordHistory caps at HISTORY_CAP, drops oldest", () => {
   const state = { history: [] };
   for (let i = 0; i < HISTORY_CAP + 5; i += 1) {
-    recordHistory(state, { source: "decide", prompt: `prompt ${i}`, decision: fakeDecision });
+    recordHistory(state, {
+      source: "decide",
+      prompt: `prompt ${i}`,
+      decision: fakeDecision,
+    });
   }
   assert.equal(state.history.length, HISTORY_CAP);
   assert.match(state.history[0].prompt, /^prompt 5$/);
@@ -69,9 +73,14 @@ test("recordHistory ignores missing decision", () => {
 test("compareDecisions: identical → empty diff", () => {
   const previewObj = {
     decision: {
-      workflow: "strict", taskType: "architecture", risk: "high",
-      confidence: 0.9, domains: ["database"], profile: "architecture",
-      modelPolicy: "model.minimax-m3", executionIntent: "mutate",
+      workflow: "strict",
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.9,
+      domains: ["database"],
+      profile: "architecture",
+      modelPolicy: "model.minimax-m3",
+      executionIntent: "mutate",
     },
     wouldRequireApproval: true,
   };
@@ -81,37 +90,68 @@ test("compareDecisions: identical → empty diff", () => {
 test("compareDecisions: differing fields", () => {
   const left = {
     decision: {
-      workflow: "strict", taskType: "architecture", risk: "high",
-      confidence: 0.9, domains: ["database"], profile: "architecture",
-      modelPolicy: null, executionIntent: "mutate",
+      workflow: "strict",
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.9,
+      domains: ["database"],
+      profile: "architecture",
+      modelPolicy: null,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: true,
   };
   const right = {
     decision: {
-      workflow: "quick", taskType: "documentation", risk: "low",
-      confidence: 0.7, domains: [], profile: "coding",
-      modelPolicy: null, executionIntent: "mutate",
+      workflow: "quick",
+      taskType: "documentation",
+      risk: "low",
+      confidence: 0.7,
+      domains: [],
+      profile: "coding",
+      modelPolicy: null,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: false,
   };
   const diffs = compareDecisions(left, right);
   assert.ok(diffs.length >= 5);
-  assert.ok(diffs.some((d) => d.field === "workflow" && d.left === "strict" && d.right === "quick"));
-  assert.ok(diffs.some((d) => d.field === "risk" && d.left === "high" && d.right === "low"));
+  assert.ok(
+    diffs.some(
+      (d) =>
+        d.field === "workflow" && d.left === "strict" && d.right === "quick",
+    ),
+  );
+  assert.ok(
+    diffs.some(
+      (d) => d.field === "risk" && d.left === "high" && d.right === "low",
+    ),
+  );
 });
 
 test("compareDecisions: domain order matters (joined comparison)", () => {
-  const left = { decision: { domains: ["a", "b"] }, wouldRequireApproval: false };
-  const right = { decision: { domains: ["b", "a"] }, wouldRequireApproval: false };
+  const left = {
+    decision: { domains: ["a", "b"] },
+    wouldRequireApproval: false,
+  };
+  const right = {
+    decision: { domains: ["b", "a"] },
+    wouldRequireApproval: false,
+  };
   assert.ok(compareDecisions(left, right).some((d) => d.field === "domains"));
 });
 
 test("formatDiff: no differences message", () => {
   const previewObj = {
     decision: {
-      workflow: "quick", taskType: "coding", risk: "low", confidence: 0.85,
-      domains: [], profile: "coding", modelPolicy: null, executionIntent: "mutate",
+      workflow: "quick",
+      taskType: "coding",
+      risk: "low",
+      confidence: 0.85,
+      domains: [],
+      profile: "coding",
+      modelPolicy: null,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: false,
   };
@@ -130,17 +170,27 @@ test("formatDiff: no differences message", () => {
 test("formatDiff: differences with arrow separator", () => {
   const left = {
     decision: {
-      workflow: "strict", taskType: "architecture", risk: "high",
-      confidence: 0.9, domains: ["database"], profile: "architecture",
-      modelPolicy: "model.minimax-m3", executionIntent: "mutate",
+      workflow: "strict",
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.9,
+      domains: ["database"],
+      profile: "architecture",
+      modelPolicy: "model.minimax-m3",
+      executionIntent: "mutate",
     },
     wouldRequireApproval: true,
   };
   const right = {
     decision: {
-      workflow: "quick", taskType: "documentation", risk: "low",
-      confidence: 0.7, domains: [], profile: "coding",
-      modelPolicy: null, executionIntent: "mutate",
+      workflow: "quick",
+      taskType: "documentation",
+      risk: "low",
+      confidence: 0.7,
+      domains: [],
+      profile: "coding",
+      modelPolicy: null,
+      executionIntent: "mutate",
     },
     wouldRequireApproval: false,
   };
@@ -161,24 +211,34 @@ test("formatDiff: differences with arrow separator", () => {
 test("formatPreview: stable rendering with all key fields", () => {
   const text = formatPreview({
     decision: {
-      taskType: "architecture", risk: "high", confidence: 0.92,
-      domains: ["database", "kubernetes"], workflow: "strict",
-      profile: "architecture", modelPolicy: "model.minimax-m3",
+      taskType: "architecture",
+      risk: "high",
+      confidence: 0.92,
+      domains: ["database", "kubernetes"],
+      workflow: "strict",
+      profile: "architecture",
+      modelPolicy: "model.minimax-m3",
     },
-    classification: { reasons: ["risk:high matched prod", "task:architecture"] },
+    classification: {
+      reasons: ["risk:high matched prod", "task:architecture"],
+    },
     policies: [{ id: "core.evidence-priority" }, { id: "domain.database" }],
     projectPolicies: [],
     truncated: ["domain.kubernetes"],
     wouldRequireApproval: true,
     stats: {
-      builtInCount: 2, builtInBytes: 1024, projectCount: 0, projectBytes: 0,
-      budget: 24000, budgetUsedPct: 4,
+      builtInCount: 2,
+      builtInBytes: 1024,
+      projectCount: 0,
+      projectBytes: 0,
+      budget: 24000,
+      budgetUsedPct: 4,
     },
   });
   assert.match(text, /# Policy preview/);
   assert.match(text, /workflow: strict/);
   assert.match(text, /would require approval: yes/);
-  assert.match(text, /budget = 4%/);
+  assert.match(text, /total budget = 4%/);
   assert.match(text, /core\.evidence-priority/);
   assert.match(text, /truncated by byte budget:/);
   assert.match(text, /domain\.kubernetes/);
@@ -195,12 +255,16 @@ test("formatPreview: null and empty inputs", () => {
     truncated: [],
     wouldRequireApproval: false,
     stats: {
-      builtInCount: 0, builtInBytes: 0, projectCount: 0, projectBytes: 0,
-      budget: 24000, budgetUsedPct: 0,
+      builtInCount: 0,
+      builtInBytes: 0,
+      projectCount: 0,
+      projectBytes: 0,
+      budget: 24000,
+      budgetUsedPct: 0,
     },
   });
   assert.match(empty, /workflow: off/);
-  assert.match(empty, /built-in policies \(0 loaded/);
+  assert.match(empty, /built-in 0 \+ project 0/);
 });
 
 test("formatConfig: defaults and real-world config", () => {
@@ -245,7 +309,10 @@ test("formatHistory: empty, limit, ordering, numbering", () => {
     ts: 1_700_000_000_000 + i * 60_000,
     source: "decide",
     prompt: `prompt ${i}`,
-    task: "coding", risk: "low", workflow: "quick", profile: "coding",
+    task: "coding",
+    risk: "low",
+    workflow: "quick",
+    profile: "coding",
     confidence: 0.8,
   }));
   const out = formatHistory(entries, 3);
@@ -265,10 +332,7 @@ test("formatHistory: empty, limit, ordering, numbering", () => {
 });
 
 test("formatValidation: ok / warnings / errors / pluralization", () => {
-  assert.match(
-    formatValidation({ ok: true, issues: [] }),
-    /# Validation: OK/,
-  );
+  assert.match(formatValidation({ ok: true, issues: [] }), /# Validation: OK/);
   assert.match(formatValidation({ ok: true, issues: [] }), /No issues found/);
   const warn = formatValidation({
     ok: true,

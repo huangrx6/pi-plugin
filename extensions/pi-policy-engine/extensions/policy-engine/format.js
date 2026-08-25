@@ -239,7 +239,7 @@ export function formatPreview(preview) {
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `would require approval: ${wouldRequireApproval ? "yes" : "no"}`,
     "",
-    `built-in policies (${stats.builtInCount} loaded, ${stats.builtInBytes} bytes / ${stats.budget} budget = ${stats.budgetUsedPct}%):`,
+    `policies (built-in ${stats.builtInCount} + project ${stats.projectCount}, ${stats.builtInBytes + stats.projectBytes} bytes / ${stats.budget} total budget = ${stats.budgetUsedPct}%):`,
   ];
   for (const p of policies) lines.push(`  - ${p.id}`);
   if (truncated.length > 0) {

@@ -11,112 +11,220 @@
     {
       "prompt": "不要只分析，直接修改代码",
       "because": "v0.12 analysisOnly negation-scoping bug",
-      "expect": { "executionIntent": "mutate" }
+      "expect": {
+        "executionIntent": "mutate"
+      }
     },
     {
       "prompt": "don't fix it, just analyze",
       "because": "v0.16: interstitial window rejected the space gap in 'do not fix'",
-      "expect": { "executionIntent": "read-only" }
+      "expect": {
+        "executionIntent": "read-only"
+      }
     },
     {
       "prompt": "do not fix it, just analyze",
       "because": "v0.16: same family, 'do not' + space",
-      "expect": { "executionIntent": "read-only" }
+      "expect": {
+        "executionIntent": "read-only"
+      }
     },
     {
       "prompt": "dont fix it, just analyze",
       "because": "v0.16: 'dont' without apostrophe was not a negator",
-      "expect": { "executionIntent": "read-only" }
+      "expect": {
+        "executionIntent": "read-only"
+      }
     },
     {
       "prompt": "不要 修改，只分析",
       "because": "v0.16: spaced CJK negation",
-      "expect": { "executionIntent": "read-only" }
+      "expect": {
+        "executionIntent": "read-only"
+      }
     },
     {
       "prompt": "README 里记录了之前架构拆分失败的原因，现在帮我把这段文档改准确",
       "because": "v0.16: intent frame not wired — background 架构/拆分 mention beat the actual 修改文档 request",
-      "expect": { "taskType": "documentation", "risk": "low", "executionIntent": "mutate" }
+      "expect": {
+        "taskType": "documentation",
+        "risk": "low",
+        "executionIntent": "mutate"
+      }
     },
     {
       "prompt": "分析一下数据库迁移方案的风险",
       "because": "v0.14: 迁移方案 read as mutation; noun-topic suffix suppression added",
-      "expect": { "executionIntent": "read-only" }
+      "expect": {
+        "executionIntent": "read-only"
+      }
     },
     {
       "prompt": "写一个迁移方案文档",
       "because": "v0.14: noun-suffix suppression over-reached and killed live 写一个",
-      "expect": { "executionIntent": "mutate" }
+      "expect": {
+        "executionIntent": "mutate"
+      }
     },
     {
       "prompt": "README 里写了什么配置说明",
       "because": "v0.14: 写了 is past narration, not a write request",
-      "expect": { "executionIntent": "unclear" }
+      "expect": {
+        "executionIntent": "unclear"
+      }
     },
     {
       "prompt": "Please write reproduction steps for this bug",
       "because": "v0.13: substring matcher hit risk:high via reproduction→production→prod",
-      "expect": { "taskType": "debugging", "risk": "medium" }
+      "expect": {
+        "taskType": "debugging",
+        "risk": "medium"
+      }
     },
     {
       "prompt": "debug this issue",
       "because": "v0.13: substring matcher hit task 'bug' inside 'debug'",
-      "expect": { "taskType": "debugging" }
+      "expect": {
+        "taskType": "debugging"
+      }
     },
     {
       "prompt": "debugging issue in parser",
       "because": "v0.16: word-boundary fix dropped inflected forms (debugging/errors/bugs); signal groups added",
-      "expect": { "taskType": "debugging" }
+      "expect": {
+        "taskType": "debugging"
+      }
     },
     {
       "prompt": "errors in parser",
       "because": "v0.16: same word-form family",
-      "expect": { "taskType": "debugging" }
+      "expect": {
+        "taskType": "debugging"
+      }
     },
     {
       "prompt": "reviewing this diff",
       "because": "v0.16: same word-form family (review→reviewing)",
-      "expect": { "taskType": "review" }
+      "expect": {
+        "taskType": "review"
+      }
     },
     {
       "prompt": "设计生产环境 PostgreSQL 数据库迁移方案并实施，不能停机，需要回滚",
-      "because": "strict routing anchor case — must stay architecture/high/strict",
-      "expect": { "taskType": "architecture", "risk": "high", "executionIntent": "unclear", "workflow": "strict" }
+      "because": "strict routing anchor case — must stay architecture/high/strict; v0.17 recognizes 并实施 as a direct command (was unclear)",
+      "expect": {
+        "taskType": "architecture",
+        "risk": "high",
+        "executionIntent": "mutate",
+        "workflow": "strict"
+      }
     },
     {
       "prompt": "批准，但是不要改数据库",
       "because": "v0.15: approval flavor released execution despite the added constraint",
-      "expect": { "planResponse": "revise" }
+      "expect": {
+        "planResponse": "revise"
+      }
     },
     {
       "prompt": "批准，执行前先备份数据库",
       "because": "v0.16: constraint-carrying approval was still classified approve",
-      "expect": { "planResponse": "revise" }
+      "expect": {
+        "planResponse": "revise"
+      }
     },
     {
       "prompt": "批准，别忘了跑测试",
       "because": "v0.16: same family",
-      "expect": { "planResponse": "revise" }
+      "expect": {
+        "planResponse": "revise"
+      }
     },
     {
       "prompt": "批准，执行时保持 API 兼容",
       "because": "v0.16: same family",
-      "expect": { "planResponse": "revise" }
+      "expect": {
+        "planResponse": "revise"
+      }
     },
     {
       "prompt": "批准，先执行吧",
       "because": "v0.16: 先…执行 hit SCOPE_LIMIT false positive — here 先 means 'you may start'",
-      "expect": { "planResponse": "approve" }
+      "expect": {
+        "planResponse": "approve"
+      }
     },
     {
       "prompt": "继续",
       "because": "continuation word is ambiguous during awaiting_approval — must not release",
-      "expect": { "planResponse": "unknown" }
+      "expect": {
+        "planResponse": "unknown"
+      }
     },
     {
       "prompt": "这个 api 和那个接口怎么调用",
       "because": "v0.16: api+接口 double-counted weak backend and loaded the domain policy",
-      "expect": { "domainsExcludes": ["backend"] }
+      "expect": {
+        "domainsExcludes": [
+          "backend"
+        ]
+      }
+    },
+    {
+      "prompt": "告诉我如何修复这个问题，不要修改代码",
+      "because": "v0.17: advisory mutation — 修复 discussed under 告诉我如何, was mutate",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "不要改代码，只告诉我应该怎么修改",
+      "because": "v0.17: advisory mutation via 告诉我…怎么",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "分析一下怎么修改这个接口",
+      "because": "v0.17: 修改 under 怎么 scope was live mutate",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "不要部署，只给我部署步骤",
+      "because": "v0.17: 部署步骤 is a plan-noun under communication frame (给我), was mutate",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "给我修复方案",
+      "because": "v0.17: 修复方案 plan-noun under communication frame",
+      "expect": {
+        "executionIntent": "read-only"
+      }
+    },
+    {
+      "prompt": "批准并执行",
+      "because": "v0.17: 并 was not filler — connector approval flagged as revise",
+      "expect": {
+        "planResponse": "approve"
+      }
+    },
+    {
+      "prompt": "没问题，直接开始",
+      "because": "v0.17: bare 开始 was not in the approval grammar",
+      "expect": {
+        "planResponse": "approve"
+      }
+    },
+    {
+      "prompt": "looks good, proceed",
+      "because": "v0.17: 'looks good' (without 'to me') was not in the grammar",
+      "expect": {
+        "planResponse": "approve"
+      }
     }
   ]
 }

@@ -60,8 +60,10 @@ const APPROVAL_PHRASES = [
   "好",
   "行",
   "可以",
+  "开始",
   // EN
   "looks good to me",
+  "looks good",
   "so be it",
   "sounds good",
   "go ahead",
@@ -84,7 +86,7 @@ const APPROVAL_PHRASES = [
 // deliberately NOT filler — 继续 alone is ambiguous (unknown), 吗 makes
 // the remainder a question (discuss).
 const ZH_FILLER_RE =
-  /^(?:吧|呢|啊|哈|嗯|哦|呀|哟|诶|了|的|地|得|先|就|直接|立即|马上|现在|把|被|给|这个|那个|一下|来|去|做|干|动|上)+$/;
+  /^(?:吧|呢|啊|哈|嗯|哦|呀|哟|诶|了|的|地|得|先|就|并|直接|立即|马上|现在|把|被|给|这个|那个|一下|来|去|做|干|动|上)+$/;
 const EN_FILLER_RE =
   /^(?:it|now|then|please|just|go|ahead|on|to|do|the|this|that|with|and|or|a|an|is|are|be|for|you|me|we|i|my|our|us|will|can|may|should|shall|ok|okay|fine|good|yes|yeah|yep|now|there|here)+$/i;
 
@@ -105,12 +107,13 @@ const LATIN_ONLY_RE = /^[a-z0-9\s'’,.!?;:-]+$/i;
 function stripApprovals(text) {
   let rest = text;
   let found = false;
-  const sorted = [...APPROVAL_PHRASES].sort(
-    (a, b) => b.length - a.length,
-  );
+  const sorted = [...APPROVAL_PHRASES].sort((a, b) => b.length - a.length);
   for (const phrase of sorted) {
     if (LATIN_ONLY_RE.test(phrase)) {
-      const re = new RegExp(`\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi");
+      const re = new RegExp(
+        `\\b${phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+        "gi",
+      );
       if (re.test(rest)) {
         found = true;
         rest = rest.replace(re, " ");
@@ -127,13 +130,9 @@ function stripApprovals(text) {
 function isFillerOnly(rest) {
   const r = rest.trim();
   if (!r) return true;
-  const tokens = r
-    .split(/[\s，,、。.!！？?；;:~…·]+/)
-    .filter(Boolean);
+  const tokens = r.split(/[\s，,、。.!！？?；;:~…·]+/).filter(Boolean);
   if (tokens.length === 0) return true;
-  return tokens.every(
-    (t) => ZH_FILLER_RE.test(t) || EN_FILLER_RE.test(t),
-  );
+  return tokens.every((t) => ZH_FILLER_RE.test(t) || EN_FILLER_RE.test(t));
 }
 
 /**

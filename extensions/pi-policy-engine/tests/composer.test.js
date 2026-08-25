@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  composeAllPolicies,
   composePolicies,
   loadProjectPolicies,
   renderPolicyBlock,
@@ -38,8 +39,18 @@ test("mergeConfig deep-merges nested objects", () => {
 
 test("mergeConfig unions id-keyed object arrays (last wins)", () => {
   const merged = mergeConfig(
-    { items: [{ id: "x", v: 1 }, { id: "y", v: 2 }] },
-    { items: [{ id: "y", v: 22 }, { id: "z", v: 3 }] },
+    {
+      items: [
+        { id: "x", v: 1 },
+        { id: "y", v: 2 },
+      ],
+    },
+    {
+      items: [
+        { id: "y", v: 22 },
+        { id: "z", v: 3 },
+      ],
+    },
   );
   assert.equal(merged.items.length, 3);
   assert.deepEqual(
@@ -167,4 +178,68 @@ test("validateConfig: profile referencing unknown id is an error", async () => {
     ),
   );
   await fs.rm(tmpDir, { recursive: true, force: true });
+});
+
+// v0.17 unified budget: built-ins + project policies share ONE
+// policyMaxBytes. Previously each list was capped independently, so the
+// injected block could reach 2x the configured budget.
+test("composeAllPolicies: total (built-in + project) never exceeds policyMaxBytes", async () => {
+  const fs = await import("node:fs/promises");
+  const projectDir = await fs.mkdtemp(join(tmpdir(), "pi-policy-budget-"));
+  await fs.mkdir(join(projectDir, ".pi", "policies"), { recursive: true });
+  await fs.writeFile(
+    join(projectDir, ".pi", "policies", "big.md"),
+    "X".repeat(2000),
+  );
+
+  const decision = {
+    taskType: "coding",
+    risk: "low",
+    confidence: 0.9,
+    executionIntent: "mutate",
+    domains: [],
+    workflow: "quick",
+    profile: "coding",
+    modelPolicy: null,
+    reasons: [],
+  };
+
+  // Tight total budget: built-ins take most of it, the 2KB project file
+  // must NOT be appended on top (the v0.16 bug this test pins).
+  const config = {
+    policyMaxBytes: 1500,
+    projectPolicyMaxBytes: 24000,
+    excludePolicies: [],
+    includePolicies: [],
+  };
+  const result = composeAllPolicies({
+    packageRoot: root,
+    cwd: projectDir,
+    decision,
+    config,
+    phase: "executing",
+  });
+  assert.ok(
+    result.builtInBytes + result.projectBytes <= 1500,
+    `total ${result.builtInBytes}+${result.projectBytes} must be <= 1500`,
+  );
+  assert.equal(result.projectPolicies.length, 0);
+
+  // Comfortable budget: the project file loads within the REMAINING space.
+  const roomy = composeAllPolicies({
+    packageRoot: root,
+    cwd: projectDir,
+    decision,
+    config: {
+      policyMaxBytes: 24000,
+      projectPolicyMaxBytes: 24000,
+      excludePolicies: [],
+      includePolicies: [],
+    },
+    phase: "executing",
+  });
+  assert.equal(roomy.projectPolicies.length, 1);
+  assert.ok(roomy.builtInBytes + roomy.projectBytes <= 24000);
+
+  await fs.rm(projectDir, { recursive: true, force: true });
 });

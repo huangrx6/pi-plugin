@@ -20,8 +20,7 @@
 
 import { classifyPlanResponse } from "../../src/core/approval.js";
 import {
-  composePolicies,
-  loadProjectPolicies,
+  composeAllPolicies,
   renderPolicyBlock,
 } from "../../src/core/loader.js";
 import {
@@ -43,13 +42,15 @@ import {
  * injects a system-prompt block.
  */
 function buildBlock({ packageRoot, cwd, config, decision, phase }) {
-  const { policies, truncated } = composePolicies({
+  // v0.17: one TOTAL byte budget — project policies participate in
+  // policyMaxBytes after built-ins (composeAllPolicies).
+  const { policies, projectPolicies, truncated } = composeAllPolicies({
     packageRoot,
+    cwd,
     decision,
     config,
     phase,
   });
-  const projectPolicies = loadProjectPolicies(cwd, config);
   decision.loadedPolicies = [...policies, ...projectPolicies].map((p) => p.id);
   decision.truncatedPolicies = truncated;
   return renderPolicyBlock({

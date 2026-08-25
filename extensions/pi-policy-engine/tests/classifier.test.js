@@ -93,7 +93,9 @@ test("same-group domain aliases never stack (api + 接口 = 1 weak)", () => {
     !x.domains.includes("backend"),
     `api/接口 aliases must stay one weak signal: ${x.domains}`,
   );
-  assert.ok(x.reasons.some((r) => r.includes("same-group aliases never stack")));
+  assert.ok(
+    x.reasons.some((r) => r.includes("same-group aliases never stack")),
+  );
 });
 
 test("domain count is capped (default 2), ranked by score", () => {
@@ -115,9 +117,7 @@ test("confidence reflects candidate dispersion", () => {
   const clear = c("修复这个 bug：接口报错 exception，定位到失败原因");
   assert.equal(clear.taskType, "debugging");
   assert.ok(clear.confidence >= 0.8, `clear winner: ${clear.confidence}`);
-  assert.ok(
-    !clear.reasons.some((r) => r.startsWith("confidence penalized")),
-  );
+  assert.ok(!clear.reasons.some((r) => r.startsWith("confidence penalized")));
 });
 
 test("coding is the honest default (base 0.5), beaten by one real group", () => {

@@ -10,10 +10,9 @@ import {
   loadRoutingConfig,
 } from "../../src/core/config.js";
 import {
-  composePolicies,
+  composeAllPolicies,
   loadManifest,
   loadProfile,
-  loadProjectPolicies,
 } from "../../src/core/loader.js";
 import { buildDecision } from "../../src/core/router.js";
 import { maybeSemanticClassify } from "../../src/core/semantic.js";
@@ -265,23 +264,13 @@ export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
     fetcher,
   });
   const phase = resolvePreviewPhase(decision);
-  const { policies, truncated } = composePolicies({
-    packageRoot,
-    decision,
-    config,
-    phase,
-  });
-  const projectPolicies = loadProjectPolicies(cwd, config);
-  // Approximate the byte usage of what would actually be injected.
-  const builtInBytes = policies.reduce(
-    (n, p) => n + Buffer.byteLength(p.content, "utf8"),
-    0,
-  );
-  const projectBytes = projectPolicies.reduce(
-    (n, p) => n + Buffer.byteLength(p.content, "utf8"),
-    0,
-  );
+  // v0.17: ONE total budget — built-ins + project combined under
+  // policyMaxBytes (previously each list was capped independently and the
+  // preview only reported the built-in share, hiding up to 2× overflow).
+  const { policies, projectPolicies, truncated, builtInBytes, projectBytes } =
+    composeAllPolicies({ packageRoot, cwd, decision, config, phase });
   const budget = Number(config.policyMaxBytes ?? 24000);
+  const totalBytes = builtInBytes + projectBytes;
   return {
     decision,
     // Config is returned so callers (e.g. the /policy preview handler's
@@ -305,7 +294,7 @@ export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
       budget,
       budgetUsedPct: Math.min(
         100,
-        Math.round((builtInBytes / Math.max(1, budget)) * 100),
+        Math.round((totalBytes / Math.max(1, budget)) * 100),
       ),
     },
   };
