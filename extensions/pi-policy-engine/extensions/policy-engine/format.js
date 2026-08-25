@@ -96,6 +96,60 @@ export function formatStatusSummary({ config, phase, pendingApproval, model }) {
 }
 
 /**
+ * Render the resolved effective config as a human-readable dump. The
+ * config object already has defaults < global < project < runtime merged
+ * in by `mergeConfig`, so this shows the actual values in force.
+ */
+export function formatConfig(config) {
+  const lines = ["# Resolved policy-engine config", ""];
+  lines.push("routing");
+  lines.push(`  mode: ${config.mode ?? "auto"}`);
+  lines.push(`  gate: ${config.gate ?? "soft"}`);
+  lines.push(`  profile: ${config.profile ?? "auto"}`);
+  lines.push(`  showStatus: ${config.showStatus !== false}`);
+  lines.push(`  domainHints: ${JSON.stringify(config.domainHints ?? [])}`);
+  lines.push("");
+  lines.push("policies");
+  lines.push(
+    `  projectPolicyMaxFiles: ${config.projectPolicyMaxFiles ?? 12}`,
+  );
+  lines.push(
+    `  projectPolicyMaxBytes: ${config.projectPolicyMaxBytes ?? 24000}`,
+  );
+  lines.push(`  policyMaxBytes: ${config.policyMaxBytes ?? 24000}`);
+  lines.push(
+    `  includePolicies: ${JSON.stringify(config.includePolicies ?? [])}`,
+  );
+  lines.push(
+    `  excludePolicies: ${JSON.stringify(config.excludePolicies ?? [])}`,
+  );
+  const customCount = Array.isArray(config?.guard?.customPatterns)
+    ? config.guard.customPatterns.length
+    : 0;
+  lines.push("");
+  lines.push("guard");
+  lines.push(
+    `  enabledCategories: ${JSON.stringify(config.guard?.enabledCategories ?? "(default: all)")}`,
+  );
+  lines.push(
+    `  disabledCategories: ${JSON.stringify(config.guard?.disabledCategories ?? [])}`,
+  );
+  lines.push(`  customPatterns: ${customCount} configured`);
+  lines.push("");
+  lines.push("semanticFallback");
+  const sf = config.semanticFallback ?? {};
+  lines.push(`  enabled: ${sf.enabled === true}`);
+  if (sf.enabled === true) {
+    lines.push(`  endpoint: ${sf.endpoint ?? "(default)"}`);
+    lines.push(`  model: ${sf.model ?? "(default)"}`);
+    lines.push(`  apiKeyEnvVar: ${sf.apiKeyEnvVar ?? "(default)"}`);
+    lines.push(`  confidenceThreshold: ${sf.confidenceThreshold ?? 0.7}`);
+    lines.push(`  timeoutMs: ${sf.timeoutMs ?? 4000}`);
+  }
+  return lines.join("\n");
+}
+
+/**
  * Render a `/policy preview` result as human-readable text. Used both for
  * `ctx.ui.notify()` and as a stable format for tests.
  */

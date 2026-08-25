@@ -6,6 +6,7 @@
 
 import { previewGuard } from "../../src/core/guard.js";
 import {
+  formatConfig,
   formatDecision,
   formatGuardPreview,
   formatHistory,
@@ -258,6 +259,16 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
+    if (action === "config") {
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      notify(ctx, formatConfig(cfg), "info");
+      return;
+    }
+
     if (action === "cancel") {
       state.pendingApproval = false;
       state.phase = "idle";
@@ -279,7 +290,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N]|test-guard <cmd>|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|gate <off|soft|hard>|profile <name>|preview <prompt...>|history [N]|test-guard <cmd>|config|status|why|cancel|reset]",
       "info",
     );
   };

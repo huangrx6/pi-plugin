@@ -178,6 +178,49 @@ reason: Policy Engine: ... [file: deploy-tool-prod]. Segment: ...
 - 确认 `disabledCategories` 关掉某个分类后不会误拦
 - 排查"为啥这条命令没被拦"
 
+#### Resolved 配置：`/policy config`
+
+打印当前**实际生效**的 merged 配置（defaults + global + project + runtime override 四层合起来），debug "为什么这个值不是我配的"：
+
+```text
+/policy config
+```
+
+输出：
+
+```text
+# Resolved policy-engine config
+
+routing
+  mode: auto
+  gate: hard
+  profile: auto
+  showStatus: true
+  domainHints: ["backend","database"]
+
+policies
+  projectPolicyMaxFiles: 12
+  projectPolicyMaxBytes: 24000
+  policyMaxBytes: 24000
+  includePolicies: ["behavior.execution-discipline"]
+  excludePolicies: []
+
+guard
+  enabledCategories: ["file","git","k8s"]
+  disabledCategories: ["package"]
+  customPatterns: 2 configured
+
+semanticFallback
+  enabled: false
+```
+
+适用场景：
+- 验证 global / project JSON 真的被加载了（不是还在用 default）
+- 确认 `domainHints` 没写错（JSON 拼写错误会被静默忽略）
+- 检查 `customPatterns` 数量对得上你配的
+
+不告诉你**哪一层覆盖了哪一层**——要查 source 层，自己读 `~/.pi/agent/policy-engine.json` 和 `<project>/.pi/policy-engine.json`。
+
 #### Session 历史：`/policy history [N]`
 
 回看本 session 内所有路由决策（决定性 + preview），调参后看实际效果用：
@@ -314,6 +357,7 @@ API key 通过**环境变量名**读取（`apiKeyEnvVar`），不存配置文件
 | `/policy profile <name>` | 切 profile（auto / coding / debugging / documentation / architecture / review / research） |
 | `/policy preview <prompt>` | 不触发 agent，直接看路由结果（classification + 加载的 policies + byte 预算使用） |
 | `/policy test-guard <bash>` | 不触发严格模式，直接看当前 gate 是否会拦截这条命令 |
+| `/policy config` | 打印当前 resolved 配置（defaults + global + project + runtime 四层合并结果） |
 | `/policy history [N]` | 本 session 内最近的 N 条路由决策（默认 5），包括 /policy preview 也记录 |
 | `/policy status` | 当前 mode / gate / profile / phase / 模型 |
 | `/policy why` | 上一轮的完整路由决策（含命中规则） |

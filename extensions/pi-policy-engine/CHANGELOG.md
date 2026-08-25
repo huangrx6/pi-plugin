@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.0
+
+- **Resolved config dump**: `/policy config` prints the effective merged
+  configuration (defaults < global < project < runtime). Useful for
+  debugging "why is this value different from what I configured?" without
+  manually diffing the four JSON sources.
+- Sections: routing / policies / guard / semanticFallback, with all
+  fields including customPatterns count, enabled/disabled categories,
+  include/exclude policies, and semantic fallback key/model/endpoint.
+
 ## 0.7.0
 
 - **Guard dry-run**: `/policy test-guard <bash command>` simulates the gate

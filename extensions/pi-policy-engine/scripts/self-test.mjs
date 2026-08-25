@@ -26,6 +26,7 @@ import {
   maybeSemanticClassify,
 } from "../src/core/semantic.js";
 import {
+  formatConfig,
   formatGuardPreview,
   formatHistory,
   formatPreview,
@@ -907,6 +908,63 @@ assert.equal(isApprovalPrompt("继续分析这个计划"), false);
   const state = { history: [] };
   recordHistory(state, { source: "decide", prompt: "x", decision: null });
   assert.equal(state.history.length, 0);
+}
+
+// formatConfig: minimal config shows all defaults.
+{
+  const text = formatConfig({});
+  assert.match(text, /# Resolved policy-engine config/);
+  assert.match(text, /mode: auto/);
+  assert.match(text, /gate: soft/);
+  assert.match(text, /profile: auto/);
+  assert.match(text, /showStatus: true/);
+  assert.match(text, /projectPolicyMaxFiles: 12/);
+  assert.match(text, /projectPolicyMaxBytes: 24000/);
+  assert.match(text, /policyMaxBytes: 24000/);
+  assert.match(text, /customPatterns: 0 configured/);
+  assert.match(text, /semanticFallback/);
+  assert.match(text, /enabled: false/);
+}
+
+// formatConfig: real-world config with customPatterns and semantic fallback enabled.
+{
+  const text = formatConfig({
+    mode: "strict",
+    gate: "hard",
+    profile: "debugging",
+    projectPolicyMaxFiles: 20,
+    policyMaxBytes: 30000,
+    domainHints: ["backend", "database"],
+    includePolicies: ["behavior.execution-discipline"],
+    guard: {
+      enabledCategories: ["file", "git", "k8s"],
+      disabledCategories: ["package"],
+      customPatterns: [
+        { category: "file", label: "deploy-tool-prod", regex: "^deploy-tool\\s+prod" },
+      ],
+    },
+    semanticFallback: {
+      enabled: true,
+      endpoint: "https://api.example.test/v1/chat/completions",
+      model: "test-model",
+      apiKeyEnvVar: "TEST_KEY",
+      confidenceThreshold: 0.6,
+      timeoutMs: 5000,
+    },
+  });
+  assert.match(text, /mode: strict/);
+  assert.match(text, /gate: hard/);
+  assert.match(text, /profile: debugging/);
+  assert.match(text, /projectPolicyMaxFiles: 20/);
+  assert.match(text, /policyMaxBytes: 30000/);
+  assert.match(text, /domainHints: \["backend","database"\]/);
+  assert.match(text, /customPatterns: 1 configured/);
+  assert.match(text, /enabledCategories: \["file","git","k8s"\]/);
+  assert.match(text, /disabledCategories: \["package"\]/);
+  assert.match(text, /enabled: true/);
+  assert.match(text, /endpoint: https:\/\/api\.example\.test/);
+  assert.match(text, /confidenceThreshold: 0.6/);
+  assert.match(text, /timeoutMs: 5000/);
 }
 
 // formatHistory: empty state shows graceful message.
