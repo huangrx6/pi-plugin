@@ -42,7 +42,13 @@ async function fixture() {
     model: "test/model",
     contextWindow: 10_000,
   });
-  return { directory, cfg, db, blobs, archive: new ArchiveService(cfg, db, blobs) };
+  return {
+    directory,
+    cfg,
+    db,
+    blobs,
+    archive: new ArchiveService(cfg, db, blobs),
+  };
 }
 
 test("blob store is content addressed, zstd compressed, deduplicated, and private", async () => {
@@ -147,7 +153,12 @@ test("native compaction fallback fires at the critical threshold, not only at 10
           role: "toolResult",
           toolCallId: "call-critical",
           toolName: "grep",
-          content: [{ type: "text", text: `src/cache.ts: ${"old evidence ".repeat(200)}` }],
+          content: [
+            {
+              type: "text",
+              text: `src/cache.ts: ${"old evidence ".repeat(200)}`,
+            },
+          ],
         },
       ],
       usageTokens: 7_000,
@@ -176,7 +187,9 @@ test("native compaction fallback fires at the critical threshold, not only at 10
 test("context planning is non-mutating, branch-aware, and protects the active frontier", async () => {
   const { cfg, archive, db } = await fixture();
   try {
-    const messages: LooseMessage[] = [{ role: "user", content: "explore cache" }];
+    const messages: LooseMessage[] = [
+      { role: "user", content: "explore cache" },
+    ];
     const visible = new Set<string>();
     for (let index = 0; index < 6; index++) {
       if (index === 4) messages.push({ role: "user", content: "fix cache" });
@@ -198,7 +211,12 @@ test("context planning is non-mutating, branch-aware, and protects the active fr
         role: "toolResult",
         toolCallId: call,
         toolName: "grep",
-        content: [{ type: "text", text: `src/cache.ts:${index}: ${"large evidence ".repeat(200)}` }],
+        content: [
+          {
+            type: "text",
+            text: `src/cache.ts:${index}: ${"large evidence ".repeat(200)}`,
+          },
+        ],
       });
     }
     archive.archive({
@@ -230,10 +248,18 @@ test("context planning is non-mutating, branch-aware, and protects the active fr
       visibleEntryIds: visible,
       frozen: false,
     });
-    assert.deepEqual(messages, original, "the Pi session/context input must not be mutated");
+    assert.deepEqual(
+      messages,
+      original,
+      "the Pi session/context input must not be mutated",
+    );
     assert.equal(result.level, "critical");
     assert.ok(result.transformed >= 4);
-    assert.equal(result.overBudget, true, "non-message provider overhead must survive planning");
+    assert.equal(
+      result.overBudget,
+      true,
+      "non-message provider overhead must survive planning",
+    );
     assert.deepEqual(
       result.messages.find((message) => message.toolCallId === "hidden-call"),
       original.find((message) => message.toolCallId === "hidden-call"),
@@ -350,10 +376,13 @@ test("representations degrade monotonically and the latest file snapshot is hard
       new Set(),
     );
     assert.equal(
-      critical.find((decision) => decision.item.id === latest.id)?.representation,
+      critical.find((decision) => decision.item.id === latest.id)
+        ?.representation,
       "raw",
     );
-    const oldDecision = critical.find((decision) => decision.item.id === old.id)!;
+    const oldDecision = critical.find(
+      (decision) => decision.item.id === old.id,
+    )!;
     db.setRepresentation(old.id, oldDecision.representation, 2, 0.1, 0.1);
     const green = planRepresentations(
       db.listItems("session-1"),

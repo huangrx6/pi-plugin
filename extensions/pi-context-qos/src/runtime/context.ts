@@ -92,7 +92,8 @@ export function planContext(input: {
     .listItems(input.sessionId)
     .filter(
       (item) =>
-        item.originEntryId === null || input.visibleEntryIds.has(item.originEntryId),
+        item.originEntryId === null ||
+        input.visibleEntryIds.has(item.originEntryId),
     );
   const decisions = planRepresentations(
     items,
@@ -101,10 +102,15 @@ export function planContext(input: {
     input.currentTurn,
     protectedIds,
   );
-  const byCall = new Map(decisions.map((decision) => [decision.item.toolCallId, decision]));
+  const byCall = new Map(
+    decisions.map((decision) => [decision.item.toolCallId, decision]),
+  );
   let transformed = 0;
   const messages = input.messages.map((message) => {
-    if (message.role !== "toolResult" || typeof message.toolCallId !== "string") {
+    if (
+      message.role !== "toolResult" ||
+      typeof message.toolCallId !== "string"
+    ) {
       return message;
     }
     const decision = byCall.get(message.toolCallId);
@@ -146,14 +152,21 @@ export function planContext(input: {
   };
 }
 
-export function epochSummary(items: StoredContextItem[], ordinal: number): string {
-  const files = [...new Set(items.map((item) => item.filePath).filter(Boolean))] as string[];
+export function epochSummary(
+  items: StoredContextItem[],
+  ordinal: number,
+): string {
+  const files = [
+    ...new Set(items.map((item) => item.filePath).filter(Boolean)),
+  ] as string[];
   const unresolved = items.filter((item) => item.unresolved);
   return renderSummary({
     headline: `Frozen context epoch ${ordinal}: ${items.length} archived items.`,
     facts: items.slice(-8).map((item) => `${item.toolName}: ${item.kind}`),
     decisions: [],
-    errors: unresolved.flatMap((item) => [item.summaryText.split("\n")[0] ?? ""]),
+    errors: unresolved.flatMap((item) => [
+      item.summaryText.split("\n")[0] ?? "",
+    ]),
     files: files.slice(0, 20),
     symbols: [],
     unresolved: unresolved.map((item) => `ctx://item/${item.id}`),
