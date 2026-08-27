@@ -1,6 +1,6 @@
 # AGENTS.md — huangrx6/pi-plugin 仓库规约
 
-个人 pi 扩展 monorepo。四个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
+个人 pi 扩展 monorepo。八个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-context-qos`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
 
 ## 扩展独立性（最高优先级约定）
 
@@ -8,8 +8,8 @@
 
 - **代码**：不得 import 另一扩展的任何模块，不得监听/依赖另一扩展注册的事件或命令。
 - **测试**：不得引用另一扩展的文件；跨扩展的行为验证不写进任何扩展的测试。
-- **文档**：扩展 README/DESIGN 不得链接或描述另一扩展（连“与 X 正交/配合”都不写——一旦写了，抽走一个扩展另一个就断）。职责边界只允许出现抽象表述，如“工具权限不在本扩展范围内”。
-- **仓库根**：根 README 只列扩展清单（每扩展一行定位 + 链接），不写扩展间的配合说明；根 `scripts/` 不存放跨扩展测试（要验证扩展组合行为，临时在仓库外写，不进 git）。
+- **扩展文档**：扩展 README/DESIGN 不得链接或描述另一扩展（连“与 X 正交/配合”都不写——一旦写了，抽走一个扩展另一个就断）。职责边界只允许出现抽象表述，如“工具权限不在本扩展范围内”。
+- **仓库根**：根 README 允许按"使用场景/workflow"分组推荐扩展组合（这是 README 的本职，不属于互链），但不允许指向某个具体扩展的代码、命令或文件路径。根 `scripts/` 不存放跨扩展测试（要验证扩展组合行为，临时在仓库外写，不进 git）。`AGENTS.md` 之外的任何扩展 README 互链仍视为违规。
 
 违反例子（曾真实发生过，全部回滚）：policy-engine 的 README 写过“与 mode-switcher 正交/共存矩阵”、mode-switcher README 反向链接、根 `scripts/interop-check.mjs` 同时 import 两个扩展。
 
@@ -26,7 +26,7 @@
 
 1. **根 `package.json` 的 `pi.extensions` 必须列全每个扩展**。新增扩展 = 建 `extensions/<name>/` 目录 + 在根 manifest 注册，缺一不可（`bin/install.sh` 靠目录自动发现，但根 manifest 漏注册 = 整库安装时该扩展静默不加载——policy-engine 曾经漏掉）。
 2. **`package.json` 的 `version` 必须等于该扩展 CHANGELOG 最新条目**（policy-engine 曾停在 0.1.0 而 CHANGELOG 已到 0.11.x）。
-3. **代码用了 Node 20+ API（如 `Array.prototype.toReversed`）必须声明 `engines: {"node": ">=20"}`**。
+3. **代码用了 Node 22+ API（如 `node:sqlite`、`node:zlib` zstd、`Array.prototype.toReversed`）必须声明 `engines: {"node": ">=22.15"}`**。
 4. **`description` 必须与实际行为一致**（mode-switcher 曾描述"Four-mode auto/plan/safe/lock"，实际是三模式 ask/smart/full）。改行为时同步改 description。
 
 ## 检查与测试
