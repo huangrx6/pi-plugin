@@ -145,9 +145,7 @@ export const ADAPTERS = {
           // null percentage (fresh window / not yet billed) renders as
           // a dim "--%" placeholder — NOT a misleading "0%".
           percent: fh.percentage ?? null,
-          resetsInMs: fh.nextResetTime
-            ? fh.nextResetTime - now
-            : undefined,
+          resetsInMs: fh.nextResetTime ? fh.nextResetTime - now : undefined,
         });
       if (wk)
         bars.push({
@@ -301,8 +299,7 @@ export const ADAPTERS = {
           topped_up_balance?: string;
         }>;
       }>(ENDPOINTS.deepseek, apiKey);
-      const entry =
-        json.balance_infos?.[0] ?? json.balance?.[0];
+      const entry = json.balance_infos?.[0] ?? json.balance?.[0];
       if (!entry) throw new Error("响应中无余额数据");
       const amount = Number.parseFloat(entry.total_balance);
       if (!Number.isFinite(amount)) throw new Error("余额数据格式异常");

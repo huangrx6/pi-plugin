@@ -23,16 +23,7 @@ declare const process: {
   platform: string;
 };
 
-// Loose session-entry shape — covers the patterns the footer renderer
-// actually reads. Using `unknown` for nested usage/role keeps things
-// permissive (the renderer casts to UsageLike via `as` at read sites).
-type LooseSessionEntry = {
-  type?: string;
-  message?: { role?: string; usage?: unknown };
-  usage?: unknown;
-};
-
-// Subset of the pi-coding-agent Model shape the renderer accesses.
+// Subset of the pi-coding-agent Model shape the refresh logic reads.
 // All fields optional + the whole object nullable to match the real
 // type (pi sets `model = null` between selection and first response).
 type ModelLikeShape = {
@@ -45,39 +36,9 @@ type ModelLikeShape = {
 declare module "@earendil-works/pi-coding-agent" {
   export interface ExtensionContext {
     model: ModelLikeShape;
-    thinkingLevel: string | undefined;
-    sessionManager: {
-      getEntries(): readonly LooseSessionEntry[];
-      getCwd(): string;
-      getSessionName(): string | null;
-    };
     ui: {
-      setWidget(key: string, value: unknown): void;
-      // Inline renderer signature so the consumer's (tui, theme,
-      // footerData) parameters get explicit types (silences TS7006).
-      // Shapes mirror types.ts FooterTheme / FooterData but can't
-      // reference them (globals.d.ts must stay script-mode to make
-      // `declare module` create rather than augment).
-      setFooter(
-        renderer: (
-          tui: { requestRender(): void },
-          theme: { fg(color: string, text: string): string },
-          footerData: {
-            getGitBranch: () => string | null;
-            getExtensionStatuses: () => ReadonlyMap<string, string>;
-            getAvailableProviderCount: () => number;
-            onBranchChange: (callback: () => void) => () => void;
-          },
-        ) => unknown,
-      ): void;
+      setStatus(key: string, text: string | undefined): void;
     };
-    getContextUsage?: () =>
-      | {
-          tokens: number | null;
-          contextWindow: number;
-          percent: number | null;
-        }
-      | undefined;
   }
 
   export interface ExtensionAPI {

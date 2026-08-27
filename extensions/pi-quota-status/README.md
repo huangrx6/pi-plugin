@@ -1,6 +1,6 @@
 # pi-quota-status
 
-在 pi 的 **footer（底部状态栏）** 显示当前 AI 订阅的剩余用量，并根据当前选择模型**自动切换**数据源。扩展还完整接管了 footer 渲染——在保留 pi 原生信息（cwd、git 分支、会话名、token 统计、上下文占用、成本、模型名）同时，把用量靠右显示在状态行。
+在 pi 的**状态行**显示当前 AI 订阅的剩余用量，并根据当前选择模型**自动切换**数据源。本扩展是**纯供稿者**：通过 `ctx.ui.setStatus("quota", …)` 发布带色的用量文本，**不接管 footer 渲染**——显示位置与样式由 pi 的 footer 渲染层决定（原生 footer，或用户安装的任何 footer 渲染扩展）。
 
 ## 效果
 
@@ -10,13 +10,13 @@
 ├─────────────────────────────────────────────────────────────┤
 │  > 在这里输入...                                             │  ← 编辑器
 ├─────────────────────────────────────────────────────────────┤
-│  ~/project (main) • feat/x  ↑1.2k ↓890 R340  $0.012 12%/128k │  ← footer 行1: 环境+统计
-│  ⚡GLM 5h:0%(2h28m) 周:0%(70h21m)         (opencode-go) v4   │  ← footer 行2: 用量靠右 + 模型
+│  ~/project (main) • feat/x  ↑1.2k ↓890 R340  $0.012 12%/128k │  ← footer 行1: 环境+统计（pi 原生）
+│  …(其他扩展状态)…  ⚡GLM 5h:0%(2h28m) 周:0%(70h21m)           │  ← footer 行2: 扩展状态行
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- **行 1**：cwd、git 分支、会话名、输入/输出/缓存 token、缓存命中率、成本、上下文占用
-- **行 2**：当前模型的用量（靠右对齐，颜色高亮）+ 左侧为扩展状态
+- **行 1** 由 pi 的 footer 渲染层负责（cwd、git 分支、token 统计等），本扩展不参与
+- **状态行**：本扩展供稿 `⚡GLM …`（带阈值配色：绿/黄/红），与其他扩展的状态并列；具体排序与排布由渲染层决定
 
 切换模型时显示自动切换：
 
@@ -176,20 +176,11 @@ export OPENROUTER_API_KEY="sk-or-v1-..."
 
 ## 实现原理
 
-### 显示位置：自定义 footer（setFooter）
+### 显示位置：扩展状态（setStatus）
 
-扩展用 `ctx.ui.setFooter()` **完全接管 footer 渲染**（而非 setWidget）：
+扩展通过 `ctx.ui.setStatus("quota", text)` 发布用量文本（含 ANSI 阈值配色，pi 的状态清洗只压平换行制表符、不动颜色码），并在 `session_shutdown` / 切到未识别 provider 时清除。显示位置、排序、截断全部交给 footer 渲染层。
 
-```typescript
-ctx.ui.setFooter((tui, theme, footerData) => ({
-  render: (width) => renderFooter(ctx, model, thinkingLevel, footerData, theme, width),
-  dispose: () => { /* 清理 */ },
-}));
-```
-
-这样用量能和 cwd/git/token/模型等原生信息**共享同一行**，并靠右对齐（通过计算宽度 + 空格填充）。footer factory 在 pi 每次重绘时调用，读取模块级缓存的用量数据。
-
-> 早期版本用 `setWidget` + `placement: "belowEditor"`，但无法与原生 footer 信息同排，且依赖 pi-tui 的 `Text` 组件（jiti 编译环境有兼容问题）。最终改为自定义 footer + 原生 ANSI 颜色码，零 pi-tui 运行时依赖。
+> 历史注记：早期版本用 `setWidget`（无法与原生 footer 同排），中期改为 `setFooter` 完全接管 footer（能同排但引入了对原生 footer 逻辑的整段复制，且独占了 footer——任何其他想渲染 footer 的扩展都会与本扩展互相覆盖）。最终回归纯供稿者定位：单一职责，不拥有任何排版权。
 
 ### 模型自动切换（Adapter Registry）
 
@@ -332,7 +323,7 @@ curl -H "Authorization: Bearer $OPENROUTER_API_KEY" \
 ### 事件流
 
 ```text
-session_start     → 挂载 footer + 立即查询当前模型用量 + 渲染
+session_start     → 立即查询当前模型用量并发布状态
 model_select      → 更新 activeModel + 强制刷新用量（绕过节流）
 thinking_level_select → 更新显示（模型带 thinking 时）
 turn_end          → 节流刷新（10s），用量消耗后更新
@@ -343,9 +334,8 @@ session_shutdown  → 清空缓存，防旧数据泄漏到新会话
 ### 健壮性设计
 
 - **无 setInterval**：避免捕获 session ctx 导致的 stale ctx 崩溃（pi 会在 session 替换/reload 后 invalidate 旧 ctx）
-- **footer 每次 session_start 重挂**：pi 在 session invalidate 时清掉 custom footer 但不发 `session_shutdown`，所以挂一次标志位会留下空 footer；重挂是安全的，因为 `setExtensionFooter` 是 replace-style（先 dispose 旧的）
 - **fetch 序列号守卫**：fast model switching 期间可能 in-flight 的旧响应回来覆盖新数据，用 `++fetchSeq` 配合 `seq !== fetchSeq` 让 stale 响应直接丢弃
-- **stale-keep**：fetch 失败时若距上次成功不超过 `STALE_KEEP_MS` (60s)，保留上一次数据并加 `?` 后缀；超出才清空，避免瞬时网络抖动让 footer 闪空白
+- **stale-keep**：fetch 失败时若距上次成功不超过 `STALE_KEEP_MS` (60s)，保留上一次数据并加 `?` 后缀；超出才清空，避免瞬时网络抖动让状态行闪空白
 - **session_shutdown 清理**：新会话不显示旧会话的用量
 - **全局正则 lastIndex 安全**：truncate 用非全局正则 `ANSI_ONCE`，避免 `exec` 的 lastIndex 状态污染
 - **grapheme 感知宽度**：`Intl.Segmenter` 正确处理 emoji/CJK 组合字符，截断不切断 emoji
@@ -412,7 +402,7 @@ curl -H "Authorization: Bearer $DEEPSEEK_API_KEY"             https://api.deepse
 curl -H "Authorization: Bearer $OPENROUTER_API_KEY"           https://openrouter.ai/api/v1/key
 ```
 
-重启 pi 后，用 `/model` 在 6 个 provider 间切换，footer 显示应随之切换：
+重启 pi 后，用 `/model` 在 6 个 provider 间切换，状态行显示应随之切换：
 
 - 4 个百分比订阅（OC/GLM/MiniMax/Kimi）显示 `5h:%(...)( 周:%(...))`
 - DeepSeek 显示 `余额:¥xx.xx`
@@ -422,7 +412,14 @@ curl -H "Authorization: Bearer $OPENROUTER_API_KEY"           https://openrouter
 
 ```text
 pi-quota-status/
-├── index.ts          # 扩展入口（全部逻辑，单文件，约 600 行）
+├── index.ts          # 扩展入口：事件接线 + 刷新逻辑 + 状态发布
+├── types.ts          # 全部类型（无运行时代码）
+├── constants.ts      # 超时 / ANSI 色码 / 状态键
+├── state.ts          # 模块级可变状态
+├── adapters.ts       # ADAPTERS 注册表 + key 解析
+├── format.ts         # formatBar / buildQuotaText（状态文本渲染）
+├── globals.d.ts      # pi 运行时类型的 ambient shim（本地 tsc 用）
+├── tsconfig.json     # 本地类型检查
 ├── package.json      # 包元信息
 ├── README.md         # 本文档
 ├── LICENSE           # MIT

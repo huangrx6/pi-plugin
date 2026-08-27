@@ -1,21 +1,24 @@
 /**
  * pi-quota-status — AI subscription quota monitor
  *
- * Shows remaining usage in the footer, below the model and right-aligned.
- * Auto-switches between supported subscriptions based on the current model.
+ * Shows remaining usage for the current provider's subscription and keeps
+ * it fresh. A PURE CONTRIBUTOR: it does not touch footer rendering — it
+ * publishes its text via `ctx.ui.setStatus("quota", …)` and lets whatever
+ * renders the footer (pi's built-in footer or a footer-rendering extension
+ * the user installed) decide placement and style. ANSI colors in the
+ * status text survive pi's status sanitization, so threshold coloring
+ * still works.
  *
  * Pure event-driven (no setInterval → no stale-ctx crash).
- * Uses a custom footer so quota can share the status row below the model.
  *
  * ## File map
  *
- *   - types.ts        — all TypeScript types (no runtime code)
- *   - constants.ts    — timeouts, ANSI color codes, widget key
- *   - state.ts        — module-level mutable state (quota + footer lifecycle)
+ *   - types.ts        — QuotaBar / QuotaData / QuotaAdapter types
+ *   - constants.ts    — timeouts, ANSI color codes, status key
+ *   - state.ts        — module-level mutable state (quota + refresh guards)
  *   - adapters.ts     — ENDPOINTS, fetchJsonBearer, ADAPTERS registry,
  *                       PROVIDER_TO_SUB reverse lookup
- *   - format.ts       — formatBar / buildQuotaText (quota bar rendering)
- *   - render.ts       — renderFooter + width helpers + footer formatters
+ *   - format.ts       — formatBar / buildQuotaText (status text rendering)
  *   - index.ts        — this file: extension entry, events, refresh logic
  *
  * ## Architecture
@@ -24,24 +27,13 @@
  * (see adapters.ts): `{ display, providerNames, apiKeyEnvVar, endpoint, fetch }`.
  * Adding a new subscription = add one entry; nothing else changes.
  *
- * `subscriptionForProvider()` builds a reverse lookup (provider name →
- * subscription key) from the registry at module load, so there is no
- * separate PROVIDER_SUBSCRIPTION map to keep in sync.
- *
  * Adapter fetchers return `QuotaBar[]` (a discriminated union: `percentage`
- * / `balance` / `text`). The framework attaches the adapter's display tag
- * and hands the bars to `formatBar()`, which dispatches by kind for
- * unified rendering — see `buildQuotaText` in format.ts.
- *
- * Robustness notes:
- *  - The footer is re-mounted on every session_start: pi clears the custom
- *    footer on session invalidate without firing session_shutdown, so a
- *    mount-once flag would leave the footer gone forever. setExtensionFooter
- *    is replace-style (disposes the previous footer), making re-mount safe.
+ * / `balance` / `text`). `buildQuotaText()` renders the bars to one colored
+ * line and this file publishes it as a status. Robustness notes:
  *  - Fetches are serialized by a request sequence guard: a stale in-flight
  *    response can never overwrite newer data (fast model switching).
  *  - On fetch failure, the last good data is kept for STALE_KEEP_MS so
- *    transient network errors don't blank the footer.
+ *    transient network errors don't blank the status.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -58,78 +50,30 @@ import {
   TURN_THROTTLE_MS,
   WIDGET_KEY,
 } from "./constants.ts";
-import { renderFooter } from "./render.ts";
+import { buildQuotaText } from "./format.ts";
 import { state } from "./state.ts";
-import type { ModelLike, QuotaCtx } from "./types.ts";
+import type { ModelLike } from "./types.ts";
+
+/** The ctx slice this extension touches: status publishing + the model. */
+type StatusCtx = {
+  ui: { setStatus(k: string, t: string | undefined): void };
+  model: ModelLike;
+};
 
 // ---------------------------------------------------------------------------
-// Footer mounting / re-rendering
+// Status publishing
 // ---------------------------------------------------------------------------
 
-function mountFooter(ctx: QuotaCtx): void {
-  // Re-mount on every session_start: pi clears the custom footer on
-  // session invalidate (without firing session_shutdown), so a mount-once
-  // flag would leave the footer gone after a session switch. Re-setting is
-  // safe — setExtensionFooter disposes the previous footer first.
-  state.activeFooterCtx = ctx;
-  state.activeModel = ctx.model;
-  state.activeThinkingLevel = ctx.thinkingLevel;
-  ctx.ui.setWidget(WIDGET_KEY, undefined);
-  ctx.ui.setFooter((tui, theme, footerData) => {
-    state.requestFooterRender = () => tui.requestRender();
-    const unsubscribe = footerData.onBranchChange(state.requestFooterRender);
-    return {
-      render: (width: number) =>
-        renderFooter(
-          state.activeFooterCtx ?? ctx,
-          state.activeModel,
-          state.activeThinkingLevel,
-          footerData,
-          theme,
-          width,
-        ),
-      invalidate: () => {},
-      dispose: () => {
-        unsubscribe();
-        state.requestFooterRender = null;
-      },
-    };
-  });
-}
-
-function updateFooter(ctx: QuotaCtx): void {
-  state.activeFooterCtx = ctx;
-  state.requestFooterRender?.();
-}
-
-// ---------------------------------------------------------------------------
-// Error rendering
-// ---------------------------------------------------------------------------
-
-/**
- * Map a fetch failure to a short, user-readable cause. Raw transport
- * messages ("fetch failed", "signal timed out", "HTTP 502") are accurate
- * for logs but hostile in a footer that is otherwise Chinese-annotated.
- * Adapter-domain errors (响应中无用量数据 …) pass through unchanged.
- */
-export function describeFetchError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (e instanceof Error && e.name === "TimeoutError") return "请求超时";
-  if (/timeout|timed out|aborted/i.test(msg)) return "请求超时";
-  if (/^HTTP 401$/.test(msg) || /^HTTP 403$/.test(msg))
-    return `Key 无效或已过期 (${msg})`;
-  if (/^HTTP 429$/.test(msg)) return `请求过于频繁 (${msg})`;
-  if (/^HTTP 5\d\d$/.test(msg)) return `服务暂不可用 (${msg})`;
-  if (/fetch failed|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|network/i.test(msg))
-    return "网络不可达";
-  return msg;
+/** Publish (or clear) the quota status line. null text → clear. */
+function publishStatus(ctx: StatusCtx): void {
+  ctx.ui.setStatus(WIDGET_KEY, buildQuotaText() ?? undefined);
 }
 
 // ---------------------------------------------------------------------------
 // Quota refresh logic
 // ---------------------------------------------------------------------------
 
-async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
+async function refreshQuota(ctx: StatusCtx, model: ModelLike): Promise<void> {
   const provider = model?.provider;
   const sub = subscriptionForProvider(provider);
   if (!sub) {
@@ -137,7 +81,7 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
     state.quotaData = null;
     state.quotaFetchedAt = 0;
     state.errorText = "";
-    updateFooter(ctx);
+    publishStatus(ctx);
     return;
   }
   const adapter = ADAPTERS[sub];
@@ -147,7 +91,7 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
     state.quotaData = null;
     state.quotaFetchedAt = 0;
     state.errorText = `⚠ ${adapter.display} 无 Key (${names})`;
-    updateFooter(ctx);
+    publishStatus(ctx);
     return;
   }
 
@@ -178,10 +122,30 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
     // Same-provider transient errors keep the last good data (marked
     // stale by buildQuotaText once older than STALE_KEEP_MS).
   }
-  updateFooter(ctx);
+  publishStatus(ctx);
 }
 
-function throttledRefresh(thresholdMs: number, ctx: QuotaCtx): void {
+/**
+ * Map a fetch failure to a short, user-readable cause. Raw transport
+ * messages ("fetch failed", "signal timed out", "HTTP 502") are accurate
+ * for logs but hostile in a status line that is otherwise
+ * Chinese-annotated. Adapter-domain errors (响应中无用量数据 …) pass
+ * through unchanged.
+ */
+export function describeFetchError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (e instanceof Error && e.name === "TimeoutError") return "请求超时";
+  if (/timeout|timed out|aborted/i.test(msg)) return "请求超时";
+  if (/^HTTP 401$/.test(msg) || /^HTTP 403$/.test(msg))
+    return `Key 无效或已过期 (${msg})`;
+  if (/^HTTP 429$/.test(msg)) return `请求过于频繁 (${msg})`;
+  if (/^HTTP 5\d\d$/.test(msg)) return `服务暂不可用 (${msg})`;
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|network/i.test(msg))
+    return "网络不可达";
+  return msg;
+}
+
+function throttledRefresh(thresholdMs: number, ctx: StatusCtx): void {
   const now = Date.now();
   if (now - state.lastRefreshAt < thresholdMs) return;
   state.lastRefreshAt = now;
@@ -195,46 +159,28 @@ function throttledRefresh(thresholdMs: number, ctx: QuotaCtx): void {
 export default function (pi: ExtensionAPI): void {
   pi.on("model_select", async (event, ctx) => {
     state.lastRefreshAt = 0;
-    state.activeModel = event.model;
-    state.activeFooterCtx = ctx as QuotaCtx;
-    state.requestFooterRender?.();
-    void refreshQuota(ctx as QuotaCtx, event.model);
-  });
-
-  pi.on("thinking_level_select", async (event, ctx) => {
-    state.activeThinkingLevel = event.level;
-    updateFooter(ctx as QuotaCtx);
+    void refreshQuota(ctx, event.model);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
-    // SAFETY: pi's ExtensionContext is structurally a subset of QuotaCtx
-    // because QuotaCtx only adds an OPTIONAL getContextUsage() field.
-    // The double cast is required because TS treats the event's `ctx`
-    // as the bare ExtensionContext type.
-    throttledRefresh(TURN_THROTTLE_MS, ctx as unknown as QuotaCtx);
+    throttledRefresh(TURN_THROTTLE_MS, ctx);
   });
 
   pi.on("session_tree", async (_event, ctx) => {
-    // SAFETY: see turn_end above — QuotaCtx only widens ExtensionContext
-    // with an optional method, so the runtime value is always valid.
-    throttledRefresh(TREE_THROTTLE_MS, ctx as unknown as QuotaCtx);
+    throttledRefresh(TREE_THROTTLE_MS, ctx);
   });
 
   pi.on("session_start", async (_event, ctx) => {
     state.lastRefreshAt = 0;
-    const quotaCtx = ctx as QuotaCtx;
-    mountFooter(quotaCtx);
-    void refreshQuota(quotaCtx, quotaCtx.model);
+    void refreshQuota(ctx, ctx.model);
   });
 
-  // Session is closing: clear cached state so a fresh session does not show
-  // stale quota from a previous session.
-  pi.on("session_shutdown", async () => {
+  // Session is closing: clear cached state AND the published status so a
+  // fresh session does not show stale quota from a previous session.
+  pi.on("session_shutdown", async (_event, ctx) => {
     state.quotaData = null;
     state.quotaFetchedAt = 0;
     state.errorText = "";
-    state.activeFooterCtx = null;
-    state.activeModel = null;
-    state.activeThinkingLevel = null;
+    ctx.ui.setStatus(WIDGET_KEY, undefined);
   });
 }
