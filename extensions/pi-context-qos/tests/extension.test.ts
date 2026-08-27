@@ -143,7 +143,7 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   );
   assert.match(
     qosUpdates.at(-1)![1]!,
-    /⚡QoS \d+%\((危)\)/,
+    /◎QoS \d+%/,
     "the latest publication reflects the critical-pressure plan",
   );
   await handlers.get("turn_end")![0]!({}, ctx);
@@ -161,7 +161,7 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   await handlers.get("session_shutdown")![0]!({}, ctx);
 });
 
-test("footer status is one compact quota-idiom line with Chinese labels", () => {
+test("footer status is a minimal icon + percentage cell", () => {
   const base: ContextStats = {
     activeTokens: 621_000,
     rawTokens: 625_000,
@@ -182,16 +182,17 @@ test("footer status is one compact quota-idiom line with Chinese labels", () => 
   };
   const text = formatStatus(base);
   assert.ok(!text.includes("\n"), "status is a single line");
-  assert.match(text, /⚡QoS 70%\(红\)/);
-  assert.match(text, /活621k/, "compact tokens drop the trailing zero");
-  assert.match(text, /省3\.7k/);
-  assert.match(text, /库84项/);
-  assert.ok(!text.includes("冷"), "cold bytes stay out of the footer line");
-  assert.ok(text.includes("\x1b[31m"), "red pressure uses the red ANSI code");
+  assert.match(text, /◎QoS 70%/, "icon + percentage, no level word");
+  assert.ok(!text.includes("("), "no level bracket like (红)");
+  assert.ok(!text.includes("活"), "active tokens stay out of the footer");
+  assert.ok(!text.includes("省"), "saved tokens stay out of the footer");
+  assert.ok(!text.includes("库"), "item count stays out of the footer");
+  assert.ok(!text.includes("⚡"), "icon must differ from the quota prefix");
+  assert.ok(text.includes("\x1b[31m"), "level is conveyed by color alone");
   assert.ok(!text.includes("冻结"));
   const frozen = formatStatus({ ...base, frozen: true });
-  assert.match(frozen, /70%\(红·冻结\)/);
+  assert.match(frozen, /◎QoS 70%·冻结/);
   const critical = formatStatus({ ...base, pressure: "critical" });
-  assert.ok(critical.includes("\x1b[1;31m"), "critical pressure uses bold red");
-  assert.match(critical, /⚡QoS 70%\(危\)/);
+  assert.ok(critical.includes("\x1b[1;31m"), "critical uses bold red");
+  assert.match(critical, /◎QoS 70%/);
 });

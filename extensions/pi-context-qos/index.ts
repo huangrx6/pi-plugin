@@ -32,13 +32,6 @@ const PRESSURE_ANSI: Record<PressureLevel, string> = {
   red: "\x1b[31m",
   critical: "\x1b[1;31m",
 };
-const PRESSURE_LABEL: Record<PressureLevel, string> = {
-  green: "绿",
-  yellow: "黄",
-  orange: "橙",
-  red: "红",
-  critical: "危",
-};
 const INTERNAL_TOOLS = new Set([
   "context_recall",
   "context_search",
@@ -86,13 +79,6 @@ function formatTokens(tokens: number): string {
   return tokens < 1000 ? String(tokens) : `${(tokens / 1000).toFixed(1)}k`;
 }
 
-/** Compact footer token form: drops trailing zeros (179.0k -> 179k). */
-function compactTokens(tokens: number): string {
-  if (tokens < 1000) return String(tokens);
-  if (tokens < 1_000_000) return `${parseFloat((tokens / 1000).toFixed(1))}k`;
-  return `${parseFloat((tokens / 1_000_000).toFixed(1))}M`;
-}
-
 /**
  * Footer status, one compact line matching the quota-status idiom:
  *
@@ -104,18 +90,13 @@ function compactTokens(tokens: number): string {
  * route context-prefixed statuses to a context-governance row.
  */
 export function formatStatus(stats: ContextStats): string {
+  // Minimal footer cell: icon + pressure percentage, level shown by COLOR
+  // only (no level word, no token/item/cold breakdown — /context stats has
+  // the full report). ◎ distinguishes it from the quota ⚡ prefix.
   const color = PRESSURE_ANSI[stats.pressure];
-  const label = stats.frozen
-    ? `${PRESSURE_LABEL[stats.pressure]}·冻结`
-    : PRESSURE_LABEL[stats.pressure];
   const pct = (stats.pressureRatio * 100).toFixed(0);
-  const head = `${color}⚡QoS ${pct}%(${label})${ANSI_RESET}`;
-  return [
-    head,
-    `活${compactTokens(stats.activeTokens)}`,
-    `省${compactTokens(stats.savedTokens)}`,
-    `库${stats.itemCount}项`,
-  ].join(" ");
+  const frozenSuffix = stats.frozen ? "·冻结" : "";
+  return `${color}◎QoS ${pct}%${frozenSuffix}${ANSI_RESET}`;
 }
 
 function itemLine(item: StoredContextItem): string {

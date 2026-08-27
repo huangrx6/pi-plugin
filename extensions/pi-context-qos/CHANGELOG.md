@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7 - 2026-08-27
+
+- Footer cell minimized to `◎QoS 6%` — icon + pressure percentage with the level conveyed by color only. Drops the level word (`(绿)`), the token breakdown (活/省/库), and switches the icon from ⚡ (which collided with the quota prefix) to ◎. `/context stats` keeps the full report. Frozen renders as `◎QoS 6%·冻结`.
+
 ## 0.1.6 - 2026-08-27
 
 - `/context` with no arguments now opens an interactive picker: every subcommand listed with a one-line Chinese explanation, so nothing has to be memorized. Picking an argument-taking subcommand (inspect / recall / search / pin / unpin) shows its usage and where to get a `ctx://item/<id>` reference instead of running it with an empty value. On runtimes without `ui.select` the picker degrades to a full usage table. Direct `/context <sub> [args]` invocation is unchanged.

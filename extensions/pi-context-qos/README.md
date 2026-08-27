@@ -191,20 +191,16 @@ Running `/context` with **no arguments** opens an interactive picker: each subco
 
 ## Footer status
 
-The status is published at `session_start` (before any model call, so it is visible from the first paint) and refreshed after every model call, under the `context:qos` key via Pi's status API. It renders as one compact line in the quota-status idiom, in the context-governance row of a multi-row footer:
+The status is published at `session_start` (before any model call, so it is visible from the first paint) and refreshed after every model call, under the `context:qos` key via Pi's status API. It renders as a minimal icon + percentage cell in the resources row of a multi-row footer:
 
 ```text
-用量： ⚡GLM 5h:40%(3h11m) 周:32%(83h24m)
-资源： ↑2.2M │ ↓122k │ R21M │ CH10.5% │ $5.808 │ 21.1%/1.0M
-压缩： ⚡QoS 22%(绿) 活179k 省22.9k 库165项
+模型： (zai-coding-cn) glm-5.3 (high) │ ⚡GLM 5h:65%(2h25m) 周:37%(82h39m)
+资源： ↑4.3M │ ↓201k │ R48M │ CH99.9% │ $16.265 │ 32.0%/1.0M │ ◎QoS 6%
 ```
 
 | 字段 | 含义 |
 | --- | --- |
-| `⚡QoS 22%(绿)` | 有效预算（contextWindow × 0.82）占用百分比与压力级别（绿/黄/橙/红/危），整段按级别着色，危级加粗；冻结时显示 `(绿·冻结)` |
-| `活179k` | 进入 LLM 上下文的估算 tokens（含 system prompt 等固定开销）；尾零省略（179.0k → 179k） |
-| `省22.9k` | QoS 降级累计省下的 tokens（原始量 − 当前活跃量） |
-| `库165项` | 冷库中归档的上下文条目数（可 `context_recall` 的池子） |
+| `◎QoS 6%` | 有效预算（contextWindow × 0.82）占用百分比，压力级别只用颜色表达（绿/黄/红，危级加粗）；冻结时显示 `◎QoS 6%·冻结`。完整的 tokens/tier/冷库报告在 `/context stats` |
 
 ## Install
 
