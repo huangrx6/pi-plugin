@@ -1,6 +1,6 @@
 {
   "name": "pi-footer-composer",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Compose the pi footer as five labelled rows (环境 / 模型 / 资源 / 集成 / 配置). Each row is prefixed with a dim category label glued to its first cell; content cells within a row are joined by `│` and wrap under the label. 资源 merges token usage, context window, and any status whose key starts with `usage:`. 集成 / 配置 receive statuses prefixed accordingly; everything else falls into 配置 as a misc fallback.",
   "license": "MIT",
   "type": "module",

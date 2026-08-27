@@ -92,7 +92,15 @@ type LooseUsage = {
  * content. The set is closed — adding/removing a row requires
  * editing both this array and the `renderTable` call below.
  */
-const ROW_LABELS = ["环境：", "模型：", "资源：", "集成：", "配置："] as const;
+const ROW_LABELS = [
+  "环境：",
+  "模型：",
+  "用量：",
+  "资源：",
+  "压缩：",
+  "配置：",
+  "集成：",
+] as const;
 
 // ── formatters (shared shape with the footer conventions) ──────────────
 
@@ -233,7 +241,13 @@ function modelCells(
   return [makeCell(theme.fg("dim", text))];
 }
 
-type Section = "usage" | "integration" | "config" | "misc";
+type Section =
+  | "quota"
+  | "usage"
+  | "context"
+  | "integration"
+  | "config"
+  | "misc";
 
 /**
  * Map a status key to its footer row. Prefix convention preferred;
@@ -241,13 +255,16 @@ type Section = "usage" | "integration" | "config" | "misc";
  * prefix. Generic keywords only — no specific extension is named.
  */
 function sectionOf(key: string): Section {
+  if (key.startsWith("quota:")) return "quota";
   if (key.startsWith("usage:")) return "usage";
+  if (key.startsWith("context:")) return "context";
   if (key.startsWith("integration:")) return "integration";
   if (key.startsWith("config:")) return "config";
   const k = key.toLowerCase();
   if (k === "mcp" || k.includes("lsp")) return "integration";
   if (k === "mode" || k.includes("policy")) return "config";
-  if (k === "quota") return "usage";
+  if (k === "quota") return "quota";
+  if (k.includes("context") || k.includes("qos")) return "context";
   return "misc";
 }
 
@@ -259,7 +276,9 @@ function sectionOf(key: string): Section {
  */
 function statusGroups(footerData: FooterData): Record<Section, Cell[]> {
   const groups: Record<Section, Cell[]> = {
+    quota: [],
     usage: [],
+    context: [],
     integration: [],
     config: [],
     misc: [],
@@ -320,16 +339,19 @@ export default function (pi: ExtensionAPI): void {
                   activeThinking,
                   footerData.getAvailableProviderCount(),
                 ),
-                // row 3: 资源 — tokens · cache · cost · context · usage-prefixed statuses (quota)
+                // row 3: 用量 — subscription-quota statuses (quota-prefixed / quota)
+                sections.quota,
+                // row 4: 资源 — tokens · cache · cost · context window occupancy
                 [
                   ...usageCells(activeCtx as Ctx, theme),
                   ...contextCell(activeCtx as Ctx, theme, activeModel),
-                  ...sections.usage,
                 ],
-                // row 4: 集成 — integration-prefixed statuses (MCP, LSP)
-                sections.integration,
-                // row 5: 配置 — config-prefixed statuses (mode, policy) + misc fallback
+                // row 5: 压缩 — context-governance statuses (context-prefixed)
+                sections.context,
+                // row 6: 配置 — config-prefixed statuses (mode, policy) + misc fallback
                 [...sections.config, ...sections.misc],
+                // row 7: 集成 — integration-prefixed statuses (MCP, LSP)
+                sections.integration,
               ],
               width,
               theme,

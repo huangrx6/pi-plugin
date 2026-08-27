@@ -5,29 +5,31 @@
 
 # pi-footer-composer
 
-<p align="center"><strong>Five labelled rows: environment, model, resources, integrations, configuration.</strong></p>
+<p align="center"><strong>Seven labelled rows: environment, model, usage, resources, compression, configuration, integrations.</strong></p>
 
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
 </p>
 
-Takes over Pi's footer rendering and produces five single-column rows, each prefixed with a dim two-character label. Every other status that any extension publishes via `ctx.ui.setStatus(...)` is collected and routed into the right row by key prefix.
+Takes over Pi's footer rendering and produces seven single-column rows, each prefixed with a dim two-character label. Every other status that any extension publishes via `ctx.ui.setStatus(...)` is collected and routed into the right row by key prefix.
 
 This is a renderer only. It does not own any data; it only consumes `ctx.sessionManager` and the public `setStatus` API. If the extension is uninstalled, the original Pi footer returns.
 
 ## Output
 
-Five fixed rows in order — environment → model → resources → integrations → configuration. Each row has a dim leading label and a leading first cell; multi-cell rows use `│` to separate cells within the row, and the row wraps (instead of merging rows) when the terminal is too narrow. A status cell whose text contains `\n` is a **multi-line cell**: each sub-line renders on its own display row (indented under the label) and is never packed alongside other cells — publishers opt into stacked output simply by including a newline.
+Seven fixed rows in order — environment → model → usage → resources → compression → configuration → integrations. Each row has a dim leading label and a leading first cell; multi-cell rows use `│` to separate cells within the row, and the row wraps (instead of merging rows) when the terminal is too narrow. A status cell whose text contains `\n` is a **multi-line cell**: each sub-line renders on its own display row (indented under the label) and is never packed alongside other cells — publishers opt into stacked output simply by including a newline.
 
 Wide terminal:
 
 ```text
 环境： ~/project (main) • 优化
 模型： (zai-coding-cn) glm-5.2
-资源： ↑1.2k ↓890 R340 CH45% $0.012  12%/128k  ⚡GLM 5h:4%
-集成： 🔌 MCP: 3 servers enabled │ LSP Inactive
+用量： ⚡GLM 5h:4%(4h50m) 周:0%(70h21m)
+资源： ↑1.2k ↓890 R340 CH45% $0.012 12%/128k
+压缩： ⚡QoS 22%(绿) 活179k 省22.9k 库165项
 配置： ◈ mode:帮我批准 │ policy:standard/executing
+集成： 🔌 MCP: 3 servers enabled │ LSP Inactive
 ```
 
 Narrow terminal — wrapped cells indent to the label width, rows stay distinct; multi-line status cells keep one sub-line per display row:
@@ -37,13 +39,14 @@ Narrow terminal — wrapped cells indent to the label width, rows stay distinct;
        (main)
        • 优化
 模型： (zai-coding-cn) glm-5.2
+用量： ⚡GLM 5h:4%(4h50m)
+       周:0%(70h21m)
 资源： ↑1.2k ↓890 R340 CH45%
        12%/128k
-       ⚡GLM 5h:4%(4h50m)
-集成： 🔌 MCP: 3 servers
-       │ LSP Inactive
-配置： ◈ mode:帮我批准
-       │ policy:standard
+压缩： ⚡QoS 22%(绿) 活179k
+       省22.9k 库165项
+配置： ◈ mode:帮我批准 │ policy:standard
+集成： 🔌 MCP: 3 servers │ LSP Inactive
 ```
 
 ## Row contents
@@ -52,9 +55,11 @@ Narrow terminal — wrapped cells indent to the label width, rows stay distinct;
 | --- | --- | --- | --- |
 | 1 | `环境：` | `ctx.sessionManager` (cwd, session name) + `footerData.getGitBranch()` + session title | `~/project (main) • 优化` |
 | 2 | `模型：` | `ctx.model` (provider, id) + thinking level | `(zai-coding-cn) glm-5.2` |
-| 3 | `资源：` | `ctx.sessionManager` (usage stats) + `ctx.getContextUsage()` + `usage:*` statuses | `↑1.2k ↓890 R340 CH45% $0.012  12%/128k  ⚡GLM 5h:4%` |
-| 4 | `集成：` | `integration:*` statuses (MCP, LSP) | `🔌 MCP: 3 servers enabled │ LSP Inactive` |
-| 5 | `配置：` | `config:*` statuses (mode, policy) + unclassified statuses as misc fallback | `◈ mode:帮我批准 │ policy:standard/executing` |
+| 3 | `用量：` | `quota:*` statuses (subscription quota) | `⚡GLM 5h:4%(4h50m) 周:0%(70h21m)` |
+| 4 | `资源：` | `ctx.sessionManager` (usage stats) + `ctx.getContextUsage()` | `↑1.2k ↓890 R340 CH45% $0.012 12%/128k` |
+| 5 | `压缩：` | `context:*` statuses (context governance) | `⚡QoS 22%(绿) 活179k 省22.9k 库165项` |
+| 6 | `配置：` | `config:*` statuses (mode, policy) + unclassified statuses as misc fallback | `◈ mode:帮我批准 │ policy:standard/executing` |
+| 7 | `集成：` | `integration:*` statuses (MCP, LSP) | `🔌 MCP: 3 servers enabled │ LSP Inactive` |
 
 Label-to-first-cell separator is a single space (no `│`); wrapped continuations from subsequent cells indent to the label width.
 
@@ -64,18 +69,21 @@ Extensions choose which row their status lands in by the key they pass to `ctx.u
 
 | Key shape | Lands in |
 | --- | --- |
-| `usage:<name>` | row 3 (resources) |
-| `integration:<name>` | row 4 (integrations) |
-| `config:<name>` | row 5 (configuration) |
-| anything else | row 5 (misc fallback — never silently dropped) |
+| `quota:<name>` | row 3 (usage — subscription quota) |
+| `usage:<name>` | row 4 (resources) |
+| `context:<name>` | row 5 (compression — context governance) |
+| `integration:<name>` | row 7 (integrations) |
+| `config:<name>` | row 6 (configuration) |
+| anything else | row 6 (misc fallback — never silently dropped) |
 
 For keys without a recognised prefix, a generic-keyword fallback still routes sensibly:
 
 | Unprefixed key contains | Routed to |
 | --- | --- |
-| `mcp` or `lsp` | row 4 (integrations) |
-| `mode` or `policy` | row 5 (configuration) |
-| `quota` | row 3 (resources) |
+| `mcp` or `lsp` | row 7 (integrations) |
+| `mode` or `policy` | row 6 (configuration) |
+| `quota` | row 3 (usage) |
+| `context` or `qos` | row 5 (compression) |
 
 ANSI colors from upstream statuses (e.g. quota colour thresholds) are preserved verbatim.
 
