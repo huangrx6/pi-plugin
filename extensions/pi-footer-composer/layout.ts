@@ -3,11 +3,13 @@
  *
  * A "cell" is one content atom (cwd / branch / one usage stat / model /
  * ONE extension status). `renderTable` lays out one content GROUP per
- * line — environment, usage, context, model, then the status cells —
- * forming a single column of rows. Within a group, cells are joined by
- * a dim `│`; a group wider than the terminal greedy-wraps onto
- * continuation lines. Cells wider than the whole terminal are
- * truncated with an ellipsis.
+ * row — environment, usage, context, model, then the status cells —
+ * forming a single column of labelled rows. An optional per-row
+ * `prefixes` array glues a dim label (e.g. "环境：") to the first line
+ * of each row; continuation lines (when a row wraps) are indented to
+ * keep the content aligned under the label. Cells within a row are
+ * joined by a dim `│`. Cells wider than the row's effective budget
+ * are truncated with an ellipsis.
  */
 
 const ANSI_PATTERN = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
@@ -90,45 +92,70 @@ export function makeCell(text: string): Cell {
 type Theme = { fg(color: string, text: string): string };
 
 /**
- * One content group per line (single column, multiple rows). Within a
- * group, cells are joined by a dim `│`; a group wider than the terminal
- * greedy-wraps. Cells wider than the whole terminal are truncated.
+ * One content group per row (single column, multiple rows). Within a
+ * row, cells are joined by a dim `│`; a row wider than the terminal
+ * greedy-wraps. Cells wider than the row's effective budget are
+ * truncated.
+ *
+ * If `prefixes` is given, it MUST have the same length as `groups`.
+ * Each prefix (e.g. "环境：") is rendered dim and glued to the start
+ * of its row's first line — separated from the first cell by a
+ * single space. Continuation lines (when a row wraps) are indented
+ * to the same visible width so the content stays aligned under the
+ * label. A prefix wider than the terminal leaves the label on its
+ * own line.
  */
 export function renderTable(
   groups: readonly (readonly Cell[])[],
   width: number,
   theme: Theme,
+  prefixes?: readonly string[],
 ): string[] {
   if (width <= 0 || groups.length === 0) return [];
   const sepText = theme.fg("dim", " │ ");
   const sepW = 3;
 
   const lines: string[] = [];
-  for (const group of groups) {
+  groups.forEach((group, gi) => {
     const cells = group.filter((c) => c.w > 0);
-    if (cells.length === 0) continue;
+    if (cells.length === 0) return;
 
-    // Greedy packing of this group's cells within the terminal width.
+    const rawPrefix = prefixes?.[gi];
+    const prefixW = rawPrefix ? visibleWidth(rawPrefix) + 1 : 0; // +1 for the trailing space
+    const styledPrefix = rawPrefix ? theme.fg("dim", rawPrefix) : "";
+    const indent = prefixW > 0 ? " ".repeat(prefixW) : "";
+    const budget = width - prefixW;
+
+    if (budget <= 0) {
+      // Prefix alone fills the line; emit it without content.
+      lines.push(styledPrefix);
+      return;
+    }
+
+    // Greedy packing of this group's cells within the budget.
     let current: Cell[] = [];
     let currentW = 0;
+    let isFirstLine = true;
     const flush = () => {
-      if (current.length > 0) {
-        lines.push(current.map((c) => c.text).join(sepText));
-      }
+      if (current.length === 0) return;
+      const joined = current.map((c) => c.text).join(sepText);
+      const lead = isFirstLine ? `${styledPrefix} ` : indent;
+      lines.push(lead + joined);
       current = [];
       currentW = 0;
+      isFirstLine = false;
     };
     for (const cell of cells) {
       const fitted =
-        cell.w > width
-          ? makeCell(truncateToWidth(cell.text, width, "…"))
+        cell.w > budget
+          ? makeCell(truncateToWidth(cell.text, budget, "…"))
           : cell;
       const needW = current.length === 0 ? fitted.w : sepW + fitted.w;
-      if (currentW + needW > width && current.length > 0) flush();
+      if (currentW + needW > budget && current.length > 0) flush();
       current.push(fitted);
       currentW += current.length === 1 ? fitted.w : sepW + fitted.w;
     }
     flush();
-  }
+  });
   return lines;
 }

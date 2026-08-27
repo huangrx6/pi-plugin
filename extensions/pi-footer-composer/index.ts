@@ -1,12 +1,25 @@
 /**
- * pi-footer-composer — one content per line, single responsibility.
+ * pi-footer-composer — five labelled rows, single responsibility.
  *
  * The ONLY footer owner in a setup: calls ctx.ui.setFooter() once and
- * renders the whole footer as a single column — one line per content
- * group (environment / usage / context / model / statuses), cells
- * joined by dim pipes. Everything it shows comes
- * from pi's aggregate surfaces — it never imports or knows about any
- * other extension:
+ * renders the whole footer as a single column. Five content rows,
+ * each prefixed with a dim category label glued to the first cell:
+ *
+ *   1. 环境   cwd / branch / session name (one dim cell each)
+ *   2. 模型   (provider) id + thinking level
+ *   3. 资源   ↑↓RW tokens · cache hit · $ cost · context % ·
+ *            + any status whose key starts with "usage:" (e.g. quota)
+ *   4. 集成   statuses whose key starts with "integration:"
+ *            (e.g. MCP server count, LSP status)
+ *   5. 配置   statuses whose key starts with "config:" (e.g. mode,
+ *            policy) — also catches any uncategorised status as a
+ *            fallback so nothing is silently dropped
+ *
+ * Cells within a row are joined by a dim `│`; a row wider than the
+ * terminal greedy-wraps onto continuation lines, which are indented
+ * under the label so the content stays aligned. Everything it shows
+ * comes from pi's aggregate surfaces — it never imports or knows about
+ * any other extension:
  *
  *   - ctx.sessionManager            cwd / session name / usage entries
  *   - ctx.getContextUsage()         context window occupancy
@@ -14,6 +27,20 @@
  *   - footerData.getExtensionStatuses()   every extension's published
  *                                        status text, one CELL each —
  *                                        content-agnostic by design
+ *
+ * ## Status key → row routing
+ *
+ * Sections use a key-prefix convention (the documented API):
+ *   "usage:<key>"          → 资源 row (line 3)
+ *   "integration:<key>"    → 集成 row (line 4)
+ *   "config:<key>"         → 配置 row (line 5)
+ *
+ * A small substring heuristic covers keys without the prefix for
+ * backward compatibility with packages that haven't adopted the
+ * convention yet — exact `mcp` or substring `lsp` → integration,
+ * exact `mode` or substring `policy` → config, exact `quota` →
+ * usage. Anything else falls through to the config row as "misc"
+ * so it is never silently dropped.
  *
  * This also means installing another setFooter-calling extension will
  * conflict (pi replaces rather than composes footers); this extension
@@ -58,6 +85,14 @@ type LooseUsage = {
   cacheWrite?: number;
   cost?: { total?: number };
 };
+
+/**
+ * Fixed row labels, in row order. Each label is a 2-CJK-char category
+ * plus a full-width colon, glued to the first cell of that row's
+ * content. The set is closed — adding/removing a row requires
+ * editing both this array and the `renderTable` call below.
+ */
+const ROW_LABELS = ["环境：", "模型：", "资源：", "集成：", "配置："] as const;
 
 // ── formatters (shared shape with the footer conventions) ──────────────
 
@@ -190,13 +225,46 @@ function modelCells(
   return [makeCell(theme.fg("dim", text))];
 }
 
-function statusCells(footerData: FooterData): Cell[] {
-  // Content-agnostic: every published status becomes its own cell,
-  // sorted by key for stable placement.
-  return Array.from(footerData.getExtensionStatuses().entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, text]) => makeCell(sanitize(text)))
-    .filter((c) => c.w > 0);
+type Section = "usage" | "integration" | "config" | "misc";
+
+/**
+ * Map a status key to its footer row. Prefix convention preferred;
+ * substring heuristic is a best-effort fallback for keys without the
+ * prefix. Generic keywords only — no specific extension is named.
+ */
+function sectionOf(key: string): Section {
+  if (key.startsWith("usage:")) return "usage";
+  if (key.startsWith("integration:")) return "integration";
+  if (key.startsWith("config:")) return "config";
+  const k = key.toLowerCase();
+  if (k === "mcp" || k.includes("lsp")) return "integration";
+  if (k === "mode" || k.includes("policy")) return "config";
+  if (k === "quota") return "usage";
+  return "misc";
+}
+
+/**
+ * Bucket every published status into a footer row. Content-agnostic:
+ * one cell per status, sorted by key for stable placement within a
+ * row. Empty cells are dropped so a cleared status never wastes a
+ * separator.
+ */
+function statusGroups(footerData: FooterData): Record<Section, Cell[]> {
+  const groups: Record<Section, Cell[]> = {
+    usage: [],
+    integration: [],
+    config: [],
+    misc: [],
+  };
+  const entries = Array.from(footerData.getExtensionStatuses().entries()).sort(
+    ([a], [b]) => a.localeCompare(b),
+  );
+  for (const [key, text] of entries) {
+    const cell = makeCell(sanitize(text));
+    if (cell.w === 0) continue;
+    groups[sectionOf(key)].push(cell);
+  }
+  return groups;
 }
 
 // ── extension entry ─────────────────────────────────────────────────────
@@ -231,23 +299,35 @@ export default function (pi: ExtensionAPI): void {
           tui.requestRender(),
         );
         return {
-          render: (width: number) =>
-            renderTable(
+          render: (width: number) => {
+            const sections = statusGroups(footerData);
+            return renderTable(
               [
+                // row 1: 环境 — cwd · branch · session
                 envCells(activeCtx as Ctx, footerData, theme),
-                usageCells(activeCtx as Ctx, theme),
-                contextCell(activeCtx as Ctx, theme, activeModel),
+                // row 2: 模型 — provider · id · thinking
                 modelCells(
                   theme,
                   activeModel,
                   activeThinking,
                   footerData.getAvailableProviderCount(),
                 ),
-                statusCells(footerData),
+                // row 3: 资源 — tokens · cache · cost · context · usage-prefixed statuses (quota)
+                [
+                  ...usageCells(activeCtx as Ctx, theme),
+                  ...contextCell(activeCtx as Ctx, theme, activeModel),
+                  ...sections.usage,
+                ],
+                // row 4: 集成 — integration-prefixed statuses (MCP, LSP)
+                sections.integration,
+                // row 5: 配置 — config-prefixed statuses (mode, policy) + misc fallback
+                [...sections.config, ...sections.misc],
               ],
               width,
               theme,
-            ),
+              ROW_LABELS,
+            );
+          },
           invalidate: () => {},
           dispose: () => {
             unsubscribe();

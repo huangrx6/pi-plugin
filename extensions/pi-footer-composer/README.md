@@ -1,36 +1,43 @@
 # pi-footer-composer
 
-接管 pi 的 footer，**一个内容一行**（单列多行）：环境、用量统计、上下文占用、模型、以及**每一个扩展发布的状态**各占一行，行内单元格用 `│` 分隔，组太宽时组内折行。
+接管 pi 的 footer，**五行带标签**（单列）：环境、模型、资源（token 用量 + 上下文 + 带 `usage:` 前缀的状态）、集成（带 `integration:` 前缀的状态：MCP / LSP）、配置（带 `config:` 前缀的状态：mode / policy + 未分类兜底）。每行行首是 dim 的 2 字中文标签（`环境：` 等），紧跟首格内容；组内单元格仍用 `│` 分隔，行宽超终端时组内折行，折行内容缩进对齐到标签右侧。
 
 单一职责：它是安装配置里**唯一的 footer 渲染者**（pi 的 `setFooter` 是整体替换语义，两个渲染者会互相覆盖）。
 
 ## 效果
 
-一个内容一行——环境、用量、上下文、模型、扩展状态各占一行，单列多行；组内单元格用 `│` 分隔，组太宽时组内折行：
+五行固定顺序——环境 → 模型 → 资源 → 集成 → 配置，单列；每行首有 dim 标签，紧跟首格；组内单元格用 `│` 分隔；行宽超终端时组内折行，折行内容缩进到标签宽度：
 
 ```text
-~/project (main) • 优化
-↑1.2k ↓890 R340 CH45% $0.012
-12%/128k
-(zai-coding-cn) glm-5.3
-⚡GLM 5h:4%(4h50m) 周:8%(97h40m)? │ policy:standard
+环境： ~/project (main) • 优化
+模型： (zai-coding-cn) glm-5.3
+资源： ↑1.2k ↓890 R340 CH45% $0.012  12%/128k  ⚡GLM 5h:4%
+集成： 🔌 MCP: 3 servers enabled │ LSP Inactive
+配置： ◈ mode:帮我批准 │ policy:standard/executing
 ```
 
-窄终端（组内折行，内容行不合并）：
+窄终端（折行内容缩进到标签宽度右侧，行不合并）：
 
 ```text
-~/project (main)
-• 优化
-↑1.2k ↓890 R340 CH45%
-$0.012
-12%/128k
-(zai-coding-cn) glm-5.3
-⚡GLM 5h:4%(4h50m)
-周:8%(97h40m)? │ policy:standard
+环境： ~/project
+       (main)
+       • 优化
+模型： (zai-coding-cn) glm-5.3
+资源： ↑1.2k ↓890 R340 CH45%
+       12%/128k
+       ⚡GLM 5h:4%(4h50m)
+集成： 🔌 MCP: 3 servers
+       │ LSP Inactive
+配置： ◈ mode:帮我批准
+       │ policy:standard
 ```
 
-- 行顺序：**环境**（cwd / 分支 / 会话名）→ **用量**（↑↓RW / CH / $）→ **上下文**（percent/window，>70% 黄、>90% 红）→ **模型**（含 thinking 级别；多 provider 时带 `(provider)` 前缀）→ **扩展状态**（按 key 排序，一格一个）
-- 组宽超过终端时组内折行；单元格本身超过整行宽度时截断加 `…`
+- **行 1 环境**：cwd（`~` 展开） / 分支 / 会话名
+- **行 2 模型**：`(<provider>) <id>` + thinking 级别；多 provider 时带 `(provider)` 前缀
+- **行 3 资源**：token 用量 ↑↓RW · cache hit (CH%) · $cost · context (% / window，>70% 黄、>90% 红）· `usage:` 前缀的状态（quota）
+- **行 4 集成**：`integration:` 前缀的状态（MCP / LSP）
+- **行 5 配置**：`config:` 前缀的状态（mode / policy）+ 未分类状态作为 misc 兜底（不会丢）
+- 标签与首格内容用 1 个空格分隔（没有 `│`）；组内折行从下一格开始，缩进对齐到标签宽度；单元格本身超过整行宽度时截断加 `…`
 
 ## 数据来源（组合而非依赖）
 
@@ -41,9 +48,21 @@ $0.012
 | cwd / 会话名 / 用量统计 | `ctx.sessionManager`（entries 的 usage 累加）|
 | 上下文占用 | `ctx.getContextUsage()` |
 | git 分支 / provider 数 | `footerData.getGitBranch()` / `getAvailableProviderCount()` |
-| 扩展状态 | `footerData.getExtensionStatuses()`（即各扩展 `ctx.ui.setStatus()` 发布的文本，**一格一个，内容无关**）|
+| 扩展状态 | `footerData.getExtensionStatuses()`（即各扩展 `ctx.ui.setStatus()` 发布的文本，**按 key 前缀归入对应行，内容无关**）|
 
 任何扩展只要调 `setStatus` 就会自动出现在表格里——本扩展不知道也不需要知道它们是谁。状态文本里的 ANSI 颜色（如 quota 的阈值配色）原样保留。
+
+### 状态 → 行的路由（key 前缀约定）
+
+扩展通过 `setStatus` 的 key 选择落在哪一行。前缀约定（推荐）：
+
+| Key 形式 | 落点 |
+| --- | --- |
+| `usage:<name>` | 行 3 资源 |
+| `integration:<name>` | 行 4 集成 |
+| `config:<name>` | 行 5 配置 |
+
+为了兼容尚未采用前缀约定的包，本扩展对无前缀的 key 也用通用关键词做兜底路由：`mcp` 或包含 `lsp` 的 key → 集成；`mode` 或包含 `policy` 的 key → 配置；`quota` → 资源。其他未匹配 key 一律落配置行的 misc 兜底，不会被静默丢弃。
 
 ### 与 pi 原生 footer 的差异
 
