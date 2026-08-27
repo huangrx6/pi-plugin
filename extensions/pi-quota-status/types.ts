@@ -40,7 +40,10 @@ export type ModelLike = { provider?: string; id?: string } | undefined | null;
  *
  *   - `percentage`: rolling-window subscription (OpenCode Go / Zhipu GLM /
  *     MiniMax Token Plan / Kimi Code). `percent` is **used** percentage
- *     (higher = worse). Optional `resetsInMs` drives the `(2h28m)` suffix.
+ *     (higher = worse); `null` means the API reported no value yet
+ *     (renders as a dim `--%` placeholder, never as a misleading 0%).
+ *     Optional `resetsInMs` drives the `(2h28m)` suffix (non-finite →
+ *     suffix omitted).
  *   - `balance`: prepaid / remaining-credit provider (DeepSeek / OpenRouter).
  *     `amount` is the remaining quantity in `currency` units; no reset
  *     countdown because the value is purely "what's left".
@@ -54,7 +57,7 @@ export type QuotaBar =
    | {
         readonly kind: "percentage";
         readonly label: string;
-        readonly percent: number;
+        readonly percent: number | null;
         readonly resetsInMs?: number;
      }
    | {

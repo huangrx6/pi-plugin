@@ -13,6 +13,7 @@ import { state } from "./state.ts";
 import type { QuotaBar } from "./types.ts";
 
 export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms)) return ""; // missing reset info — omit suffix
   if (ms < 0) return "reset";
   const totalMin = Math.floor(ms / 60000);
   const h = Math.floor(totalMin / 60);
@@ -30,12 +31,20 @@ export function colorForPercent(pct: number): string {
 export function formatBar(bar: QuotaBar): string {
   switch (bar.kind) {
     case "percentage": {
-      const color = colorForPercent(bar.percent);
+      // Null / non-finite percent (API returns null before first
+      // consumption, or an unknown field) renders as a dim "--%"
+      // placeholder — never "undefined%" or a misleading "0%".
+      const hasPercent =
+        bar.percent !== null && Number.isFinite(bar.percent);
+      const color = hasPercent ? colorForPercent(bar.percent) : C.dim;
+      const pct = hasPercent ? `${bar.percent}%` : "--%";
       const reset =
-        bar.resetsInMs === undefined
+        bar.resetsInMs === undefined ||
+        !Number.isFinite(bar.resetsInMs) ||
+        formatDuration(bar.resetsInMs) === ""
           ? ""
           : `${C.dim}(${formatDuration(bar.resetsInMs)})${C.reset}`;
-      return `${color}${bar.label}${bar.percent}%${C.reset}${reset}`;
+      return `${color}${bar.label}${pct}${C.reset}${reset}`;
     }
     case "balance":
       // Balance gets neutral dim color — "low balance" isn't a problem

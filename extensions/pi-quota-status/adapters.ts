@@ -86,20 +86,22 @@ export const ADAPTERS = {
     async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
       const json = await fetchJsonBearer<{
         usage: {
-          rolling: { percent: number; resetsAt: string };
-          weekly: { percent: number; resetsAt: string };
-          monthly: { percent: number; resetsAt: string };
+          rolling: { percent: number | null; resetsAt: string | null };
+          weekly: { percent: number | null; resetsAt: string | null };
+          monthly: { percent: number | null; resetsAt: string | null };
         };
       }>(ENDPOINTS.opencode, apiKey);
       const now = Date.now();
       const win = (
         label: string,
-        w: { percent: number; resetsAt: string },
+        w: { percent: number | null; resetsAt: string | null },
       ): QuotaBar => ({
         kind: "percentage",
         label,
         percent: w.percent,
-        resetsInMs: new Date(w.resetsAt).getTime() - now,
+        resetsInMs: w.resetsAt
+          ? new Date(w.resetsAt).getTime() - now
+          : undefined,
       });
       return [
         win("5h:", json.usage.rolling),
@@ -140,15 +142,19 @@ export const ADAPTERS = {
         bars.push({
           kind: "percentage",
           label: "5h:",
-          percent: fh.percentage ?? 0,
-          resetsInMs: fh.nextResetTime - now,
+          // null percentage (fresh window / not yet billed) renders as
+          // a dim "--%" placeholder — NOT a misleading "0%".
+          percent: fh.percentage ?? null,
+          resetsInMs: fh.nextResetTime
+            ? fh.nextResetTime - now
+            : undefined,
         });
       if (wk)
         bars.push({
           kind: "percentage",
           label: "周:",
-          percent: wk.percentage ?? 0,
-          resetsInMs: wk.nextResetTime - now,
+          percent: wk.percentage ?? null,
+          resetsInMs: wk.nextResetTime ? wk.nextResetTime - now : undefined,
         });
       return bars;
     },

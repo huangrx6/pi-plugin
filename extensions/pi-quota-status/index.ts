@@ -103,6 +103,29 @@ function updateFooter(ctx: QuotaCtx): void {
 }
 
 // ---------------------------------------------------------------------------
+// Error rendering
+// ---------------------------------------------------------------------------
+
+/**
+ * Map a fetch failure to a short, user-readable cause. Raw transport
+ * messages ("fetch failed", "signal timed out", "HTTP 502") are accurate
+ * for logs but hostile in a footer that is otherwise Chinese-annotated.
+ * Adapter-domain errors (响应中无用量数据 …) pass through unchanged.
+ */
+export function describeFetchError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (e instanceof Error && e.name === "TimeoutError") return "请求超时";
+  if (/timeout|timed out|aborted/i.test(msg)) return "请求超时";
+  if (/^HTTP 401$/.test(msg) || /^HTTP 403$/.test(msg))
+    return `Key 无效或已过期 (${msg})`;
+  if (/^HTTP 429$/.test(msg)) return `请求过于频繁 (${msg})`;
+  if (/^HTTP 5\d\d$/.test(msg)) return `服务暂不可用 (${msg})`;
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|network/i.test(msg))
+    return "网络不可达";
+  return msg;
+}
+
+// ---------------------------------------------------------------------------
 // Quota refresh logic
 // ---------------------------------------------------------------------------
 
@@ -150,7 +173,7 @@ async function refreshQuota(ctx: QuotaCtx, model: ModelLike): Promise<void> {
     if (!fresh) {
       state.quotaData = null;
       state.quotaFetchedAt = 0;
-      state.errorText = `⚠ ${adapter.display}: ${e instanceof Error ? e.message : String(e)}`;
+      state.errorText = `⚠ ${adapter.display} ${describeFetchError(e)}`;
     }
     // Same-provider transient errors keep the last good data (marked
     // stale by buildQuotaText once older than STALE_KEEP_MS).
