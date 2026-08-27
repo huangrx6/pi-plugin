@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4 - 2026-08-27
+
+- Publish the footer status at `session_start` too, not only before each model call. Previously the status stayed invisible until the first user turn (the `context` hook never fires without a model call); on a resumed session the line now shows archived-item state immediately, and on a fresh session it shows a zeroed line proving the runtime is alive.
+
 ## 0.1.3 - 2026-08-27
 
 - Footer status now renders as two stacked lines — `QoS 上下文X%级 · 活… · 省…` / `N项 · 冷… · 冻结…` — so it no longer stretches the resources row it lands in. Aggregators that support multi-line cells render one sub-line per display row; single-line renderers flatten the newline to a space.

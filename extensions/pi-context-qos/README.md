@@ -189,7 +189,7 @@ First-version compressors: tests, git, file reads, search and generic Bash. Stru
 
 ## Footer status
 
-After every model call the extension publishes a two-line status under the `usage:context-qos` key via Pi's status API. A status aggregator that renders multi-line cells gives each line its own display row in its resources row:
+The status is published at `session_start` (before any model call, so it is visible from the first paint) and refreshed after every model call, under the `usage:context-qos` key via Pi's status API. A status aggregator that renders multi-line cells gives each line its own display row in its resources row:
 
 ```text
 资源： ↑1.5M │ ↓101k │ R14M │ $2.868 │ 18.2%/1.0M │ ⚡GLM 5h:36%(3h19m) 周:31%(83h33m)

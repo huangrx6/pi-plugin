@@ -87,6 +87,10 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     },
   };
   await handlers.get("session_start")![0]!({ reason: "startup" }, ctx);
+  assert.ok(
+    statusUpdates.some(([key]) => key === "usage:context-qos"),
+    "session_start must publish the footer status before any model call",
+  );
   await handlers.get("before_agent_start")![0]!(
     { prompt: "fix retry binding" },
     ctx,
@@ -130,9 +134,18 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     1,
     "native compaction is the final critical-pressure fallback",
   );
-  const published = statusUpdates.find(([key]) => key === "usage:context-qos");
-  assert.ok(published, "context hook must publish usage:context-qos status");
-  assert.match(published![1]!, /QoS 上下文\d+%危/);
+  const qosUpdates = statusUpdates.filter(
+    ([key]) => key === "usage:context-qos",
+  );
+  assert.ok(
+    qosUpdates.length >= 2,
+    "status must be published at session_start and again per model call",
+  );
+  assert.match(
+    qosUpdates.at(-1)![1]!,
+    /QoS 上下文\d+%危/,
+    "the latest publication reflects the critical-pressure plan",
+  );
   await handlers.get("turn_end")![0]!({}, ctx);
   assert.equal(entries[0]?.type, "context-qos-checkpoint");
   await commands.get("context").handler("doctor", ctx);

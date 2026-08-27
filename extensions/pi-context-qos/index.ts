@@ -422,6 +422,12 @@ export default function (pi: ExtensionAPI): void {
       ) {
         controller.inheritFork(event.previousSessionFile);
       }
+      // Publish immediately so the footer shows QoS from the very first
+      // paint — the context hook only fires before model calls, which
+      // would leave the status invisible until the first user turn.
+      // On a resumed session this reflects the archived items; on a fresh
+      // one it shows a zeroed-out line proving the runtime is alive.
+      publishStatus(controller, ctx);
     } catch (error) {
       controller = undefined;
       reportFailure(ctx, "initialization", error);
