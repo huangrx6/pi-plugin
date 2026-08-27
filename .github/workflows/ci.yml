@@ -43,6 +43,20 @@ jobs:
       - name: Type check (tsc --noEmit)
         run: npx --yes -p typescript tsc -p extensions/pi-quota-status
 
+  pi-footer-composer:
+    name: pi-footer-composer (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Same ambient-shim pattern as pi-quota-status (AGENTS.md known-gap note).
+      - name: Type check (tsc --noEmit)
+        run: npx --yes -p typescript tsc -p extensions/pi-footer-composer
+
   markdown-lint:
     name: markdownlint
     runs-on: ubuntu-latest

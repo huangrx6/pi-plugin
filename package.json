@@ -17,7 +17,8 @@
       "./extensions/pi-skill-inject",
       "./extensions/pi-mode-switcher",
       "./extensions/pi-quota-status",
-      "./extensions/pi-policy-engine"
+      "./extensions/pi-policy-engine",
+      "./extensions/pi-footer-composer"
     ]
   },
   "files": [
