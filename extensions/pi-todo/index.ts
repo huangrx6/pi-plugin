@@ -49,12 +49,14 @@ const TOOL_NAME = "todo";
 const COMMAND_NAME = "todos";
 
 const DEFAULT_PROMPT_SNIPPET =
-  "Manage a task list to track multi-step progress";
+  "Track multi-step work via `todo`. Mark each task in_progress BEFORE " +
+  "starting it and completed the moment its success criterion holds — " +
+  "do not batch, do not defer, do not leave tasks open 'just in case'.";
 
 const DEFAULT_PROMPT_GUIDELINES: string[] = [
   "Use `todo` for complex work with 3+ steps, when the user gives you a list of tasks, or immediately after receiving new instructions. Skip it for single trivial tasks.",
-  "Mark a task in_progress BEFORE starting it and completed IMMEDIATELY when done — never batch completions. Keep exactly one task in_progress at a time.",
-  "Never mark a task completed while tests fail, the implementation is partial, or errors remain unresolved — keep it in_progress and add a task for the blocker.",
+  "Mark a task in_progress BEFORE starting it. Keep exactly one task in_progress at a time. After EVERY successful tool call, BEFORE starting any new action, ask yourself: 'Did this tool call just close the task I had in_progress?' If yes, update its status to completed FIRST, then proceed to the next action. Never batch completions at end-of-turn.",
+  "Mark a task completed EXACTLY ONCE all three hold: (a) every tool call tagged to it returned without isError; (b) any test that exercises this task passes (or no test exists); (c) no unresolved error remains in the current tool result stream. If you cannot tick all three, KEEP the task in_progress and state which one is blocking in the activeForm. Do NOT use the vague 'implementation might be partial' rationale — it is unverifiable and the default fallback that causes tasks to stay open indefinitely.",
   "Status is pending → in_progress → completed, plus deleted tombstones (immutable; ids are never reused, even after clear).",
   'To change status: {"action":"update","id":3,"status":"completed"}. An update with no mutable field is rejected.',
   "blockedBy expresses dependencies (A blocked by B). Create: pass blockedBy. Update: addBlockedBy / removeBlockedBy (additive). Cycles and self-blocks are rejected.",

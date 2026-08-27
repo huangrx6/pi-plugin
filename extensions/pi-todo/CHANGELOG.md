@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.1
+
+Sharper prompt text to fix the "completed task stays in_progress" pattern.
+
+- **`promptSnippet`**: switched from passive "Manage a task list…" to
+  directive "Track multi-step work via `todo`. Mark each task
+  in_progress BEFORE starting it and completed the moment its success
+  criterion holds — do not batch, do not defer, do not leave tasks
+  open 'just in case'."
+- **`promptGuidelines` rule #2**: now explicit about the per-tool-call
+  self-check ("After EVERY successful tool call, BEFORE starting any
+  new action, ask yourself: 'Did this tool call just close the task I
+  had in_progress?'"). Without this the model drifts — successful tool
+  calls are followed by a new action, never by an explicit close.
+- **`promptGuidelines` rule #3**: replaced the unverifiable "the
+  implementation is partial" criterion (which the model uses as a
+  default fallback to leave tasks open) with three concrete boolean
+  conditions the model can verify mechanically: (a) tagged tool calls
+  returned without `isError`; (b) tests for the task pass (or none
+  exist); (c) no unresolved error in the current tool result stream.
+  If any of (a)(b)(c) fails, KEEP the task in_progress and state the
+  blocker in the `activeForm`.
+- **Deferred**: a runtime `tool_execution_end` reminder via
+  `sendMessage` was considered but skipped — `sendMessage` semantics
+  on `@earendil-works/pi-coding-agent` aren't documented in the
+  ambient shim and a wrong call risks breaking conversation flow. The
+  text-based self-check covers the same gap without API-surface risk.
+  Revisit if text-only is empirically insufficient.
+
 ## 0.2.0
 
 Overlay can now be expanded to show every task, not just the 12-row cap.
