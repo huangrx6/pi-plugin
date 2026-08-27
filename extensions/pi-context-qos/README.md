@@ -165,6 +165,8 @@ First-version compressors: tests, git, file reads, search and generic Bash. Stru
 
 ## User commands
 
+Running `/context` with **no arguments** opens an interactive picker: each subcommand listed with a one-line Chinese explanation. Argument-taking subcommands show their usage when picked. Direct invocation is unchanged:
+
 ```text
 /context                  status overview
 /context stats            detailed pressure stats

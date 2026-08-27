@@ -84,6 +84,8 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     ui: {
       notify: (message: string) => notifications.push(message),
       setStatus: (key: string, text: string) => statusUpdates.push([key, text]),
+      select: async (_title: string, options: string[]) =>
+        options.find((option) => option.startsWith("doctor")),
     },
   };
   await handlers.get("session_start")![0]!({ reason: "startup" }, ctx);
@@ -148,6 +150,14 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   assert.equal(entries[0]?.type, "context-qos-checkpoint");
   await commands.get("context").handler("doctor", ctx);
   assert.match(notifications.at(-1) ?? "", /doctor: OK/);
+  // No-args path opens the picker; our select mock picks "doctor", which
+  // needs no argument, so it must execute straight away.
+  await commands.get("context").handler("", ctx);
+  assert.match(
+    notifications.at(-1) ?? "",
+    /doctor: OK/,
+    "empty /context runs the picked subcommand",
+  );
   await handlers.get("session_shutdown")![0]!({}, ctx);
 });
 

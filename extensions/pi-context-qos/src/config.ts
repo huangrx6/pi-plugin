@@ -129,9 +129,16 @@ export function loadConfig(cwd: string, projectTrusted: boolean): ContextQosConf
   const projectConfig = projectTrusted
     ? readJson(join(cwd, ".pi", "context-qos.json"))
     : {};
+  // SAFETY: DEFAULT_CONFIG is a ContextQosConfig; JsonObject is the loose
+  // record shape merge() works on. The double cast crosses the nominal
+  // boundary once — validate() re-checks every field afterwards, so an
+  // unexpected merged shape fails loudly instead of surviving as config.
   const merged = merge(
     merge(DEFAULT_CONFIG as unknown as JsonObject, globalConfig),
     projectConfig,
   );
+  // SAFETY: merge() only ever produces plain JSON records from plain JSON
+  // inputs; the cast asserts the validated shape, and validate() below
+  // throws on any out-of-range or missing value before it reaches callers.
   return validate(merged as unknown as ContextQosConfig);
 }

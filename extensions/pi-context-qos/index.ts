@@ -170,6 +170,60 @@ function statsText(controller: ContextQosController, ctx: any): string {
   ].join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// /context interactive picker (no-args path)
+// ---------------------------------------------------------------------------
+
+/** One row of the /context picker: subcommand + Chinese explanation. */
+type ContextSub = { name: string; desc: string; needsArg?: string };
+
+/**
+ * Every /context subcommand with a one-line Chinese explanation, so the
+ * picker doubles as living documentation — no need to remember flags.
+ * needsArg marks subcommands that require an argument; picking one from
+ * the panel shows its usage instead of running it with an empty value.
+ */
+const CONTEXT_SUBS: ContextSub[] = [
+  { name: "stats", desc: "压力统计：占用、tokens、冷库" },
+  { name: "top", desc: "保留分最高的条目（拿 ctx://item 引用的入口）" },
+  { name: "tree", desc: "按 tier 分组浏览全部条目" },
+  { name: "tasks", desc: "当前任务目标" },
+  { name: "epochs", desc: "epoch 冻结摘要" },
+  { name: "inspect", desc: "单个条目详情", needsArg: "<ref>" },
+  { name: "recall", desc: "召回原始内容到当前上下文", needsArg: "<ref>" },
+  { name: "search", desc: "全文检索归档条目", needsArg: "<query>" },
+  { name: "pin", desc: "固定条目，永不自动降级", needsArg: "<ref>" },
+  { name: "unpin", desc: "解除固定", needsArg: "<ref>" },
+  { name: "gc", desc: "清理过期数据（可加 --aggressive 深度清理）" },
+  { name: "freeze", desc: "暂停自动降级（审计用）" },
+  { name: "unfreeze", desc: "恢复自动降级" },
+  { name: "doctor", desc: "诊断：库路径、会话、可见分支" },
+  { name: "config", desc: "打印当前生效配置" },
+  { name: "reset-session", desc: "重置本会话 QoS 元数据（不动 Pi 会话）" },
+];
+
+/**
+ * Open the interactive picker. Returns the chosen subcommand, undefined
+ * when the user cancelled, or null when the runtime has no ui.select and
+ * the usage table was shown instead (caller should just return).
+ */
+async function pickSubcommand(
+  ctx: any,
+): Promise<string | null | undefined> {
+  const options = CONTEXT_SUBS.map((s) => `${s.name} — ${s.desc}`);
+  const select = ctx?.ui?.select?.bind(ctx.ui);
+  if (typeof select !== "function") {
+    ctx?.ui?.notify?.(
+      `用法: /context <子命令>\n${CONTEXT_SUBS.map((s) => `  ${s.name} — ${s.desc}`).join("\n")}`,
+      "info",
+    );
+    return null;
+  }
+  const choice = await select("Context QoS — 选择子命令", options);
+  if (choice === undefined) return undefined;
+  return String(choice).split(/\s+—/)[0]!.trim();
+}
+
 export default function (pi: ExtensionAPI): void {
   let controller: ContextQosController | undefined;
   let compactInFlight = false;
@@ -281,15 +335,40 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("context", {
     description:
-      "Inspect and operate Context QoS. Usage: /context [stats|top|tree|tasks|epochs|inspect|recall|search|pin|unpin|gc|freeze|unfreeze|doctor|config|reset-session]",
+      "Inspect and operate Context QoS. Run with no args for an interactive picker with per-subcommand explanations.",
     handler: async (args, ctx) => {
       const runtime = requireController(controller);
       visibleEntries(runtime, ctx);
-      const [sub = "stats", ...rest] = String(args ?? "")
+      let [sub = "stats", ...rest] = String(args ?? "")
         .trim()
         .split(/\s+/)
         .filter(Boolean);
-      const value = rest.join(" ");
+      let value = rest.join(" ");
+
+      // ── No-args path: interactive picker (each subcommand carries its
+      // own Chinese explanation, so nothing has to be memorized). ──
+      if (!String(args ?? "").trim()) {
+        const picked = await pickSubcommand(ctx);
+        if (picked === null) return; // usage table already shown
+        if (picked === undefined) {
+          ctx.ui.notify("已取消", "info");
+          return;
+        }
+        sub = picked;
+        rest = [];
+        value = "";
+        const spec = CONTEXT_SUBS.find((s) => s.name === sub);
+        if (spec?.needsArg) {
+          ctx.ui.notify(
+            `${sub} 需要参数 ${spec.needsArg}\n` +
+              `用法: /context ${sub} ${spec.needsArg}\n` +
+              `先用 /context top 或 /context search 拿到 ctx://item/<id> 引用。`,
+            "info",
+          );
+          return;
+        }
+      }
+
       let output = "";
       switch (sub) {
         case "stats":

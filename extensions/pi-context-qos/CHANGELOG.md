@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.6 - 2026-08-27
+
+- `/context` with no arguments now opens an interactive picker: every subcommand listed with a one-line Chinese explanation, so nothing has to be memorized. Picking an argument-taking subcommand (inspect / recall / search / pin / unpin) shows its usage and where to get a `ctx://item/<id>` reference instead of running it with an empty value. On runtimes without `ui.select` the picker degrades to a full usage table. Direct `/context <sub> [args]` invocation is unchanged.
+
 ## 0.1.5 - 2026-08-27
 
 - Status moves to the `context:qos` key and renders as one compact line in the quota-status idiom — `⚡QoS 22%(绿) 活179k 省22.9k 库165项` — with trailing-zero-free token counts and the frozen marker folded into the level bracket (`(绿·冻结)`). Cold-store bytes leave the footer (still in `/context stats`). Multi-row footers place it in a context-governance row; single-line renderers show it inline.
