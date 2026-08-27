@@ -269,8 +269,11 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
       return {
         handlers,
         commands,
-        ctx: { cwd, model: { provider: "minimax-cn", id: "MiniMax-M3" },
-               ui: { notify() {}, setStatus() {} } },
+        ctx: {
+          cwd,
+          model: { provider: "minimax-cn", id: "MiniMax-M3" },
+          ui: { notify() {}, setStatus() {} },
+        },
       };
     };
 
@@ -278,7 +281,10 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
     const s1 = make(repo);
     await s1.handlers.get("session_start")({}, s1.ctx);
     await s1.handlers.get("before_agent_start")(
-      { prompt: "设计生产环境 PostgreSQL 迁移方案并实施，需要回滚", systemPrompt: "B" },
+      {
+        prompt: "设计生产环境 PostgreSQL 迁移方案并实施，需要回滚",
+        systemPrompt: "B",
+      },
       s1.ctx,
     );
     await s1.handlers.get("agent_end")({}, s1.ctx);
@@ -293,10 +299,7 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
       { prompt: "随便看看这个项目", systemPrompt: "B" },
       s2.ctx,
     );
-    assert.ok(
-      !/Restored a strict plan awaiting approval/.test(""),
-      "sanity",
-    );
+    assert.ok(!/Restored a strict plan awaiting approval/.test(""), "sanity");
     // Direct probe: no awaiting restore, no PLAN-ONLY leakage from a ghost plan.
     assert.doesNotMatch(resp.systemPrompt, /## Still awaiting approval/);
     assert.doesNotMatch(resp.systemPrompt, /Phase: awaiting_approval/);
@@ -356,7 +359,10 @@ test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", as
         "mutation guidance must be conditional",
       );
     }
-    assert.match(r.systemPrompt, /If the task is read-only: do not perform the mutation phase/);
+    assert.match(
+      r.systemPrompt,
+      /If the task is read-only: do not perform the mutation phase/,
+    );
   } finally {
     process.env.HOME = realHome;
     rmSync(home, { recursive: true, force: true });

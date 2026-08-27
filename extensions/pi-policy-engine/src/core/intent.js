@@ -367,7 +367,10 @@ function classifyClause(clause) {
                         // attached target (v0.23). Specific verbs (重构/
                         // 部署/删除…) and targeted negations are scope
                         // constraints — the task stays live.
-                        if (isBroadRevoke(h.term) && !isScopedNegation(lower, h)) {
+                        if (
+                                isBroadRevoke(h.term) &&
+                                !isScopedNegation(lower, h)
+                        ) {
                                 negatedMut = true;
                         }
                         continue;
@@ -376,7 +379,8 @@ function classifyClause(clause) {
                 if (m === "live") {
                         // Hypothetical mutations are discussed consequences —
                         // they read as read-only questions, not requests.
-                        if (hypothetical || conditionalApprovalTalk) advisoryMut.push(h);
+                        if (hypothetical || conditionalApprovalTalk)
+                                advisoryMut.push(h);
                         else liveMut.push(h);
                 } else if (m === "advisory") advisoryMut.push(h);
                 // "dead": narrated or bare topic mention — no signal either way.
