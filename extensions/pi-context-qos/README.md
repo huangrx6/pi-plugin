@@ -187,6 +187,23 @@ First-version compressors: tests, git, file reads, search and generic Bash. Stru
 
 `/context reset-session` only clears the **current session's** QoS metadata; the Pi Session JSONL is untouched and shared blobs are not directly deleted — unreferenced blobs are cleaned up by GC.
 
+## Footer status
+
+After every model call the extension publishes a one-line status under the `usage:context-qos` key via Pi's status API. Any status aggregator that routes `usage:*` keys into its resources row will render it:
+
+```text
+QoS 上下文70%红 · 活621k · 省3.7k · 84项 · 冷181.8 KiB
+```
+
+| 字段 | 含义 |
+| --- | --- |
+| `上下文70%红` | 当前有效预算（contextWindow × 0.82）的占用百分比与压力级别（绿/黄/橙/红/危），整段按级别着色，危级加粗 |
+| `活621k` | 进入 LLM 上下文的估算 tokens（含 system prompt 等固定开销） |
+| `省3.7k` | QoS 降级累计省下的 tokens（原始量 − 当前活跃量） |
+| `84项` | 冷库中归档的上下文条目数 |
+| `冷181.8 KiB` | 冷库磁盘占用（zstd 压缩后） |
+| `冻结` | `/context freeze` 生效中，降级已暂停 |
+
 ## Install
 
 Requires Node.js `>=22.15` (uses `node:sqlite`, FTS5, and zstd, all built-in).

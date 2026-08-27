@@ -12,9 +12,30 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { ContextQosController, pressureLabel } from "./src/runtime/controller.ts";
 import { textFromContent } from "./src/runtime/tokens.ts";
-import type { LooseMessage, StoredContextItem } from "./src/types.ts";
+import type {
+  ContextStats,
+  LooseMessage,
+  PressureLevel,
+  StoredContextItem,
+} from "./src/types.ts";
 
 const CHECKPOINT_TYPE = "context-qos-checkpoint";
+const STATUS_KEY = "usage:context-qos";
+const ANSI_RESET = "\x1b[0m";
+const PRESSURE_ANSI: Record<PressureLevel, string> = {
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  orange: "\x1b[33m",
+  red: "\x1b[31m",
+  critical: "\x1b[1;31m",
+};
+const PRESSURE_LABEL: Record<PressureLevel, string> = {
+  green: "绿",
+  yellow: "黄",
+  orange: "橙",
+  red: "红",
+  critical: "危",
+};
 const INTERNAL_TOOLS = new Set([
   "context_recall",
   "context_search",
@@ -59,6 +80,28 @@ function formatTokens(tokens: number): string {
   return tokens < 1000 ? String(tokens) : `${(tokens / 1000).toFixed(1)}k`;
 }
 
+/**
+ * One-line footer status with Chinese labels, e.g.
+ * "QoS 上下文70%红 · 活621k · 省3.7k · 84项 · 冷181.8 KiB".
+ * Published under the `usage:context-qos` key; any status aggregator that
+ * routes `usage:*` keys will render it in its resources row.
+ */
+export function formatStatus(stats: ContextStats): string {
+  const color = PRESSURE_ANSI[stats.pressure];
+  const label = PRESSURE_LABEL[stats.pressure];
+  const pct = `${(stats.pressureRatio * 100).toFixed(0)}%`;
+  const head = `${color}QoS 上下文${pct}${label}${ANSI_RESET}`;
+  const parts = [
+    head,
+    `活${formatTokens(stats.activeTokens)}`,
+    `省${formatTokens(stats.savedTokens)}`,
+    `${stats.itemCount}项`,
+    `冷${formatBytes(stats.coldBytes)}`,
+  ];
+  if (stats.frozen) parts.push("冻结");
+  return parts.join(" · ");
+}
+
 function itemLine(item: StoredContextItem): string {
   const flags = [
     item.pinned ? "pinned" : "",
@@ -85,6 +128,16 @@ function requireController(
 
 function visibleEntries(controller: ContextQosController, ctx: any): void {
   controller.setVisibleEntries(ctx.sessionManager.getBranch());
+}
+
+function publishStatus(controller: ContextQosController, ctx: any): void {
+  // Status is best-effort: it must never break the context hook, so any
+  // failure here is swallowed on purpose.
+  try {
+    ctx?.ui?.setStatus?.(STATUS_KEY, formatStatus(controller.stats()));
+  } catch {
+    // ignore — footer status is cosmetic
+  }
 }
 
 function statsText(controller: ContextQosController, ctx: any): string {
@@ -357,11 +410,16 @@ export default function (pi: ExtensionAPI): void {
     try {
       visibleEntries(controller, ctx);
       const usage = ctx.getContextUsage();
+      // SAFETY: the ambient shim types `event` as a loose record; the runtime
+      // contract guarantees `messages` is the deep-copied provider message
+      // array. planContext only reads role/toolCallId/content and returns
+      // replacement messages, never mutating the input in place.
       const result = controller.plan(
         event.messages as unknown as LooseMessage[],
         usage?.tokens ?? null,
         ctx.model,
       );
+      publishStatus(controller, ctx);
       if (
         result.level === "critical" &&
         result.overBudget &&

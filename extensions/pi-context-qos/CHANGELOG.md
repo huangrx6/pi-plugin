@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 - 2026-08-27
+
+- Publish a one-line footer status under the `usage:context-qos` key after every model call: Chinese-labelled fields (`上下文`/`活`/`省`/`项`/`冷`), a pressure-colored percentage (green/yellow/orange/red, bold red for critical), and a `冻结` marker while frozen. Any status aggregator routing `usage:*` keys renders it in its resources row; the extension remains unaware of who consumes it.
+
 ## 0.1.1 - 2026-08-27
 
 - Fix native compaction fallback trigger: `overBudget` compared post-plan tokens against the raw effective budget (ratio > 100%), which made the configured critical threshold meaningless — a session could sit at critical pressure (for example 70% with `critical: 0.6`) without the fallback ever firing. The trigger is now the critical threshold itself: run critical-level degradation first, then fall back to native compaction when post-plan pressure is still at or above critical.

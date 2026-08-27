@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import extension from "../index.ts";
+import extension, { formatStatus } from "../index.ts";
+import type { ContextStats } from "../src/types.ts";
 
 test("extension registers lifecycle hooks, four model tools, and /context", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-context-qos-smoke-"));
@@ -58,6 +59,7 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   const branch: any[] = [{ id: "root", type: "message", message: { role: "user" } }];
   const notifications: string[] = [];
   let compactCalls = 0;
+  const statusUpdates: Array<[string, string]> = [];
   const ctx = {
     cwd,
     model: { provider: "test", id: "model", contextWindow: 8_000 },
@@ -73,7 +75,10 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
       compactCalls++;
       options.onComplete?.();
     },
-    ui: { notify: (message: string) => notifications.push(message) },
+    ui: {
+      notify: (message: string) => notifications.push(message),
+      setStatus: (key: string, text: string) => statusUpdates.push([key, text]),
+    },
   };
   await handlers.get("session_start")![0]!({ reason: "startup" }, ctx);
   await handlers.get("before_agent_start")![0]!({ prompt: "fix retry binding" }, ctx);
@@ -112,9 +117,40 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   );
   assert.equal(contextResult.messages.length, 2);
   assert.equal(compactCalls, 1, "native compaction is the final critical-pressure fallback");
+  const published = statusUpdates.find(([key]) => key === "usage:context-qos");
+  assert.ok(published, "context hook must publish usage:context-qos status");
+  assert.match(published![1]!, /QoS 上下文\d+%危/);
   await handlers.get("turn_end")![0]!({}, ctx);
   assert.equal(entries[0]?.type, "context-qos-checkpoint");
   await commands.get("context").handler("doctor", ctx);
   assert.match(notifications.at(-1) ?? "", /doctor: OK/);
   await handlers.get("session_shutdown")![0]!({}, ctx);
+});
+
+test("footer status uses Chinese labels, pressure colors, and frozen marker", () => {
+  const base: ContextStats = {
+    activeTokens: 621_000,
+    rawTokens: 625_000,
+    savedTokens: 3_700,
+    coldBytes: 102_400,
+    itemCount: 84,
+    pressure: "red",
+    pressureRatio: 0.7,
+    frozen: false,
+    byTier: { pinned: 0, working: 0, evidence: 6_600, historical: 19, disposable: 2_000 },
+    byRepresentation: { raw: 0, extract: 0, summary: 0, tombstone: 0 },
+  };
+  const text = formatStatus(base);
+  assert.match(text, /QoS 上下文70%红/);
+  assert.match(text, /活621\.0k/);
+  assert.match(text, /省3\.7k/);
+  assert.match(text, /84项/);
+  assert.match(text, /冷100\.0 KiB/);
+  assert.ok(text.includes("\x1b[31m"), "red pressure uses the red ANSI code");
+  assert.ok(!text.includes("冻结"));
+  const frozen = formatStatus({ ...base, frozen: true });
+  assert.match(frozen, /冻结/);
+  const critical = formatStatus({ ...base, pressure: "critical" });
+  assert.ok(critical.includes("\x1b[1;31m"), "critical pressure uses bold red");
+  assert.match(critical, /危/);
 });
