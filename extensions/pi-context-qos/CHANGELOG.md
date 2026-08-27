@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 - 2026-08-27
+
+- Fix native compaction fallback trigger: `overBudget` compared post-plan tokens against the raw effective budget (ratio > 100%), which made the configured critical threshold meaningless — a session could sit at critical pressure (for example 70% with `critical: 0.6`) without the fallback ever firing. The trigger is now the critical threshold itself: run critical-level degradation first, then fall back to native compaction when post-plan pressure is still at or above critical.
+- The disabled/frozen early-return path uses the same fallback semantics.
+- Add a regression test that fails on the old comparison.
+
 ## 0.1.0 - 2026-08-27
 
 - 建立非破坏式 Context QoS runtime 与压力分区 planner。

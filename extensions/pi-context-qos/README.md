@@ -27,7 +27,7 @@ When QoS still cannot fit the budget, Pi's built-in compaction is called as a fa
 - **Content-addressed** — raw text is SHA-256 hashed, zstd-compressed, and deduplicated across sessions
 - **Database stays small** — SQLite holds metadata + deterministic summaries + FTS5 search index; large content lives in blobs
 - **Tight permissions** — storage root `0700`, SQLite + blobs `0600`; secrets are redacted by default; excluded paths archive no body or search row
-- **Last-resort native compaction** — only when QoS still overflows the effective budget
+- **Last-resort native compaction** — only when critical-level degradation still leaves pressure at or above the critical threshold
 
 ## How it works
 
@@ -96,7 +96,7 @@ Pressure is computed against **effective budget** (`contextWindow − outputRese
 | Yellow | 55–70% | `disposable` / `superseded` → `extract` |
 | Orange | 70–82% | `historical` and low-relevance evidence → `extract` |
 | Red | 82–92% | Low-scoring content → `summary` / `tombstone` |
-| Critical | > 92% | Maximise degradation; if still over budget, fall back to Pi's native compaction |
+| Critical | ≥ critical | Maximise degradation; if post-plan pressure is still at or above the critical threshold, fall back to Pi's native compaction |
 
 Score is an explainable linear combination: task relevance, importance, unresolved, causal dependency, recency, uniqueness, code proximity, verification value. Pinned, unresolved failures, latest-file snapshots, and the active frontier are hard rules that always outrank the score.
 

@@ -121,6 +121,58 @@ test("pressure uses output and safety reserves instead of the raw context window
   assert.equal(reading.ratio, 1);
 });
 
+test("native compaction fallback fires at the critical threshold, not only at 100%", async () => {
+  // Regression: overBudget used to compare afterTokens against the raw
+  // effectiveBudget (ratio > 1.0). With provider framing occupying most of
+  // the window, QoS degradation cannot reclaim enough, so the fallback was
+  // dead code and a session could sit at critical pressure forever.
+  const { cfg, archive, db } = await fixture();
+  try {
+    cfg.budget.critical = 0.8;
+    archive.archive({
+      sessionId: "session-1",
+      taskId: null,
+      originEntryId: "entry-critical",
+      toolCallId: "call-critical",
+      toolName: "grep",
+      input: { pattern: "cache" },
+      rawText: `src/cache.ts: ${"old evidence ".repeat(200)}`,
+      isError: false,
+      turn: 1,
+    });
+    const result = planContext({
+      messages: [
+        { role: "user", content: "fix cache" },
+        {
+          role: "toolResult",
+          toolCallId: "call-critical",
+          toolName: "grep",
+          content: [{ type: "text", text: `src/cache.ts: ${"old evidence ".repeat(200)}` }],
+        },
+      ],
+      usageTokens: 7_000,
+      model: { contextWindow: 10_000 },
+      config: cfg,
+      db,
+      sessionId: "session-1",
+      objective: "fix cache",
+      currentTurn: 2,
+      visibleEntryIds: new Set(["entry-critical"]),
+      frozen: false,
+    });
+    assert.equal(result.level, "critical");
+    // 7000 / 8200 = 0.854: above the 0.8 critical line, far below 100%.
+    // The old implementation returned false here and compaction never fired.
+    assert.equal(
+      result.overBudget,
+      true,
+      "post-plan pressure above the critical threshold must trigger the native fallback",
+    );
+  } finally {
+    db.close();
+  }
+});
+
 test("context planning is non-mutating, branch-aware, and protects the active frontier", async () => {
   const { cfg, archive, db } = await fixture();
   try {

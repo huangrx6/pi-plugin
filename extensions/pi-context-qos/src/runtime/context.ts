@@ -1,5 +1,5 @@
 import { renderSummary } from "../compressors/index.ts";
-import { ContextDatabase } from "../storage/database.ts";
+import type { ContextDatabase } from "../storage/database.ts";
 import type {
   ContextQosConfig,
   LooseMessage,
@@ -77,7 +77,10 @@ export function planContext(input: {
       beforeTokens,
       afterTokens: beforeTokens,
       transformed: 0,
-      overBudget: beforeTokens > pressure.effectiveBudget,
+      // Same fallback semantics as the planned path: QoS is intentionally
+      // not degrading (disabled or frozen), so native compaction is the only
+      // lever left once pressure crosses the critical threshold.
+      overBudget: pressure.ratio >= input.config.budget.critical,
     };
   }
   const protectedIds = protectedToolCallIds(
@@ -125,6 +128,13 @@ export function planContext(input: {
     return replaceTextContent(message, text);
   });
   const afterTokens = fixedTokens + estimateMessages(messages);
+  // Native compaction is the fallback when QoS has already done its best
+  // (critical-level degradation) and the post-plan pressure is still at or
+  // above the configured critical threshold. Comparing against the raw
+  // effectiveBudget (ratio > 1.0) would make the critical threshold
+  // meaningless: the model API fails before the context ever exceeds 100%,
+  // so the fallback would be dead code.
+  const afterRatio = afterTokens / pressure.effectiveBudget;
   return {
     messages,
     level: pressure.level,
@@ -132,7 +142,7 @@ export function planContext(input: {
     beforeTokens,
     afterTokens,
     transformed,
-    overBudget: afterTokens > pressure.effectiveBudget,
+    overBudget: afterRatio >= input.config.budget.critical,
   };
 }
 
