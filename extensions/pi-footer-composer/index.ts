@@ -105,9 +105,17 @@ function formatTokens(count: number): string {
 }
 
 function sanitize(text: string): string {
+  // Keep intentional \n (multi-line status cells — the renderer gives
+  // each sub-line its own row); normalize every other kind of
+  // whitespace and drop empty lines so a status can never inject
+  // blank rows or trailing spaces into the footer.
   return text
-    .replace(/[\r\n\t]/g, " ")
-    .replace(/ +/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n")
     .trim();
 }
 

@@ -10,6 +10,11 @@
  * keep the content aligned under the label. Cells within a row are
  * joined by a dim `│`. Cells wider than the row's effective budget
  * are truncated with an ellipsis.
+ *
+ * A cell whose text contains `\n` is a multi-line cell: each sub-line
+ * renders on its own display row (indented under the label) and is
+ * never packed alongside other cells. This lets a status publisher
+ * opt into stacked output without the renderer knowing who it is.
  */
 
 const ANSI_PATTERN = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
@@ -146,6 +151,21 @@ export function renderTable(
       isFirstLine = false;
     };
     for (const cell of cells) {
+      // Multi-line cell: each sub-line gets its own display row and is
+      // never packed with other cells (sub-line width still truncated
+      // to the row budget).
+      if (cell.text.includes("\n")) {
+        flush();
+        for (const sub of cell.text.split("\n")) {
+          const trimmed = sub.trim();
+          if (!trimmed) continue;
+          const fitted = makeCell(truncateToWidth(trimmed, budget, "…"));
+          const lead = isFirstLine ? `${styledPrefix} ` : indent;
+          lines.push(lead + fitted.text);
+          isFirstLine = false;
+        }
+        continue;
+      }
       const fitted =
         cell.w > budget
           ? makeCell(truncateToWidth(cell.text, budget, "…"))

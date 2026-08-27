@@ -18,7 +18,7 @@ This is a renderer only. It does not own any data; it only consumes `ctx.session
 
 ## Output
 
-Five fixed rows in order — environment → model → resources → integrations → configuration. Each row has a dim leading label and a leading first cell; multi-cell rows use `│` to separate cells within the row, and the row wraps (instead of merging rows) when the terminal is too narrow.
+Five fixed rows in order — environment → model → resources → integrations → configuration. Each row has a dim leading label and a leading first cell; multi-cell rows use `│` to separate cells within the row, and the row wraps (instead of merging rows) when the terminal is too narrow. A status cell whose text contains `\n` is a **multi-line cell**: each sub-line renders on its own display row (indented under the label) and is never packed alongside other cells — publishers opt into stacked output simply by including a newline.
 
 Wide terminal:
 
@@ -30,7 +30,7 @@ Wide terminal:
 配置： ◈ mode:帮我批准 │ policy:standard/executing
 ```
 
-Narrow terminal — wrapped cells indent to the label width, rows stay distinct:
+Narrow terminal — wrapped cells indent to the label width, rows stay distinct; multi-line status cells keep one sub-line per display row:
 
 ```text
 环境： ~/project
@@ -114,9 +114,11 @@ Or via the monorepo. Restart Pi or `/reload`.
 ```text
 pi-footer-composer/
 ├── index.ts          # event wiring + status collection + render
+├── layout.ts         # width helpers + renderTable (greedy wrap, multi-line cells)
 ├── globals.d.ts      # ambient shim for the Pi runtime types
 ├── tsconfig.json     # local type-check
 ├── package.json
+├── CHANGELOG.md
 ├── README.md
 └── LICENSE
 ```
