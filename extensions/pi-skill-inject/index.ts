@@ -110,22 +110,34 @@ const MAX_SUGGESTIONS = 30;
  *  - URL-ish slashes (`//` or `:` before the token) are skipped in
  *    findInlineSkills by checking the preceding character
  */
-const SKILL_TOKEN_RE =
-  /\/([a-z0-9][a-z0-9-]{0,63})(?![a-z0-9-])(?=[\s.,;!?"')\]}])?/gi;
+export const SKILL_TOKEN_RE =
+  /\/([a-z0-9][a-z0-9-]{0,63})(?![a-z0-9-])(?=[\s.,;!?"')\]}]|$)/gi;
 
 // ---------------------------------------------------------------------------
 // Skill discovery & caching
 // ---------------------------------------------------------------------------
 
+/**
+ * normalizePath with a per-session cache — the tool_result hot path fires
+ * on every `read` result and used to pay two synchronous syscalls
+ * (existsSync + realpathSync) each time. Cleared on session_start (cwd
+ * may change between sessions) alongside contentCache.
+ */
+const realpathCache = new Map<string, string>();
+
 /** Normalize a path for deduplication (realpath when possible). */
 function normalizePath(path: string, cwd: string): string {
   const abs = path.startsWith("/") ? path : resolve(cwd, path);
+  const cached = realpathCache.get(abs);
+  if (cached) return cached;
+  let result = abs;
   try {
-    if (existsSync(abs)) return realpathSync(abs);
+    if (existsSync(abs)) result = realpathSync(abs);
   } catch {
     /* fall through to resolved path */
   }
-  return abs;
+  realpathCache.set(abs, result);
+  return result;
 }
 
 /**
@@ -137,6 +149,11 @@ function collectResources(
   pi: ExtensionAPI,
   cwd: string,
 ): { skills: SkillInfo[]; commandNames: Set<string> } {
+  // SAFETY: getCommands() is typed loosely in the runtime contract
+  // (unknown[]); the extension contract guarantees command entries with
+  // name/description/source/sourceInfo. SkillCommand is the narrow read
+  // shape this extension consumes — every field access is optional-guarded
+  // below, so an unexpected shape degrades to "skip", never throws.
   const commands = pi.getCommands() as unknown as SkillCommand[];
   const skills: SkillInfo[] = [];
   const commandNames = new Set<string>();
@@ -168,7 +185,7 @@ function collectResources(
  * Find inline skill tokens in text. Returns unique skill infos in order.
  * Exact name match first; falls back to case-insensitive.
  */
-function findInlineSkills(
+export function findInlineSkills(
   text: string,
   skills: SkillInfo[],
 ): SkillInfo[] {
@@ -530,6 +547,7 @@ export default function (pi: ExtensionAPI): void {
     skillsCache = resources.skills;
     commandNamesCache = resources.commandNames;
     contentCache.clear();
+    realpathCache.clear();
     loadedSkills = restoreLoadedSkills(ctx);
     ctx.ui.addAutocompleteProvider(skillWrapper);
   });
