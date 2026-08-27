@@ -1,6 +1,6 @@
 {
   "name": "pi-mode-switcher",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Three-mode approval control for pi (ask / smart / full) via native tool_call interception + confirm dialogs. Zero dependencies.",
   "license": "MIT",
   "type": "module",

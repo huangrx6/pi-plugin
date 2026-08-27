@@ -325,7 +325,7 @@ function uiOf(ctx: unknown): UiCtx {
 function buildModeText(): string {
   const label = MODE_LABELS[currentMode];
   const color = MODE_COLOR[currentMode];
-  return `${color}◈ mode:${label}${C.reset}`;
+  return `${color}⚙ mode:${label}${C.reset}`;
 }
 
 function renderStatus(ctx: UiCtx): void {
