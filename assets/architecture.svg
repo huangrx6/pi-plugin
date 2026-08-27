@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 340" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Architecture: three independent extension layers feeding pi-coding-agent">
+  <style>
+    text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fill: currentColor; stroke: none; }
+    .pill { stroke: currentColor; fill: none; }
+    .band { stroke: currentColor; stroke-dasharray: 4 3; fill: none; }
+    .agent-text { font-size: 13px; }
+    .layer { font-size: 10px; letter-spacing: 2px; }
+    .ext { font-size: 11px; }
+    .footer { font-size: 10px; letter-spacing: 2px; }
+  </style>
+
+  <!-- pi-coding-agent -->
+  <rect class="pill" x="150" y="16" width="180" height="32" rx="16" />
+  <text class="agent-text" x="240" y="36" text-anchor="middle">pi-coding-agent</text>
+
+  <!-- MODEL -->
+  <rect class="band" x="40" y="68" width="400" height="78" rx="6" />
+  <text class="layer" x="56" y="86">MODEL</text>
+  <g transform="translate(56, 100)">
+    <rect class="pill" width="112" height="24" rx="12" />
+    <text class="ext" x="56" y="17" text-anchor="middle">skill-inject</text>
+  </g>
+  <g transform="translate(184, 100)">
+    <rect class="pill" width="120" height="24" rx="12" />
+    <text class="ext" x="60" y="17" text-anchor="middle">policy-engine</text>
+  </g>
+  <g transform="translate(320, 100)">
+    <rect class="pill" width="104" height="24" rx="12" />
+    <text class="ext" x="52" y="17" text-anchor="middle">context-qos</text>
+  </g>
+  <line x1="84" y1="138" x2="396" y2="138" stroke-dasharray="2 4" />
+
+  <!-- TOOL -->
+  <rect class="band" x="40" y="158" width="400" height="64" rx="6" />
+  <text class="layer" x="56" y="176">TOOL</text>
+  <g transform="translate(56, 188)">
+    <rect class="pill" width="124" height="24" rx="12" />
+    <text class="ext" x="62" y="17" text-anchor="middle">mode-switcher</text>
+  </g>
+  <g transform="translate(196, 188)">
+    <rect class="pill" width="64" height="24" rx="12" />
+    <text class="ext" x="32" y="17" text-anchor="middle">todo</text>
+  </g>
+
+  <!-- DISPLAY -->
+  <rect class="band" x="40" y="234" width="400" height="64" rx="6" />
+  <text class="layer" x="56" y="252">DISPLAY</text>
+  <g transform="translate(56, 264)">
+    <rect class="pill" width="104" height="24" rx="12" />
+    <text class="ext" x="52" y="17" text-anchor="middle">quota-status</text>
+  </g>
+  <g transform="translate(176, 264)">
+    <rect class="pill" width="128" height="24" rx="12" />
+    <text class="ext" x="64" y="17" text-anchor="middle">footer-composer</text>
+  </g>
+  <g transform="translate(320, 264)">
+    <rect class="pill" width="64" height="24" rx="12" />
+    <text class="ext" x="32" y="17" text-anchor="middle">notify</text>
+  </g>
+
+  <!-- footer -->
+  <text class="footer" x="240" y="324" text-anchor="middle">ZERO COUPLING  ·  INSTALL WHAT YOU NEED</text>
+</svg>
