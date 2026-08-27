@@ -1,9 +1,9 @@
-<!-- markdownlint-disable MD013 MD033 MD036 MD041 -->
+<!-- markdownlint-disable MD033 MD036 MD041 -->
 <div align="center">
 
 # ⚙️ huangrx6/pi-plugin
 
-**一个仓库 · 四个独立扩展 · 互不感知**
+**一个仓库 · 八个独立扩展 · 互不感知**
 
 [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) 的个人扩展合集。每个扩展都是**独立可发布**的 pi package，按需装。
 
@@ -25,7 +25,9 @@
 | 📊 **[pi-quota-status](./extensions/pi-quota-status/README.md)** | footer 显示 AI 订阅用量（OpenCode Go / 智谱 GLM / Kimi / DeepSeek / OpenRouter），按模型自动切数据源 | display |
 | 🧩 **[pi-footer-composer](./extensions/pi-footer-composer/README.md)** | 接管 footer 渲染，一个内容一行：环境、用量、上下文、模型、每个扩展状态各占一行，组太宽时组内折行 | display |
 | ✅ **[pi-todo](./extensions/pi-todo/README.md)** | 模型可调用的待办清单工具 + 编辑器上方 overlay；状态从 session branch 重放，/reload 与压缩后健在 | tool |
+| 🔔 **[pi-notify](./extensions/pi-notify/README.md)** | agent 完成后通过 OSC 777/9/99 发送单行终端通知 | display |
 | 🛠️ **[pi-policy-engine](./extensions/pi-policy-engine/README.md)** | 自动路由 workflow（quick/standard/strict）+ 任务级 plan-then-execute + preview/history/diff/validate 调试命令 | model layer |
+| 🧠 **[pi-context-qos](./extensions/pi-context-qos/README.md)** | 非破坏式、任务感知、可恢复的 working-context runtime；SQLite/FTS5 + zstd CAS 冷存储 | model layer |
 
 > 每个 `extensions/<name>/` 是**独立可发布**的 pi package——可单独 `pi install`，也可整库安装。
 > 扩展之间**互不感知**：一个挂了不影响另一个；不需要某个就别装某个；同一层（model / tool / display）的扩展各自独立工作。
@@ -33,6 +35,8 @@
 ---
 
 ## 📦 安装
+
+整库安装要求 Node.js `>=22.15`。
 
 ### 三选一
 
@@ -84,13 +88,15 @@ bash <(curl -fsSL https://raw.githubusercontent.com/huangrx6/pi-plugin/main/bin/
 │  ├── LICENSE            ← MIT                                     │
 │  ├── bin/                                                         │
 │  │   └── install.sh     ← 方式三的可选脚本                        │
-│  └── extensions/        ← 4 个独立可发布包                         │
+│  └── extensions/        ← 8 个独立可发布包                         │
 │      ├── pi-skill-inject/  ← ⚡ model layer                      │
 │      ├── pi-mode-switcher/  ← 🛡️ tool layer                       │
 │      ├── pi-quota-status/   ← 📊 display                          │
 │      ├── pi-footer-composer/ ← 🧩 display                          │
 │      ├── pi-todo/          ← ✅ tool                              │
-│      └── pi-policy-engine/  ← 🛠️ model layer                      │
+│      ├── pi-notify/        ← 🔔 display                           │
+│      ├── pi-policy-engine/  ← 🛠️ model layer                      │
+│      └── pi-context-qos/    ← 🧠 model layer                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -116,7 +122,9 @@ npm test              # 每个扩展自带 self-test + smoke
 | 在 prompt 里用 `/skill-name` 直接喂 skill 内容进当前轮 | [pi-skill-inject](./extensions/pi-skill-inject/README.md) |
 | 每个工具调用前人工确认 / 自动过 / 危险拦截（ask / smart / full 三档） | [pi-mode-switcher](./extensions/pi-mode-switcher/README.md) |
 | footer 看到 OpenCode Go / 智谱 / Kimi 等订阅用量 | [pi-quota-status](./extensions/pi-quota-status/README.md) |
+| agent 完成后收到终端桌面通知 | [pi-notify](./extensions/pi-notify/README.md) |
 | 让模型自动按任务复杂度走 quick / standard / strict 流程，strict 时停下来等批准 | [pi-policy-engine](./extensions/pi-policy-engine/README.md) |
+| 在不改写 Session 的前提下动态压缩、搜索和召回旧工具证据 | [pi-context-qos](./extensions/pi-context-qos/README.md) |
 
 > 装了哪个就用哪个的能力，**互不依赖、互不冲突**——这就是它们该有的样子。
 

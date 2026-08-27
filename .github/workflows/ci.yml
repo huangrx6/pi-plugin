@@ -90,6 +90,26 @@ jobs:
         working-directory: extensions/pi-notify
         run: npx --yes -p tsx tsx --test index.test.ts
 
+  pi-context-qos:
+    name: pi-context-qos (ts, Node built-ins)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install
+        working-directory: extensions/pi-context-qos
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        working-directory: extensions/pi-context-qos
+        run: npm run check
+      - name: Self test + extension smoke
+        working-directory: extensions/pi-context-qos
+        run: npm test
+
   markdown-lint:
     name: markdownlint
     runs-on: ubuntu-latest
