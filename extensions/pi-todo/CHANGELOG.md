@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- Fix the "model plans in plain text instead of calling the tool" failure mode. The prompt guidance was all status discipline (when to mark in_progress/completed) with only a soft self-judged trigger ("complex work with 3+ steps") — so when the user explicitly asked for a plan/task breakdown, the model's default plain-text listing was never interrupted. All three guidance layers now lead with the explicit trigger: when the user asks to plan / break down work / make a todo list (制定任务, 列个计划, 拆解一下, create a plan, …), ALWAYS create todo items via the tool; presenting the plan as plain text is named as a failure mode. The 3+ steps heuristic and single-trivial-task exemption are kept.
+
 ## 0.2.1
 
 Sharper prompt text to fix the "completed task stays in_progress" pattern.

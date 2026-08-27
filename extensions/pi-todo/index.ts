@@ -49,12 +49,15 @@ const TOOL_NAME = "todo";
 const COMMAND_NAME = "todos";
 
 const DEFAULT_PROMPT_SNIPPET =
-  "Track multi-step work via `todo`. Mark each task in_progress BEFORE " +
-  "starting it and completed the moment its success criterion holds — " +
-  "do not batch, do not defer, do not leave tasks open 'just in case'.";
+  "Plan and track multi-step work via `todo`. When the user asks you to " +
+  "plan, break work into tasks, or make a todo list, CREATE todo items " +
+  "with the tool — never list the plan as plain text. Mark each task " +
+  "in_progress BEFORE starting it and completed the moment its success " +
+  "criterion holds — do not batch, do not defer, do not leave tasks open " +
+  "'just in case'.";
 
 const DEFAULT_PROMPT_GUIDELINES: string[] = [
-  "Use `todo` for complex work with 3+ steps, when the user gives you a list of tasks, or immediately after receiving new instructions. Skip it for single trivial tasks.",
+  "When to CREATE: (1) the user asks you to plan, break down work, or make tasks / a todo list (e.g. 制定任务, 列个计划, 拆解一下, create a plan, break this down) — ALWAYS create todo items via the tool; presenting the plan as plain text instead is a failure mode; (2) the work has 3+ steps; (3) the user hands you a list of tasks; (4) new multi-step instructions arrive. Skip it only for single trivial tasks.",
   "Mark a task in_progress BEFORE starting it. Keep exactly one task in_progress at a time. After EVERY successful tool call, BEFORE starting any new action, ask yourself: 'Did this tool call just close the task I had in_progress?' If yes, update its status to completed FIRST, then proceed to the next action. Never batch completions at end-of-turn.",
   "Mark a task completed EXACTLY ONCE all three hold: (a) every tool call tagged to it returned without isError; (b) any test that exercises this task passes (or no test exists); (c) no unresolved error remains in the current tool result stream. If you cannot tick all three, KEEP the task in_progress and state which one is blocking in the activeForm. Do NOT use the vague 'implementation might be partial' rationale — it is unverifiable and the default fallback that causes tasks to stay open indefinitely.",
   "Status is pending → in_progress → completed, plus deleted tombstones (immutable; ids are never reused, even after clear).",
@@ -105,7 +108,7 @@ export default function (pi: ExtensionAPI): void {
     name: TOOL_NAME,
     label: "Todo",
     description:
-      "Manage a task list for tracking multi-step progress. Actions: create, update (status/fields/dependencies), list, get, delete (tombstone), clear. Use this to plan and track multi-step work like research, design, and implementation.",
+      "Plan and track multi-step work as a task list. Actions: create, update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
     promptSnippet: DEFAULT_PROMPT_SNIPPET,
     promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
     parameters: TODO_PARAMS_SCHEMA,
