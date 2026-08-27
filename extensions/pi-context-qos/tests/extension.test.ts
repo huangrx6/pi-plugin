@@ -56,7 +56,9 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     assert.ok(handlers.has(event), `missing ${event} handler`);
   }
 
-  const branch: any[] = [{ id: "root", type: "message", message: { role: "user" } }];
+  const branch: any[] = [
+    { id: "root", type: "message", message: { role: "user" } },
+  ];
   const notifications: string[] = [];
   let compactCalls = 0;
   const statusUpdates: Array<[string, string]> = [];
@@ -70,7 +72,11 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
       getBranch: () => branch,
       getLeafId: () => branch.at(-1)?.id ?? null,
     },
-    getContextUsage: () => ({ tokens: 10_000, contextWindow: 8_000, percent: 125 }),
+    getContextUsage: () => ({
+      tokens: 10_000,
+      contextWindow: 8_000,
+      percent: 125,
+    }),
     compact: (options: { onComplete?: () => void }) => {
       compactCalls++;
       options.onComplete?.();
@@ -81,7 +87,10 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     },
   };
   await handlers.get("session_start")![0]!({ reason: "startup" }, ctx);
-  await handlers.get("before_agent_start")![0]!({ prompt: "fix retry binding" }, ctx);
+  await handlers.get("before_agent_start")![0]!(
+    { prompt: "fix retry binding" },
+    ctx,
+  );
   await handlers.get("turn_start")![0]!({ turnIndex: 0 }, ctx);
   await handlers.get("tool_result")![0]!(
     {
@@ -116,7 +125,11 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     ctx,
   );
   assert.equal(contextResult.messages.length, 2);
-  assert.equal(compactCalls, 1, "native compaction is the final critical-pressure fallback");
+  assert.equal(
+    compactCalls,
+    1,
+    "native compaction is the final critical-pressure fallback",
+  );
   const published = statusUpdates.find(([key]) => key === "usage:context-qos");
   assert.ok(published, "context hook must publish usage:context-qos status");
   assert.match(published![1]!, /QoS 上下文\d+%危/);
@@ -137,19 +150,28 @@ test("footer status uses Chinese labels, pressure colors, and frozen marker", ()
     pressure: "red",
     pressureRatio: 0.7,
     frozen: false,
-    byTier: { pinned: 0, working: 0, evidence: 6_600, historical: 19, disposable: 2_000 },
+    byTier: {
+      pinned: 0,
+      working: 0,
+      evidence: 6_600,
+      historical: 19,
+      disposable: 2_000,
+    },
     byRepresentation: { raw: 0, extract: 0, summary: 0, tombstone: 0 },
   };
   const text = formatStatus(base);
-  assert.match(text, /QoS 上下文70%红/);
-  assert.match(text, /活621\.0k/);
-  assert.match(text, /省3\.7k/);
-  assert.match(text, /84项/);
-  assert.match(text, /冷100\.0 KiB/);
-  assert.ok(text.includes("\x1b[31m"), "red pressure uses the red ANSI code");
+  const [line1, line2, ...extra] = text.split("\n");
+  assert.equal(extra.length, 0, "status is exactly two lines");
+  assert.match(line1!, /QoS 上下文70%红/);
+  assert.match(line1!, /活621\.0k/);
+  assert.match(line1!, /省3\.7k/);
+  assert.ok(!line1!.includes("84项"), "item count belongs on line 2");
+  assert.match(line2!, /84项/);
+  assert.match(line2!, /冷100\.0 KiB/);
+  assert.ok(line1!.includes("\x1b[31m"), "red pressure uses the red ANSI code");
   assert.ok(!text.includes("冻结"));
   const frozen = formatStatus({ ...base, frozen: true });
-  assert.match(frozen, /冻结/);
+  assert.match(frozen.split("\n")[1]!, /冻结/);
   const critical = formatStatus({ ...base, pressure: "critical" });
   assert.ok(critical.includes("\x1b[1;31m"), "critical pressure uses bold red");
   assert.match(critical, /危/);

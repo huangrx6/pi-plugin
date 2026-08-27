@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 - 2026-08-27
+
+- Footer status now renders as two stacked lines — `QoS 上下文X%级 · 活… · 省…` / `N项 · 冷… · 冻结…` — so it no longer stretches the resources row it lands in. Aggregators that support multi-line cells render one sub-line per display row; single-line renderers flatten the newline to a space.
+
 ## 0.1.2 - 2026-08-27
 
 - Publish a one-line footer status under the `usage:context-qos` key after every model call: Chinese-labelled fields (`上下文`/`活`/`省`/`项`/`冷`), a pressure-colored percentage (green/yellow/orange/red, bold red for critical), and a `冻结` marker while frozen. Any status aggregator routing `usage:*` keys renders it in its resources row; the extension remains unaware of who consumes it.

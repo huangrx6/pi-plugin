@@ -189,10 +189,12 @@ First-version compressors: tests, git, file reads, search and generic Bash. Stru
 
 ## Footer status
 
-After every model call the extension publishes a one-line status under the `usage:context-qos` key via Pi's status API. Any status aggregator that routes `usage:*` keys into its resources row will render it:
+After every model call the extension publishes a two-line status under the `usage:context-qos` key via Pi's status API. A status aggregator that renders multi-line cells gives each line its own display row in its resources row:
 
 ```text
-QoS 上下文70%红 · 活621k · 省3.7k · 84项 · 冷181.8 KiB
+资源： ↑1.5M │ ↓101k │ R14M │ $2.868 │ 18.2%/1.0M │ ⚡GLM 5h:36%(3h19m) 周:31%(83h33m)
+       QoS 上下文20%绿 · 活164.6k · 省17.3k
+       136项 · 冷230.9 KiB
 ```
 
 | 字段 | 含义 |

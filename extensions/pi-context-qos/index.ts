@@ -10,7 +10,10 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { ContextQosController, pressureLabel } from "./src/runtime/controller.ts";
+import {
+  ContextQosController,
+  pressureLabel,
+} from "./src/runtime/controller.ts";
 import { textFromContent } from "./src/runtime/tokens.ts";
 import type {
   ContextStats,
@@ -55,7 +58,10 @@ const REF_SCHEMA = {
 const SEARCH_SCHEMA = {
   type: "object",
   properties: {
-    query: { type: "string", description: "Terms to search in the session cold store." },
+    query: {
+      type: "string",
+      description: "Terms to search in the session cold store.",
+    },
     limit: { type: "integer", minimum: 1, maximum: 20, default: 8 },
   },
   required: ["query"],
@@ -81,25 +87,32 @@ function formatTokens(tokens: number): string {
 }
 
 /**
- * One-line footer status with Chinese labels, e.g.
- * "QoS 上下文70%红 · 活621k · 省3.7k · 84项 · 冷181.8 KiB".
- * Published under the `usage:context-qos` key; any status aggregator that
- * routes `usage:*` keys will render it in its resources row.
+ * Footer status with Chinese labels, published as TWO lines:
+ *
+ *   QoS 上下文70%红 · 活621k · 省3.7k
+ *   84项 · 冷181.8 KiB
+ *
+ * A status aggregator that renders multi-line cells gives each line
+ * its own display row (indented under the row label); a single-line
+ * renderer flattens the newline to a space. Published under the
+ * `usage:context-qos` key.
  */
 export function formatStatus(stats: ContextStats): string {
   const color = PRESSURE_ANSI[stats.pressure];
   const label = PRESSURE_LABEL[stats.pressure];
   const pct = `${(stats.pressureRatio * 100).toFixed(0)}%`;
   const head = `${color}QoS 上下文${pct}${label}${ANSI_RESET}`;
-  const parts = [
+  const line1 = [
     head,
     `活${formatTokens(stats.activeTokens)}`,
     `省${formatTokens(stats.savedTokens)}`,
+  ].join(" · ");
+  const line2 = [
     `${stats.itemCount}项`,
     `冷${formatBytes(stats.coldBytes)}`,
-  ];
-  if (stats.frozen) parts.push("冻结");
-  return parts.join(" · ");
+    ...(stats.frozen ? ["冻结"] : []),
+  ].join(" · ");
+  return `${line1}\n${line2}`;
 }
 
 function itemLine(item: StoredContextItem): string {
@@ -122,7 +135,8 @@ function itemLine(item: StoredContextItem): string {
 function requireController(
   controller: ContextQosController | undefined,
 ): ContextQosController {
-  if (!controller) throw new Error("pi-context-qos is not initialized for a session");
+  if (!controller)
+    throw new Error("pi-context-qos is not initialized for a session");
   return controller;
 }
 
@@ -176,7 +190,8 @@ export default function (pi: ExtensionAPI): void {
     label: "Context recall",
     description:
       "Restore the archived raw content behind a ctx://item/<id> reference into the current working context.",
-    promptSnippet: "Use context_recall when an archived summary lacks evidence needed for the current task.",
+    promptSnippet:
+      "Use context_recall when an archived summary lacks evidence needed for the current task.",
     parameters: REF_SCHEMA,
     async execute(_id, params) {
       const runtime = requireController(controller);
@@ -184,14 +199,18 @@ export default function (pi: ExtensionAPI): void {
       return { content: [{ type: "text", text }], details: {} };
     },
     renderCall(args, theme) {
-      return lineComponent(theme.fg("dim", `context recall ${String(args.ref ?? "")}`));
+      return lineComponent(
+        theme.fg("dim", `context recall ${String(args.ref ?? "")}`),
+      );
     },
     renderResult(result, _options, theme) {
       const firstText = result?.content?.find(
         (part: { type?: string }) => part.type === "text",
       );
       const text = firstText?.type === "text" ? firstText.text : "";
-      return lineComponent(theme.fg("dim", `recalled ${formatTokens(text.length)} chars`));
+      return lineComponent(
+        theme.fg("dim", `recalled ${formatTokens(text.length)} chars`),
+      );
     },
   });
 
@@ -203,14 +222,22 @@ export default function (pi: ExtensionAPI): void {
     parameters: SEARCH_SCHEMA,
     async execute(_id, params) {
       const runtime = requireController(controller);
-      const items = runtime.search(String(params.query), Number(params.limit ?? 8));
+      const items = runtime.search(
+        String(params.query),
+        Number(params.limit ?? 8),
+      );
       const text = items.length
         ? items.map(itemLine).join("\n")
         : "No archived context matched this query on the active branch.";
-      return { content: [{ type: "text", text }], details: { count: items.length } };
+      return {
+        content: [{ type: "text", text }],
+        details: { count: items.length },
+      };
     },
     renderCall(args, theme) {
-      return lineComponent(theme.fg("dim", `context search ${String(args.query ?? "")}`));
+      return lineComponent(
+        theme.fg("dim", `context search ${String(args.query ?? "")}`),
+      );
     },
   });
 
@@ -239,7 +266,12 @@ export default function (pi: ExtensionAPI): void {
         };
       },
       renderCall(args, theme) {
-        return lineComponent(theme.fg("dim", `${name.replace("context_", "context ")} ${String(args.ref ?? "")}`));
+        return lineComponent(
+          theme.fg(
+            "dim",
+            `${name.replace("context_", "context ")} ${String(args.ref ?? "")}`,
+          ),
+        );
       },
     });
   }
@@ -250,7 +282,10 @@ export default function (pi: ExtensionAPI): void {
     handler: async (args, ctx) => {
       const runtime = requireController(controller);
       visibleEntries(runtime, ctx);
-      const [sub = "stats", ...rest] = String(args ?? "").trim().split(/\s+/).filter(Boolean);
+      const [sub = "stats", ...rest] = String(args ?? "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
       const value = rest.join(" ");
       let output = "";
       switch (sub) {
@@ -263,7 +298,9 @@ export default function (pi: ExtensionAPI): void {
             .listItems(runtime.session.id)
             .sort((a, b) => b.retentionScore - a.retentionScore)
             .slice(0, 12);
-          output = items.length ? items.map(itemLine).join("\n") : "No context items.";
+          output = items.length
+            ? items.map(itemLine).join("\n")
+            : "No context items.";
           break;
         }
         case "tree": {
@@ -274,20 +311,33 @@ export default function (pi: ExtensionAPI): void {
             groups.set(item.tier, list);
           }
           output = [...groups]
-            .map(([tier, items]) => `${tier}\n${items.slice(-8).map((item) => `  ${itemLine(item)}`).join("\n")}`)
+            .map(
+              ([tier, items]) =>
+                `${tier}\n${items
+                  .slice(-8)
+                  .map((item) => `  ${itemLine(item)}`)
+                  .join("\n")}`,
+            )
             .join("\n");
           break;
         }
         case "tasks":
-          output = runtime.db
-            .listTasks(runtime.session.id)
-            .map((task) => `${task.status} · ${task.title} · turn ${task.created_turn}`)
-            .join("\n") || "No inferred task.";
+          output =
+            runtime.db
+              .listTasks(runtime.session.id)
+              .map(
+                (task) =>
+                  `${task.status} · ${task.title} · turn ${task.created_turn}`,
+              )
+              .join("\n") || "No inferred task.";
           break;
         case "epochs":
           output = runtime.db
             .listEpochs(runtime.session.id)
-            .map((epoch) => `#${epoch.ordinal} ${epoch.status} · turns ${epoch.start_turn}-${epoch.end_turn ?? "…"}`)
+            .map(
+              (epoch) =>
+                `#${epoch.ordinal} ${epoch.status} · turns ${epoch.start_turn}-${epoch.end_turn ?? "…"}`,
+            )
             .join("\n");
           break;
         case "inspect": {
@@ -302,7 +352,9 @@ export default function (pi: ExtensionAPI): void {
           break;
         case "search": {
           const items = runtime.search(value);
-          output = items.length ? items.map(itemLine).join("\n") : "No matches.";
+          output = items.length
+            ? items.map(itemLine).join("\n")
+            : "No matches.";
           break;
         }
         case "pin":
@@ -335,7 +387,8 @@ export default function (pi: ExtensionAPI): void {
           break;
         case "reset-session":
           runtime.reset();
-          output = "Context QoS metadata for this session was reset. Pi session and shared blobs were not deleted.";
+          output =
+            "Context QoS metadata for this session was reset. Pi session and shared blobs were not deleted.";
           break;
         default:
           output = `Unknown subcommand: ${sub}`;
@@ -357,11 +410,16 @@ export default function (pi: ExtensionAPI): void {
             ? `${String(model.provider ?? "unknown")}/${model.id}`
             : null,
         contextWindow:
-          model && typeof model.contextWindow === "number" ? model.contextWindow : null,
+          model && typeof model.contextWindow === "number"
+            ? model.contextWindow
+            : null,
         projectTrusted: ctx.isProjectTrusted(),
       });
       visibleEntries(controller, ctx);
-      if (event.reason === "fork" && typeof event.previousSessionFile === "string") {
+      if (
+        event.reason === "fork" &&
+        typeof event.previousSessionFile === "string"
+      ) {
         controller.inheritFork(event.previousSessionFile);
       }
     } catch (error) {
