@@ -23,7 +23,7 @@ import type {
 } from "./src/types.ts";
 
 const CHECKPOINT_TYPE = "context-qos-checkpoint";
-const STATUS_KEY = "usage:context-qos";
+const STATUS_KEY = "context:qos";
 const ANSI_RESET = "\x1b[0m";
 const PRESSURE_ANSI: Record<PressureLevel, string> = {
   green: "\x1b[32m",
@@ -86,33 +86,36 @@ function formatTokens(tokens: number): string {
   return tokens < 1000 ? String(tokens) : `${(tokens / 1000).toFixed(1)}k`;
 }
 
+/** Compact footer token form: drops trailing zeros (179.0k -> 179k). */
+function compactTokens(tokens: number): string {
+  if (tokens < 1000) return String(tokens);
+  if (tokens < 1_000_000) return `${parseFloat((tokens / 1000).toFixed(1))}k`;
+  return `${parseFloat((tokens / 1_000_000).toFixed(1))}M`;
+}
+
 /**
- * Footer status with Chinese labels, published as TWO lines:
+ * Footer status, one compact line matching the quota-status idiom:
  *
- *   QoS 上下文70%红 · 活621k · 省3.7k
- *   84项 · 冷181.8 KiB
+ *   ⚡QoS 22%(绿) 活179k 省22.9k 库165项
  *
- * A status aggregator that renders multi-line cells gives each line
- * its own display row (indented under the row label); a single-line
- * renderer flattens the newline to a space. Published under the
- * `usage:context-qos` key.
+ * The pressure percentage and level are colour-coded by level
+ * (green/yellow/orange/red, bold red for critical); frozen renders as
+ * `(绿·冻结)`. Published under the `context:qos` key — aggregators
+ * route context-prefixed statuses to a context-governance row.
  */
 export function formatStatus(stats: ContextStats): string {
   const color = PRESSURE_ANSI[stats.pressure];
-  const label = PRESSURE_LABEL[stats.pressure];
-  const pct = `${(stats.pressureRatio * 100).toFixed(0)}%`;
-  const head = `${color}QoS 上下文${pct}${label}${ANSI_RESET}`;
-  const line1 = [
+  const label = stats.frozen
+    ? `${PRESSURE_LABEL[stats.pressure]}·冻结`
+    : PRESSURE_LABEL[stats.pressure];
+  const pct = (stats.pressureRatio * 100).toFixed(0);
+  const head = `${color}⚡QoS ${pct}%(${label})${ANSI_RESET}`;
+  return [
     head,
-    `活${formatTokens(stats.activeTokens)}`,
-    `省${formatTokens(stats.savedTokens)}`,
-  ].join(" · ");
-  const line2 = [
-    `${stats.itemCount}项`,
-    `冷${formatBytes(stats.coldBytes)}`,
-    ...(stats.frozen ? ["冻结"] : []),
-  ].join(" · ");
-  return `${line1}\n${line2}`;
+    `活${compactTokens(stats.activeTokens)}`,
+    `省${compactTokens(stats.savedTokens)}`,
+    `库${stats.itemCount}项`,
+  ].join(" ");
 }
 
 function itemLine(item: StoredContextItem): string {

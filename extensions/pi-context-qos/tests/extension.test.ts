@@ -88,7 +88,7 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   };
   await handlers.get("session_start")![0]!({ reason: "startup" }, ctx);
   assert.ok(
-    statusUpdates.some(([key]) => key === "usage:context-qos"),
+    statusUpdates.some(([key]) => key === "context:qos"),
     "session_start must publish the footer status before any model call",
   );
   await handlers.get("before_agent_start")![0]!(
@@ -134,16 +134,14 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     1,
     "native compaction is the final critical-pressure fallback",
   );
-  const qosUpdates = statusUpdates.filter(
-    ([key]) => key === "usage:context-qos",
-  );
+  const qosUpdates = statusUpdates.filter(([key]) => key === "context:qos");
   assert.ok(
     qosUpdates.length >= 2,
     "status must be published at session_start and again per model call",
   );
   assert.match(
     qosUpdates.at(-1)![1]!,
-    /QoS 上下文\d+%危/,
+    /⚡QoS \d+%\((危)\)/,
     "the latest publication reflects the critical-pressure plan",
   );
   await handlers.get("turn_end")![0]!({}, ctx);
@@ -153,7 +151,7 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
   await handlers.get("session_shutdown")![0]!({}, ctx);
 });
 
-test("footer status uses Chinese labels, pressure colors, and frozen marker", () => {
+test("footer status is one compact quota-idiom line with Chinese labels", () => {
   const base: ContextStats = {
     activeTokens: 621_000,
     rawTokens: 625_000,
@@ -173,19 +171,17 @@ test("footer status uses Chinese labels, pressure colors, and frozen marker", ()
     byRepresentation: { raw: 0, extract: 0, summary: 0, tombstone: 0 },
   };
   const text = formatStatus(base);
-  const [line1, line2, ...extra] = text.split("\n");
-  assert.equal(extra.length, 0, "status is exactly two lines");
-  assert.match(line1!, /QoS 上下文70%红/);
-  assert.match(line1!, /活621\.0k/);
-  assert.match(line1!, /省3\.7k/);
-  assert.ok(!line1!.includes("84项"), "item count belongs on line 2");
-  assert.match(line2!, /84项/);
-  assert.match(line2!, /冷100\.0 KiB/);
-  assert.ok(line1!.includes("\x1b[31m"), "red pressure uses the red ANSI code");
+  assert.ok(!text.includes("\n"), "status is a single line");
+  assert.match(text, /⚡QoS 70%\(红\)/);
+  assert.match(text, /活621k/, "compact tokens drop the trailing zero");
+  assert.match(text, /省3\.7k/);
+  assert.match(text, /库84项/);
+  assert.ok(!text.includes("冷"), "cold bytes stay out of the footer line");
+  assert.ok(text.includes("\x1b[31m"), "red pressure uses the red ANSI code");
   assert.ok(!text.includes("冻结"));
   const frozen = formatStatus({ ...base, frozen: true });
-  assert.match(frozen.split("\n")[1]!, /冻结/);
+  assert.match(frozen, /70%\(红·冻结\)/);
   const critical = formatStatus({ ...base, pressure: "critical" });
   assert.ok(critical.includes("\x1b[1;31m"), "critical pressure uses bold red");
-  assert.match(critical, /危/);
+  assert.match(critical, /⚡QoS 70%\(危\)/);
 });

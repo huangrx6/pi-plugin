@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.5 - 2026-08-27
+
+- Status moves to the `context:qos` key and renders as one compact line in the quota-status idiom — `⚡QoS 22%(绿) 活179k 省22.9k 库165项` — with trailing-zero-free token counts and the frozen marker folded into the level bracket (`(绿·冻结)`). Cold-store bytes leave the footer (still in `/context stats`). Multi-row footers place it in a context-governance row; single-line renderers show it inline.
+
 ## 0.1.4 - 2026-08-27
 
 - Publish the footer status at `session_start` too, not only before each model call. Previously the status stayed invisible until the first user turn (the `context` hook never fires without a model call); on a resumed session the line now shows archived-item state immediately, and on a fresh session it shows a zeroed line proving the runtime is alive.

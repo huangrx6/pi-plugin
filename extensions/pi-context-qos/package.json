@@ -1,6 +1,6 @@
 {
   "name": "pi-context-qos",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Non-destructive, task-aware, recoverable working-context runtime with SQLite/FTS5 metadata and content-addressed zstd cold storage.",
   "license": "MIT",
   "type": "module",

@@ -189,22 +189,20 @@ First-version compressors: tests, git, file reads, search and generic Bash. Stru
 
 ## Footer status
 
-The status is published at `session_start` (before any model call, so it is visible from the first paint) and refreshed after every model call, under the `usage:context-qos` key via Pi's status API. A status aggregator that renders multi-line cells gives each line its own display row in its resources row:
+The status is published at `session_start` (before any model call, so it is visible from the first paint) and refreshed after every model call, under the `context:qos` key via Pi's status API. It renders as one compact line in the quota-status idiom, in the context-governance row of a multi-row footer:
 
 ```text
-资源： ↑1.5M │ ↓101k │ R14M │ $2.868 │ 18.2%/1.0M │ ⚡GLM 5h:36%(3h19m) 周:31%(83h33m)
-       QoS 上下文20%绿 · 活164.6k · 省17.3k
-       136项 · 冷230.9 KiB
+用量： ⚡GLM 5h:40%(3h11m) 周:32%(83h24m)
+资源： ↑2.2M │ ↓122k │ R21M │ CH10.5% │ $5.808 │ 21.1%/1.0M
+压缩： ⚡QoS 22%(绿) 活179k 省22.9k 库165项
 ```
 
 | 字段 | 含义 |
 | --- | --- |
-| `上下文70%红` | 当前有效预算（contextWindow × 0.82）的占用百分比与压力级别（绿/黄/橙/红/危），整段按级别着色，危级加粗 |
-| `活621k` | 进入 LLM 上下文的估算 tokens（含 system prompt 等固定开销） |
-| `省3.7k` | QoS 降级累计省下的 tokens（原始量 − 当前活跃量） |
-| `84项` | 冷库中归档的上下文条目数 |
-| `冷181.8 KiB` | 冷库磁盘占用（zstd 压缩后） |
-| `冻结` | `/context freeze` 生效中，降级已暂停 |
+| `⚡QoS 22%(绿)` | 有效预算（contextWindow × 0.82）占用百分比与压力级别（绿/黄/橙/红/危），整段按级别着色，危级加粗；冻结时显示 `(绿·冻结)` |
+| `活179k` | 进入 LLM 上下文的估算 tokens（含 system prompt 等固定开销）；尾零省略（179.0k → 179k） |
+| `省22.9k` | QoS 降级累计省下的 tokens（原始量 − 当前活跃量） |
+| `库165项` | 冷库中归档的上下文条目数（可 `context_recall` 的池子） |
 
 ## Install
 
