@@ -10,14 +10,21 @@
  * real ExtensionAPI.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { __resetState } from "./store.ts";
 
 // ── Captured state ──────────────────────────────────────────────────────
 
-export const notices: Array<{ message: string; level: string | undefined }> = [];
+export const notices: Array<{ message: string; level: string | undefined }> =
+	[];
 
-const handlers = new Map<string, (args: unknown, ctx: ExtensionContext) => unknown>();
+const handlers = new Map<
+	string,
+	(args: unknown, ctx: ExtensionContext) => unknown
+>();
 let interactive = true;
 
 export const sessionId = "test-session";
@@ -40,7 +47,10 @@ function buildHarness(): Harness {
 		registerTool(_def: unknown) {
 			/* not exercised by /todos parsing tests */
 		},
-		registerCommand(name: string, def: { handler: (args: unknown, ctx: ExtensionContext) => unknown }) {
+		registerCommand(
+			name: string,
+			def: { handler: (args: unknown, ctx: ExtensionContext) => unknown },
+		) {
 			handlers.set(name, def.handler);
 		},
 		on(_event: string, _handler: unknown) {

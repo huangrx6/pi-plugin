@@ -230,10 +230,7 @@ export function formatOverflowSummary(
   const parts: string[] = [];
   if (hiddenCompleted > 0) parts.push(`${hiddenCompleted} completed`);
   if (truncatedTail > 0) parts.push(`${truncatedTail} pending`);
-  const summary = theme.fg(
-    "dim",
-    `+${totalHidden} more (${parts.join(", ")})`,
-  );
+  const summary = theme.fg("dim", `+${totalHidden} more (${parts.join(", ")})`);
   const hint = theme.fg("dim", "/todos expand");
   return `${gutter} ${summary} · ${hint}`;
 }

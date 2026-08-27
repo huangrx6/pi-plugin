@@ -164,9 +164,12 @@ export default function (pi: ExtensionAPI): void {
       }
       const state = getState(sid(ctx));
       const sessionId = sid(ctx);
-      const sub = String(args ?? "").trim().toLowerCase();
-      const visibleCount = state.tasks.filter((t) => t.status !== "deleted")
-        .length;
+      const sub = String(args ?? "")
+        .trim()
+        .toLowerCase();
+      const visibleCount = state.tasks.filter(
+        (t) => t.status !== "deleted",
+      ).length;
 
       switch (sub) {
         case "expand": {
@@ -179,10 +182,7 @@ export default function (pi: ExtensionAPI): void {
         }
         case "collapse": {
           setExpanded(sessionId, false);
-          ctx.ui.notify(
-            `Overlay collapsed — capped at 12 rows`,
-            "info",
-          );
+          ctx.ui.notify(`Overlay collapsed — capped at 12 rows`, "info");
           return;
         }
         case "status": {

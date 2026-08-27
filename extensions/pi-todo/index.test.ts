@@ -18,16 +18,9 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 
 import factory from "./index.ts";
-import {
-	commandRegistry,
-	notices,
-	resetHarness,
-} from "./test-harness.ts";
+import { commandRegistry, notices, resetHarness } from "./test-harness.ts";
 
-import {
-	computeShownTasks,
-	formatOverflowSummary,
-} from "./overlay.ts";
+import { computeShownTasks, formatOverflowSummary } from "./overlay.ts";
 import {
 	__resetState,
 	clearExpanded,
@@ -92,7 +85,10 @@ describe("computeShownTasks", () => {
 	it("returns every task when below the collapsed cap", () => {
 		const visible = Array.from({ length: 5 }, (_, i) => mkTask(i + 1, "pending"));
 		const result = computeShownTasks(visible, false, MAX_ROWS);
-		assert.deepEqual(result.shown.map((t) => t.id), [1, 2, 3, 4, 5]);
+		assert.deepEqual(
+			result.shown.map((t) => t.id),
+			[1, 2, 3, 4, 5],
+		);
 		assert.equal(result.hiddenCompleted, 0);
 		assert.equal(result.truncatedTail, 0);
 	});
@@ -119,7 +115,10 @@ describe("computeShownTasks", () => {
 		const tasks = Array.from({ length: 20 }, (_, i) => mkTask(i + 1, "pending"));
 		const result = computeShownTasks(tasks, false, MAX_ROWS);
 		assert.equal(result.shown.length, 10);
-		assert.deepEqual(result.shown.map((t) => t.id), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+		assert.deepEqual(
+			result.shown.map((t) => t.id),
+			[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+		);
 		assert.equal(result.truncatedTail, 10);
 		assert.equal(result.hiddenCompleted, 0);
 	});
@@ -147,7 +146,10 @@ describe("computeShownTasks", () => {
 		const tasks = Array.from({ length: 11 }, (_, i) => mkTask(i + 1, "pending"));
 		const collapsed = computeShownTasks(tasks, false, MAX_ROWS);
 		const expanded = computeShownTasks(tasks, true, MAX_ROWS);
-		assert.deepEqual(collapsed.shown.map((t) => t.id), expanded.shown.map((t) => t.id));
+		assert.deepEqual(
+			collapsed.shown.map((t) => t.id),
+			expanded.shown.map((t) => t.id),
+		);
 		assert.equal(collapsed.hiddenCompleted, expanded.hiddenCompleted);
 		assert.equal(collapsed.truncatedTail, expanded.truncatedTail);
 	});
@@ -210,7 +212,9 @@ describe("/todos command", () => {
 	});
 	afterEach(() => __resetState());
 
-	function callTodos(args: string): { notices: Array<{ message: string; level: string | undefined }> } {
+	function callTodos(args: string): {
+		notices: Array<{ message: string; level: string | undefined }>;
+	} {
 		notices.length = 0;
 		commandRegistry.handlers.get("todos")?.(args, commandRegistry.ctx);
 		return { notices: [...notices] };
