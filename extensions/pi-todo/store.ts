@@ -19,6 +19,15 @@ import { EMPTY_STATE, isTodoDetails, type TaskState } from "./types.ts";
 
 const sessions = new Map<string, TaskState>();
 
+/**
+ * Per-session overlay preference: show the full list (true) or the
+ * 12-row collapsed summary (false). NOT persisted to the branch — this
+ * is a UI choice the user can re-toggle; persisting it would make replay
+ * have to tolerate a missing field on legacy branches AND lose the
+ * ability to start a fresh session collapsed regardless of branch.
+ */
+const expandedBySession = new Map<string, boolean>();
+
 let foreground = "";
 
 export function sid(ctx: {
@@ -43,6 +52,7 @@ export function getState(sessionId: string): TaskState {
 export function __resetState(): void {
  sessions.clear();
  foreground = "";
+ expandedBySession.clear();
 }
 
 /** Replay seam: lifecycle handlers publish a reconstructed snapshot. */
@@ -57,6 +67,19 @@ export function commitState(sessionId: string, next: TaskState): void {
 
 export function evictSession(sessionId: string): void {
  sessions.delete(sessionId);
+ expandedBySession.delete(sessionId);
+}
+
+export function getExpanded(sessionId: string): boolean {
+ return expandedBySession.get(sessionId) ?? false;
+}
+
+export function setExpanded(sessionId: string, value: boolean): void {
+ expandedBySession.set(sessionId, value);
+}
+
+export function clearExpanded(sessionId: string): void {
+ expandedBySession.delete(sessionId);
 }
 
 /** Which slot do ctx-free readers (overlay) render. */

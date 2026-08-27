@@ -29,10 +29,12 @@ import {
   clearForegroundSession,
   commitState,
   evictSession,
+  getExpanded,
   getForegroundSession,
   getState,
   replayFromBranch,
   replaceState,
+  setExpanded,
   setForegroundSession,
   sid,
 } from "./store.ts";
@@ -153,18 +155,61 @@ export default function (pi: ExtensionAPI): void {
   // ── /todos command ─────────────────────────────────────────────────────
 
   pi.registerCommand(COMMAND_NAME, {
-    description: "Show all todos, grouped by status",
-    handler: async (_args, ctx) => {
+    description:
+      "List todos, or toggle overlay expansion. Usage: /todos [expand|collapse|status]",
+    handler: async (args, ctx) => {
       if (!ctx.hasUI) {
         ctx.ui.notify("/todos requires interactive mode", "error");
         return;
       }
       const state = getState(sid(ctx));
-      if (state.tasks.filter((t) => t.status !== "deleted").length === 0) {
-        ctx.ui.notify("No todos yet. Ask the agent to add some!", "info");
-        return;
+      const sessionId = sid(ctx);
+      const sub = String(args ?? "").trim().toLowerCase();
+      const visibleCount = state.tasks.filter((t) => t.status !== "deleted")
+        .length;
+
+      switch (sub) {
+        case "expand": {
+          setExpanded(sessionId, true);
+          ctx.ui.notify(
+            `Overlay expanded — showing all ${visibleCount} tasks`,
+            "info",
+          );
+          return;
+        }
+        case "collapse": {
+          setExpanded(sessionId, false);
+          ctx.ui.notify(
+            `Overlay collapsed — capped at 12 rows`,
+            "info",
+          );
+          return;
+        }
+        case "status": {
+          const expanded = getExpanded(sessionId);
+          ctx.ui.notify(
+            expanded
+              ? `Overlay: expanded (showing all ${visibleCount} tasks)`
+              : `Overlay: collapsed (showing up to 12 of ${visibleCount})`,
+            "info",
+          );
+          return;
+        }
+        case "": {
+          if (visibleCount === 0) {
+            ctx.ui.notify("No todos yet. Ask the agent to add some!", "info");
+            return;
+          }
+          ctx.ui.notify(formatTodosCommand(state), "info");
+          return;
+        }
+        default: {
+          ctx.ui.notify(
+            `Unknown subcommand: ${sub}. Usage: /todos [expand|collapse|status]`,
+            "error",
+          );
+        }
       }
-      ctx.ui.notify(formatTodosCommand(state), "info");
     },
   });
 

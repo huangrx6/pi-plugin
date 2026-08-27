@@ -1,6 +1,6 @@
 {
   "name": "pi-todo",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A todo tool for the model with a live overlay: state replays from the session branch, so it survives /reload and compaction. Zero runtime dependencies.",
   "license": "MIT",
   "type": "module",
@@ -10,6 +10,11 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
+  "devDependencies": {
+    "@types/node": ">=20",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
   "keywords": [
     "pi-package"
   ],
@@ -17,5 +22,9 @@
     "extensions": [
       "./index.ts"
     ]
+  },
+  "scripts": {
+    "check": "tsc -p . --noEmit",
+    "test": "tsx --test index.test.ts"
   }
 }

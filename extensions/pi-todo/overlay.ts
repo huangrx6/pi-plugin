@@ -11,10 +11,17 @@
  * truncate the non-completed tail, and summarize with "+N more (x
  * completed, y pending)". Per-row #id prefixes appear only when some
  * task carries a dependency — otherwise ids have no anchor.
+ *
+ * Expand / collapse: `/todos expand` shows every visible task with no row
+ * cap (use when 12-row truncation hides work you need to see); `/todos
+ * collapse` returns to the 12-row budget. The expanded flag is a per-
+ * session UI preference kept in the foreground slot — it is NOT replayed
+ * from the branch, so legacy sessions start collapsed and a /reload
+ * resets the choice (intentional: the user re-toggles explicitly).
  */
 
 import { countsOf, formatOverlayRow, truncateToWidth } from "./format.ts";
-import { getRenderState } from "./store.ts";
+import { getExpanded, getForegroundSession, getRenderState } from "./store.ts";
 import type { Task } from "./types.ts";
 
 const WIDGET_KEY = "pi-todo";
@@ -100,6 +107,7 @@ export class TodoOverlay {
     const c = countsOf(state);
     const showIds = visible.some((t) => (t.blockedBy?.length ?? 0) > 0);
     const hasActive = c.pending + c.inProgress > 0;
+    const expanded = getExpanded(getForegroundSession());
 
     const headingColor = hasActive ? "accent" : "dim";
     const headingIcon = hasActive ? "●" : "○";
@@ -112,51 +120,32 @@ export class TodoOverlay {
     );
     const lines = [heading];
 
-    // Budget: keep non-completed rows, drop completed first, then tail.
-    const inner = MAX_ROWS - 1; // reserve overflow summary slot when needed
-    const nonCompleted = visible.filter((t) => t.status !== "completed");
-    const completed = visible.filter((t) => t.status === "completed");
-    let shown: Task[];
-    let hiddenCompleted = 0;
-    let truncatedTail = 0;
-    if (visible.length <= inner) {
-      shown = visible;
-    } else {
-      const room = inner - 1; // one row for the summary
-      if (nonCompleted.length <= room) {
-        shown = [
-          ...nonCompleted,
-          ...completed.slice(0, room - nonCompleted.length),
-        ];
-        hiddenCompleted =
-          completed.length - (shown.length - nonCompleted.length);
-      } else {
-        shown = nonCompleted.slice(0, room);
-        truncatedTail = nonCompleted.length - room;
-        hiddenCompleted = completed.length;
-      }
-    }
+    const { shown, hiddenCompleted, truncatedTail } = computeShownTasks(
+      visible,
+      expanded,
+      MAX_ROWS,
+    );
 
     for (const task of shown) {
+      const isLastShown = shown.indexOf(task) === shown.length - 1;
+      const nothingHidden = hiddenCompleted + truncatedTail === 0;
+      const gutter = isLastShown && nothingHidden ? "└─" : "├─";
       lines.push(
         truncateToWidth(
-          `${theme.fg("dim", shown.indexOf(task) === shown.length - 1 && hiddenCompleted + truncatedTail === 0 ? "└─" : "├─")} ${formatOverlayRow(task, theme, showIds)}`,
+          `${theme.fg("dim", gutter)} ${formatOverlayRow(task, theme, showIds)}`,
           width,
         ),
       );
     }
 
-    const totalHidden = hiddenCompleted + truncatedTail;
-    if (totalHidden > 0) {
-      const parts: string[] = [];
-      if (hiddenCompleted > 0) parts.push(`${hiddenCompleted} completed`);
-      if (truncatedTail > 0) parts.push(`${truncatedTail} pending`);
-      lines.push(
-        truncateToWidth(
-          `${theme.fg("dim", "└─")} ${theme.fg("dim", `+${totalHidden} more (${parts.join(", ")})`)}`,
-          width,
-        ),
-      );
+    const summary = formatOverflowSummary(
+      hiddenCompleted,
+      truncatedTail,
+      expanded,
+      theme,
+    );
+    if (summary !== null) {
+      lines.push(truncateToWidth(summary, width));
     }
 
     // Trailing spacer so the panel isn't glued to the editor box.
@@ -174,4 +163,77 @@ export class TodoOverlay {
 
 function visibleTasks(): Task[] {
   return getRenderState().tasks.filter((t) => t.status !== "deleted");
+}
+
+// ── Pure helpers (exported so unit tests can exercise them) ─────────────
+
+/**
+ * Decide which tasks to render and how many are hidden.
+ *
+ * Collapsed (expanded === false): keep a fixed `maxRows` budget. Drop
+ * completed rows first, then truncate the non-completed tail. One row
+ * is reserved for the overflow summary when anything is hidden.
+ *
+ * Expanded (expanded === true): render every visible task, no cap. The
+ * trade-off is explicit — the user opted in via `/todos expand`.
+ */
+export function computeShownTasks(
+  visible: Task[],
+  expanded: boolean,
+  maxRows: number,
+): { shown: Task[]; hiddenCompleted: number; truncatedTail: number } {
+  if (expanded) {
+    return { shown: visible, hiddenCompleted: 0, truncatedTail: 0 };
+  }
+  const inner = maxRows - 1; // reserve overflow summary slot when needed
+  if (visible.length <= inner) {
+    return { shown: visible, hiddenCompleted: 0, truncatedTail: 0 };
+  }
+  const nonCompleted = visible.filter((t) => t.status !== "completed");
+  const completed = visible.filter((t) => t.status === "completed");
+  const room = inner - 1; // one row for the summary itself
+  if (nonCompleted.length <= room) {
+    const shown = [
+      ...nonCompleted,
+      ...completed.slice(0, room - nonCompleted.length),
+    ];
+    const hiddenCompleted =
+      completed.length - (shown.length - nonCompleted.length);
+    return { shown, hiddenCompleted, truncatedTail: 0 };
+  }
+  const shown = nonCompleted.slice(0, room);
+  const truncatedTail = nonCompleted.length - room;
+  const hiddenCompleted = completed.length;
+  return { shown, hiddenCompleted, truncatedTail };
+}
+
+/**
+ * Build the overflow summary gutter line. Returns null when nothing is
+ * hidden AND we're collapsed (no summary needed) — the caller is then
+ * free to swap the last task's gutter from ├─ to └─.
+ *
+ * Always returns a string when expanded, so the user sees the collapse
+ * hint even when nothing is hidden.
+ */
+export function formatOverflowSummary(
+  hiddenCompleted: number,
+  truncatedTail: number,
+  expanded: boolean,
+  theme: { fg(color: string, text: string): string },
+): string | null {
+  const gutter = theme.fg("dim", "└─");
+  if (expanded) {
+    return `${gutter} ${theme.fg("dim", "/todos collapse")}`;
+  }
+  const totalHidden = hiddenCompleted + truncatedTail;
+  if (totalHidden === 0) return null;
+  const parts: string[] = [];
+  if (hiddenCompleted > 0) parts.push(`${hiddenCompleted} completed`);
+  if (truncatedTail > 0) parts.push(`${truncatedTail} pending`);
+  const summary = theme.fg(
+    "dim",
+    `+${totalHidden} more (${parts.join(", ")})`,
+  );
+  const hint = theme.fg("dim", "/todos expand");
+  return `${gutter} ${summary} · ${hint}`;
 }
