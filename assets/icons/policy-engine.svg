@@ -1,4 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="policy-engine">
+  <style>
+    :root { color: #1f2328; }
+    @media (prefers-color-scheme: dark) { :root { color: #e6edf3; } }
+  </style>
   <circle cx="6" cy="6" r="1.5" />
   <circle cx="6" cy="18" r="1.5" />
   <circle cx="18" cy="18" r="1.5" />

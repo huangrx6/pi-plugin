@@ -1,5 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 340" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="Architecture: three independent extension layers feeding pi-coding-agent">
   <style>
+    :root { color: #1f2328; }
+    @media (prefers-color-scheme: dark) { :root { color: #e6edf3; } }
     text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; fill: currentColor; stroke: none; }
     .pill { stroke: currentColor; fill: none; }
     .band { stroke: currentColor; stroke-dasharray: 4 3; fill: none; }

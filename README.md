@@ -1,9 +1,6 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-light.svg" />
-    <img src="assets/logo-dark.svg" alt="pi-plugin" width="96" />
-  </picture>
+  <img src="assets/logo.svg" alt="pi-plugin" width="96" />
 </p>
 
 # pi-plugin
