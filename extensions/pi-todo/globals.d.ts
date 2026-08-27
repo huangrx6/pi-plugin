@@ -17,6 +17,13 @@ type LooseBranchEntry = {
   message?: { role?: string; toolName?: string; details?: unknown };
 };
 
+// Structural shape of a pi TUI renderable (see pi's extensions/types.d.ts:
+// tool renderCall/renderResult must return Component, never a string).
+type ToolRenderComponent = {
+  render(width: number): string[];
+  invalidate?(): void;
+};
+
 declare module "@earendil-works/pi-coding-agent" {
   export interface ExtensionContext {
     hasUI: boolean;
@@ -60,13 +67,16 @@ declare module "@earendil-works/pi-coding-agent" {
         content: Array<{ type: "text"; text: string }>;
         details?: unknown;
       }>;
-      renderCall?: (args: any, theme: any, context: any) => unknown;
+      // pi 0.84.x contract: both renderers must return a Component —
+      // { render(width): string[] } — not a string (a raw string crashes
+      // the TUI's Box.render with "child.render is not a function").
+      renderCall?: (args: any, theme: any, context: any) => ToolRenderComponent;
       renderResult?: (
         result: any,
         options: any,
         theme: any,
         context: any,
-      ) => unknown;
+      ) => ToolRenderComponent;
     }): void;
   }
 }

@@ -69,6 +69,15 @@ function formatError(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+// pi's tool renderer contract (0.84.x): renderCall/renderResult must
+// return a Component — an object with render(width): string[] — never a
+// raw string. The TUI pushes the return value into the render container
+// via addChild() without validation; a string detonates the next render
+// frame inside Box.render ("child.render is not a function").
+function lineComponent(line: string) {
+  return { render: (_width: number) => [line] };
+}
+
 export default function (pi: ExtensionAPI): void {
   let overlay: TodoOverlay | undefined;
   let uiCtx:
@@ -129,13 +138,15 @@ export default function (pi: ExtensionAPI): void {
           ? ""
           : ` #${a.id}`;
       const extra = a.status ? ` → ${a.status}` : "";
-      return theme.fg("dim", `todo ${a.action ?? "?"}${what}${extra}`);
+      return lineComponent(
+        theme.fg("dim", `todo ${a.action ?? "?"}${what}${extra}`),
+      );
     },
 
     renderResult(result, _opts, theme) {
       const text = result?.content?.[0]?.text ?? "";
       const first = String(text).split("\n")[0];
-      return theme.fg("dim", first);
+      return lineComponent(theme.fg("dim", first));
     },
   });
 
