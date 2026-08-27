@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.23.1 - 2026-08-27
+
+- Fix the `/policy` interactive picker rendering one glyph per row: the option labels were `join("\n")`-ed into a single string before being passed to `ctx.ui.select`, whose widget iterates the argument per option — a string iterates per character. `selectOptionLabel` now returns a proper `string[]` (one label per option), and the stray third `options` argument to `select` was dropped.
+
+# Changelog
+
 ## 0.23.0
 
 Release-candidate hardening #4 — the three runtime invariants.

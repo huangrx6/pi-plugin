@@ -73,7 +73,11 @@ const PROFILE_OPTIONS = [
 const VALID_MODES = new Set(MODE_OPTIONS.map((o) => o.key));
 
 function selectOptionLabel(options) {
-  return options.map((o) => `${o.key} — ${o.description}`).join("\n");
+  // ui.select renders ONE OPTION PER LINE from a string[]. The previous
+  // implementation joined everything into a single "\n"-separated string,
+  // which the select widget iterated character-by-character (one glyph
+  // per row) — pass an array of per-option labels instead.
+  return options.map((o) => `${o.key} — ${o.description}`);
 }
 
 function parseSelectedKey(choice) {
@@ -91,11 +95,7 @@ async function pickOne(ctx, title, options) {
   // numbered list if select isn't available or returns garbage.
   if (typeof ctx?.ui?.select !== "function") return null;
   try {
-    const choice = await ctx.ui.select(
-      title,
-      selectOptionLabel(options),
-      options,
-    );
+    const choice = await ctx.ui.select(title, selectOptionLabel(options));
     if (typeof choice === "string") return parseSelectedKey(choice);
     if (
       choice &&
