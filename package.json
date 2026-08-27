@@ -18,7 +18,8 @@
       "./extensions/pi-mode-switcher",
       "./extensions/pi-quota-status",
       "./extensions/pi-policy-engine",
-      "./extensions/pi-footer-composer"
+      "./extensions/pi-footer-composer",
+      "./extensions/pi-todo"
     ]
   },
   "files": [

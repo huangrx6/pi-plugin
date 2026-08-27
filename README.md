@@ -24,6 +24,7 @@
 | 🛡️ **[pi-mode-switcher](./extensions/pi-mode-switcher/README.md)** | 三级批准控制（ask / smart / full），每个 `tool_call` 之前决定放行还是弹框 | tool layer |
 | 📊 **[pi-quota-status](./extensions/pi-quota-status/README.md)** | footer 显示 AI 订阅用量（OpenCode Go / 智谱 GLM / Kimi / DeepSeek / OpenRouter），按模型自动切数据源 | display |
 | 🧩 **[pi-footer-composer](./extensions/pi-footer-composer/README.md)** | 接管 footer 渲染为表格布局：环境、用量、上下文、模型、每个扩展状态各占一格，按终端宽度自动分行 | display |
+| ✅ **[pi-todo](./extensions/pi-todo/README.md)** | 模型可调用的待办清单工具 + 编辑器上方 overlay；状态从 session branch 重放，/reload 与压缩后健在 | tool |
 | 🛠️ **[pi-policy-engine](./extensions/pi-policy-engine/README.md)** | 自动路由 workflow（quick/standard/strict）+ 任务级 plan-then-execute + preview/history/diff/validate 调试命令 | model layer |
 
 > 每个 `extensions/<name>/` 是**独立可发布**的 pi package——可单独 `pi install`，也可整库安装。
@@ -88,6 +89,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/huangrx6/pi-plugin/main/bin/
 │      ├── pi-mode-switcher/  ← 🛡️ tool layer                       │
 │      ├── pi-quota-status/   ← 📊 display                          │
 │      ├── pi-footer-composer/ ← 🧩 display                          │
+│      ├── pi-todo/          ← ✅ tool                              │
 │      └── pi-policy-engine/  ← 🛠️ model layer                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
