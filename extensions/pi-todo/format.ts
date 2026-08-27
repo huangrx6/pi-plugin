@@ -179,13 +179,16 @@ export function formatOverlayRow(
     completed: "✓",
     pending: "○",
   };
+  // pi's TUI theme rejects unknown color keys with an uncaught exception
+  // that crashes the whole renderer. Pending rows get the neutral
+  // "muted" tone; the fallback covers future status variants.
   const COLOR: Record<string, string> = {
     in_progress: "accent",
     completed: "dim",
-    pending: "default",
+    pending: "muted",
   };
   const icon = ICON[task.status] ?? "○";
-  const color = COLOR[task.status] ?? "default";
+  const color = COLOR[task.status] ?? "muted";
   const id = showIds ? `#${task.id} ` : "";
   const form =
     task.status === "in_progress" && task.activeForm
