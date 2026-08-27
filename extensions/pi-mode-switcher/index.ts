@@ -23,6 +23,7 @@
  *    `rm /`, `rm /*`, and wildcard deletes are still caught.
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
@@ -58,11 +59,6 @@ const MODE_COLOR: Record<Mode, string> = {
   full: C.red,
 };
 
-// Tools that write to the filesystem (need approval in ask mode).
-const WRITE_TOOLS = new Set([
-  "write", "edit", "apply_patch", "multi_edit",
-  "create", "delete", "rename", "move", "append",
-]);
 // Read-only tools (always pass in every mode).
 const READ_TOOLS = new Set(["read", "ls", "grep", "find", "glob"]);
 
@@ -74,8 +70,7 @@ const CONFIG_PATH = `${process.env.HOME ?? process.env.USERPROFILE}/.pi/agent/mo
 
 function loadPersistedMode(): Mode {
   try {
-    const fs = requireNodeFs();
-    const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    const parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     return parsed.mode === "ask" || parsed.mode === "smart" || parsed.mode === "full"
       ? (parsed.mode as Mode)
       : "smart";
@@ -86,16 +81,10 @@ function loadPersistedMode(): Mode {
 
 function persistMode(mode: Mode): void {
   try {
-    requireNodeFs().writeFileSync(CONFIG_PATH, JSON.stringify({ mode }, null, 2), "utf-8");
+    writeFileSync(CONFIG_PATH, JSON.stringify({ mode }, null, 2), "utf-8");
   } catch {
     // non-fatal
   }
-}
-
-let _fs: typeof import("node:fs") | null = null;
-function requireNodeFs(): typeof import("node:fs") {
-  if (!_fs) _fs = require("node:fs") as typeof import("node:fs");
-  return _fs;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,16 +97,67 @@ let currentMode: Mode = loadPersistedMode();
 // Risk detection
 // ---------------------------------------------------------------------------
 
-/** Is a bash command a write operation? (heuristic) */
-function isWriteBash(cmd: string): boolean {
-  const c = cmd.trim();
+/**
+ * Split a composite command into independently-analyzable segments.
+ * Separators: && || ; | newlines, plus $( ) and ` ` substitution bodies so
+ * they are still analyzed. Crude on nested substitutions — that is
+ * deliberate: the composite safety net below treats anything not
+ * provably read-only as a write, so under-decomposition errs toward
+ * asking (the README promise: missed cases default to the safer side).
+ */
+export function splitSegments(cmd: string): string[] {
+  return cmd
+    .split(/&&|\|\||;|\||\n/)
+    .flatMap((seg) => seg.split(/`([^`]*)`/).filter((s) => s && s.trim()))
+    .flatMap((seg) => seg.split("$(").map((s) => s.replace(/\)$/, "")))
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Write heuristics for a SINGLE command segment (no separators inside). */
+function segWriteBash(c: string): boolean {
   if (/^(rm|mv|cp|mkdir|touch|chmod|chown|dd|ln|truncate|install|patch)\b/.test(c)) return true;
   if (/[>»]/.test(c) && !/[>»]\s*\/dev\/null/.test(c)) return true;
   if (/\b(tee|sed\s+-i)\b/.test(c)) return true;
   if (/^git\s+(commit|push|reset|rebase|merge|checkout|restore|clean|stash|tag|branch\s+-[dD])\b/.test(c)) return true;
   if (/^(npm|yarn|pnpm|pip|pip3|poetry|cargo|go|brew|apt|apt-get|yum|dnf)\s+(install|add|remove|uninstall|publish|update|upgrade)\b/.test(c)) return true;
-  // Network access (internet usage).
   if (/^(curl|wget|ssh|scp|rsync|nc|nmap)\b/.test(c)) return true;
+  return false;
+}
+
+/**
+ * Read-only segment whitelist — used ONLY as the composite safety net.
+ * A segment counts as provably read-only only when it starts with a
+ * known read-only command AND carries no hidden mutating word in its
+ * arguments (e.g. `xargs rm` is whitelisted by prefix but fails the
+ * keyword check).
+ */
+const READONLY_SEGS =
+  /^(ls|cat|head|tail|less|grep|rg|find|wc|pwd|whoami|uname|date|echo|printf|true|false|which|type|file|du|df|stat|id|env|printenv|sleep|basename|dirname|realpath|sort|uniq|cut|awk|sed|tr|xargs)\b|^git\s+(status|log|diff|show|blame|branch|tag|remote|rev-parse|reflog|ls-files|ls-remote|shortlog|describe|stash\s+(list|show))\b/;
+const HIDDEN_MUTATORS =
+  /\b(rm|mv|cp|chmod|chown|dd|tee|sudo|mkfifo|shred|install|patch|truncate|curl|wget|ssh)\b/;
+
+function segProvablyReadOnly(seg: string): boolean {
+  return READONLY_SEGS.test(seg) && !HIDDEN_MUTATORS.test(seg);
+}
+
+function isComposite(cmd: string): boolean {
+  return /&&|\|\||;|\||\n|\$\(|`/.test(cmd);
+}
+
+/** Is a bash command a write operation? Composite-aware heuristic. */
+export function isWriteBash(cmd: string): boolean {
+  const segments = splitSegments(cmd);
+  for (const seg of segments) {
+    if (segWriteBash(seg)) return true;
+  }
+  // Composite safety net: any segment we cannot PROVE read-only makes
+  // the whole composite a write. Single non-composite commands keep the
+  // original blacklist behaviour (changing that would prompt on every
+  // `python3 x.py` — a UX decision beyond this bug fix).
+  if (isComposite(cmd)) {
+    return segments.some((seg) => !segProvablyReadOnly(seg));
+  }
   return false;
 }
 
@@ -132,22 +172,32 @@ function rmTargetsRisky(cmd: string): boolean {
   return targets.some((t) => {
     if (t === "/" || t === "/*" || t === "." || t === ".." || t === "~") return true;
     if (t === "*" || t === ".*" || t === "/*.*") return true;
-    // Wildcard deletes (foo/*, *.txt at command top level).
     if (t.includes("*")) return true;
     return false;
   });
 }
 
-/** Is a bash command high-risk / irreversible? */
-function isRiskyBash(cmd: string): boolean {
-  const c = cmd.trim();
+/** High-risk heuristics for a SINGLE command segment. */
+function segRiskyBash(c: string): boolean {
   if (/^rm\b/.test(c) && (/(\s|^)(-[a-zA-Z]*[rf][a-zA-Z]*|--recursive|--force)(\s|$)/.test(c) || rmTargetsRisky(c))) return true;
   if (/^(mkfs|fdisk|parted)\b/.test(c)) return true;
   if (/^dd\b.*\bof=\/dev\//.test(c)) return true;
-  if (/^git\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f|push\s+--force(\s|$)|push\s+-f(\s|$))/ .test(c)) return true;
+  if (/^git\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f|push\s+--force(\s|$)|push\s+-f(\s|$))/.test(c)) return true;
   if (/\bsudo\b/.test(c)) return true;
   if (/\bchmod\s+(-[a-zA-Z]*\s+)*-?R?[0-7]{3,4}\s+\/(\s|$)/.test(c)) return true;
   if (/\bmkfifo\b|\bshred\b/.test(c)) return true;
+  return false;
+}
+
+/** Is a bash command high-risk / irreversible? Composite-aware. */
+export function isRiskyBash(cmd: string): boolean {
+  const segments = splitSegments(cmd);
+  if (segments.some((seg) => segRiskyBash(seg))) return true;
+  // Piping anything into an interpreter is remote code execution
+  // (`curl … | sh`) — flag the interpreter segment when a pipe exists.
+  if (cmd.includes("|")) {
+    return segments.some((seg) => /^(sh|bash|zsh|fish|python3?|node|ruby|perl)\b/.test(seg));
+  }
   return false;
 }
 
@@ -226,6 +276,17 @@ type UiCtx = {
   };
 };
 
+/**
+ * SAFETY: pi's event ctx is a wide structural type at runtime; UiCtx is
+ * the narrow slice this extension touches (ui.notify / select / confirm /
+ * setStatus). The extension contract guarantees those methods exist on
+ * every event ctx, and mode-switcher never reads any other property —
+ * so this single cast point replaces five scattered ones.
+ */
+function uiOf(ctx: unknown): UiCtx {
+  return ctx as UiCtx;
+}
+
 function buildModeText(): string {
   const label = MODE_LABELS[currentMode];
   const color = MODE_COLOR[currentMode];
@@ -252,7 +313,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("mode", {
     description: "切换权限模式: ask | smart | full",
     handler: async (args, ctx) => {
-      const uiCtx = ctx as unknown as UiCtx;
+      const uiCtx = uiOf(ctx);
       const name = args.trim().toLowerCase();
       const valid: Mode[] = ["ask", "smart", "full"];
 
@@ -287,7 +348,7 @@ export default function (pi: ExtensionAPI): void {
       currentMode,
       event.toolName,
       event.input as Record<string, unknown>,
-      (title, message) => (ctx as unknown as UiCtx).ui.confirm(title, message),
+      (title, message) => uiOf(ctx).ui.confirm(title, message),
     );
     if (reason) {
       return { block: true, reason, terminate: false };
@@ -300,14 +361,14 @@ export default function (pi: ExtensionAPI): void {
   // (without reloading this module), so we re-set on every natural event.
   // setStatus is an O(1) map write — re-setting is free.
   pi.on("session_start", async (_event, ctx) => {
-    renderStatus(ctx as unknown as UiCtx);
+    renderStatus(uiOf(ctx));
   });
 
   pi.on("session_tree", async (_event, ctx) => {
-    renderStatus(ctx as unknown as UiCtx);
+    renderStatus(uiOf(ctx));
   });
 
   pi.on("turn_end", async (_event, ctx) => {
-    renderStatus(ctx as unknown as UiCtx);
+    renderStatus(uiOf(ctx));
   });
 }

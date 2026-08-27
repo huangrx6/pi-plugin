@@ -1,6 +1,6 @@
 {
   "name": "pi-mode-switcher",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Three-mode approval control for pi (ask / smart / full) via native tool_call interception + confirm dialogs. Zero dependencies.",
   "license": "MIT",
   "type": "module",
@@ -17,10 +17,23 @@
   },
   "files": [
     "index.ts",
+    "globals.d.ts",
+    "tsconfig.json",
+    "tests/",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "dependencies": {
     "@earendil-works/pi-coding-agent": "*"
+  },
+  "scripts": {
+    "check": "tsc -p . --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": ">=20",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   }
 }
