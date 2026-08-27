@@ -17,7 +17,10 @@ import type { Task, TaskState, TaskStatus } from "./types.ts";
 export function sanitizeTerminalText(value: string): string {
   return value
     .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/(?:\u001b\]|\u009d)[^\u0007\u009c\u001b]*(?:\u0007|\u009c|\u001b\\)?/g, "")
+    .replace(
+      /(?:\u001b\]|\u009d)[^\u0007\u009c\u001b]*(?:\u0007|\u009c|\u001b\\)?/g,
+      "",
+    )
     .replace(/\u001b./g, "")
     .replace(/[\u2028\u2029]/g, " ")
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) =>
@@ -28,9 +31,13 @@ export function sanitizeTerminalText(value: string): string {
 
 /** `[status] #id subject (activeForm) ⛓ #deps` — the list content line. */
 function formatListLine(t: Task): string {
-  const deps = t.blockedBy?.length ? ` ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}` : "";
+  const deps = t.blockedBy?.length
+    ? ` ⛓ ${t.blockedBy.map((id) => `#${id}`).join(",")}`
+    : "";
   const form =
-    t.status === "in_progress" && t.activeForm ? ` (${sanitizeTerminalText(t.activeForm)})` : "";
+    t.status === "in_progress" && t.activeForm
+      ? ` (${sanitizeTerminalText(t.activeForm)})`
+      : "";
   return `[${t.status}] #${t.id} ${sanitizeTerminalText(t.subject)}${form}${deps}`;
 }
 
@@ -38,11 +45,17 @@ function formatGetLines(task: Task, state: TaskState): string {
   const blocks = state.tasks
     .filter((t) => t.status !== "deleted" && t.blockedBy?.includes(task.id))
     .map((t) => `#${t.id}`);
-  const lines = [`#${task.id} [${task.status}] ${sanitizeTerminalText(task.subject)}`];
-  if (task.description) lines.push(`  description: ${sanitizeTerminalText(task.description)}`);
-  if (task.activeForm) lines.push(`  activeForm: ${sanitizeTerminalText(task.activeForm)}`);
+  const lines = [
+    `#${task.id} [${task.status}] ${sanitizeTerminalText(task.subject)}`,
+  ];
+  if (task.description)
+    lines.push(`  description: ${sanitizeTerminalText(task.description)}`);
+  if (task.activeForm)
+    lines.push(`  activeForm: ${sanitizeTerminalText(task.activeForm)}`);
   if (task.blockedBy?.length) {
-    lines.push(`  blockedBy: ${task.blockedBy.map((id) => `#${id}`).join(", ")}`);
+    lines.push(
+      `  blockedBy: ${task.blockedBy.map((id) => `#${id}`).join(", ")}`,
+    );
   }
   if (blocks.length > 0) lines.push(`  blocks: ${blocks.join(", ")}`);
   if (task.owner) lines.push(`  owner: ${sanitizeTerminalText(task.owner)}`);
@@ -62,7 +75,10 @@ export function formatContent(op: Op, state: TaskState): string {
       if (!op.changed) {
         return `No change: #${op.id} already matches the requested values`;
       }
-      const transition = op.fromStatus === op.toStatus ? "" : ` (${op.fromStatus} → ${op.toStatus})`;
+      const transition =
+        op.fromStatus === op.toStatus
+          ? ""
+          : ` (${op.fromStatus} → ${op.toStatus})`;
       return `Updated #${op.id}${transition}`;
     }
     case "delete":
@@ -72,8 +88,11 @@ export function formatContent(op: Op, state: TaskState): string {
     case "list": {
       let view = state.tasks;
       if (!op.includeDeleted) view = view.filter((t) => t.status !== "deleted");
-      if (op.statusFilter) view = view.filter((t) => t.status === op.statusFilter);
-      return view.length === 0 ? "No tasks" : view.map(formatListLine).join("\n");
+      if (op.statusFilter)
+        view = view.filter((t) => t.status === op.statusFilter);
+      return view.length === 0
+        ? "No tasks"
+        : view.map(formatListLine).join("\n");
     }
     case "get":
       return formatGetLines(op.task, state);
@@ -132,9 +151,16 @@ export function formatTodosCommand(state: TaskState): string {
     if (groups[key].length === 0) continue;
     lines.push(`── ${key.replace("_", " ")} ──`);
     for (const t of groups[key]) {
-      const form = t.activeForm && t.status === "in_progress" ? ` (${sanitizeTerminalText(t.activeForm)})` : "";
-      const deps = t.blockedBy?.length ? ` ⛓${t.blockedBy.map((id) => `#${id}`).join(",")}` : "";
-      lines.push(`${icon[key]} #${t.id} ${sanitizeTerminalText(t.subject)}${form}${deps}`);
+      const form =
+        t.activeForm && t.status === "in_progress"
+          ? ` (${sanitizeTerminalText(t.activeForm)})`
+          : "";
+      const deps = t.blockedBy?.length
+        ? ` ⛓${t.blockedBy.map((id) => `#${id}`).join(",")}`
+        : "";
+      lines.push(
+        `${icon[key]} #${t.id} ${sanitizeTerminalText(t.subject)}${form}${deps}`,
+      );
     }
   }
   return lines.join("\n");
@@ -148,7 +174,11 @@ export function formatOverlayRow(
   theme: { fg(color: string, text: string): string },
   showIds: boolean,
 ): string {
-  const ICON: Record<string, string> = { in_progress: "◐", completed: "✓", pending: "○" };
+  const ICON: Record<string, string> = {
+    in_progress: "◐",
+    completed: "✓",
+    pending: "○",
+  };
   const COLOR: Record<string, string> = {
     in_progress: "accent",
     completed: "dim",
@@ -164,7 +194,11 @@ export function formatOverlayRow(
   const deps = task.blockedBy?.length
     ? theme.fg("dim", ` ⛓${task.blockedBy.map((d) => `#${d}`).join(",")}`)
     : "";
-  return theme.fg(color, `${icon} ${id}${sanitizeTerminalText(task.subject)}`) + form + deps;
+  return (
+    theme.fg(color, `${icon} ${id}${sanitizeTerminalText(task.subject)}`) +
+    form +
+    deps
+  );
 }
 
 // ── grapheme-aware width + truncation (no pi-tui runtime dep) ────────────
@@ -193,11 +227,16 @@ function charWidth(segment: string): number {
 export function visibleWidth(text: string): number {
   const clean = text.replace(ANSI, "").replace(/\t/g, "   ");
   let width = 0;
-  for (const { segment } of segmenter.segment(clean)) width += charWidth(segment);
+  for (const { segment } of segmenter.segment(clean))
+    width += charWidth(segment);
   return width;
 }
 
-export function truncateToWidth(text: string, maxWidth: number, ellipsis = "…"): string {
+export function truncateToWidth(
+  text: string,
+  maxWidth: number,
+  ellipsis = "…",
+): string {
   if (maxWidth <= 0) return "";
   if (visibleWidth(text) <= maxWidth) return text;
   const suffix = visibleWidth(ellipsis) <= maxWidth ? ellipsis : "";
@@ -225,4 +264,3 @@ export function truncateToWidth(text: string, maxWidth: number, ellipsis = "…"
   }
   return result + suffix + "\x1b[0m";
 }
-

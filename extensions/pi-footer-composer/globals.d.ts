@@ -35,7 +35,10 @@ declare module "@earendil-works/pi-coding-agent" {
       setFooter(
         renderer: (
           tui: { requestRender(): void },
-          theme: { fg(color: string, text: string): string; bold(t: string): string },
+          theme: {
+            fg(color: string, text: string): string;
+            bold(t: string): string;
+          },
           footerData: {
             getGitBranch: () => string | null;
             getExtensionStatuses: () => ReadonlyMap<string, string>;

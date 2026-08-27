@@ -61,7 +61,12 @@ declare module "@earendil-works/pi-coding-agent" {
         details?: unknown;
       }>;
       renderCall?: (args: any, theme: any, context: any) => unknown;
-      renderResult?: (result: any, options: any, theme: any, context: any) => unknown;
+      renderResult?: (
+        result: any,
+        options: any,
+        theme: any,
+        context: any,
+      ) => unknown;
     }): void;
   }
 }

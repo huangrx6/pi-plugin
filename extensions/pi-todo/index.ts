@@ -46,7 +46,8 @@ import {
 const TOOL_NAME = "todo";
 const COMMAND_NAME = "todos";
 
-const DEFAULT_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
+const DEFAULT_PROMPT_SNIPPET =
+  "Manage a task list to track multi-step progress";
 
 const DEFAULT_PROMPT_GUIDELINES: string[] = [
   "Use `todo` for complex work with 3+ steps, when the user gives you a list of tasks, or immediately after receiving new instructions. Skip it for single trivial tasks.",
@@ -70,7 +71,15 @@ function formatError(e: unknown): string {
 
 export default function (pi: ExtensionAPI): void {
   let overlay: TodoOverlay | undefined;
-  let uiCtx: { setWidget(key: string, value: unknown, options?: { placement?: string }): void } | undefined;
+  let uiCtx:
+    | {
+        setWidget(
+          key: string,
+          value: unknown,
+          options?: { placement?: string },
+        ): void;
+      }
+    | undefined;
 
   function refreshOverlay(): void {
     if (!uiCtx || !overlay) return;
@@ -108,8 +117,17 @@ export default function (pi: ExtensionAPI): void {
     },
 
     renderCall(args, theme) {
-      const a = args as { action?: string; subject?: string; id?: number; status?: string };
-      const what = a.subject ? ` ${a.subject}` : a.id === undefined ? "" : ` #${a.id}`;
+      const a = args as {
+        action?: string;
+        subject?: string;
+        id?: number;
+        status?: string;
+      };
+      const what = a.subject
+        ? ` ${a.subject}`
+        : a.id === undefined
+          ? ""
+          : ` #${a.id}`;
       const extra = a.status ? ` → ${a.status}` : "";
       return theme.fg("dim", `todo ${a.action ?? "?"}${what}${extra}`);
     },

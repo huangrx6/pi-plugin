@@ -95,9 +95,14 @@ function taskChanged(before: Task, after: Task): boolean {
 }
 
 /** Would adding these edges to `from` create a cycle? DFS from `from`. */
-function wouldCycle(tasks: readonly Task[], from: number, nextBlockedBy: number[]): boolean {
+function wouldCycle(
+  tasks: readonly Task[],
+  from: number,
+  nextBlockedBy: number[],
+): boolean {
   const adj = new Map<number, number[]>();
-  for (const t of tasks) adj.set(t.id, t.id === from ? nextBlockedBy : (t.blockedBy ?? []));
+  for (const t of tasks)
+    adj.set(t.id, t.id === from ? nextBlockedBy : (t.blockedBy ?? []));
   const seen = new Set<number>();
   const stack = [...nextBlockedBy];
   while (stack.length > 0) {
@@ -137,9 +142,15 @@ export function applyTaskMutation(
         const err = validateDeps(state, params.blockedBy, "blockedBy");
         if (err) return errorResult(state, err);
       }
-      const task: Task = { id: state.nextId, subject: params.subject, status: "pending" };
-      if (typeof params.description === "string") task.description = params.description;
-      if (typeof params.activeForm === "string") task.activeForm = params.activeForm;
+      const task: Task = {
+        id: state.nextId,
+        subject: params.subject,
+        status: "pending",
+      };
+      if (typeof params.description === "string")
+        task.description = params.description;
+      if (typeof params.activeForm === "string")
+        task.activeForm = params.activeForm;
       if (params.blockedBy?.length) task.blockedBy = [...params.blockedBy];
       if (typeof params.owner === "string") task.owner = params.owner;
       if (params.metadata) task.metadata = { ...params.metadata };
@@ -150,14 +161,18 @@ export function applyTaskMutation(
     }
 
     case "update": {
-      if (params.id === undefined) return errorResult(state, "id required for update");
+      if (params.id === undefined)
+        return errorResult(state, "id required for update");
       const idx = state.tasks.findIndex((t) => t.id === params.id);
       if (idx === -1) return errorResult(state, `#${params.id} not found`);
       const current = state.tasks[idx];
 
       // Tombstone immutability: deleted tasks accept no further edits.
       if (current.status === "deleted") {
-        return errorResult(state, `#${current.id} is deleted (tombstones are immutable)`);
+        return errorResult(
+          state,
+          `#${current.id} is deleted (tombstones are immutable)`,
+        );
       }
 
       const hasMutation =
@@ -205,7 +220,10 @@ export function applyTaskMutation(
           if (!newBlockedBy.includes(dep)) newBlockedBy.push(dep);
         }
         if (wouldCycle(state.tasks, current.id, newBlockedBy)) {
-          return errorResult(state, "addBlockedBy would create a dependency cycle");
+          return errorResult(
+            state,
+            "addBlockedBy would create a dependency cycle",
+          );
         }
       }
 
@@ -221,8 +239,10 @@ export function applyTaskMutation(
 
       const updated: Task = { ...current, status: newStatus };
       if (typeof params.subject === "string") updated.subject = params.subject;
-      if (params.description !== undefined) updated.description = params.description;
-      if (params.activeForm !== undefined) updated.activeForm = params.activeForm;
+      if (params.description !== undefined)
+        updated.description = params.description;
+      if (params.activeForm !== undefined)
+        updated.activeForm = params.activeForm;
       if (params.owner !== undefined) updated.owner = params.owner;
       if (newBlockedBy.length > 0) updated.blockedBy = newBlockedBy;
       else delete updated.blockedBy;
@@ -249,20 +269,24 @@ export function applyTaskMutation(
         op: {
           kind: "list",
           includeDeleted: params.includeDeleted === true,
-          ...(params.status === undefined ? {} : { statusFilter: params.status }),
+          ...(params.status === undefined
+            ? {}
+            : { statusFilter: params.status }),
         },
       };
     }
 
     case "get": {
-      if (params.id === undefined) return errorResult(state, "id required for get");
+      if (params.id === undefined)
+        return errorResult(state, "id required for get");
       const task = state.tasks.find((t) => t.id === params.id);
       if (!task) return errorResult(state, `#${params.id} not found`);
       return { state, op: { kind: "get", task } };
     }
 
     case "delete": {
-      if (params.id === undefined) return errorResult(state, "id required for delete");
+      if (params.id === undefined)
+        return errorResult(state, "id required for delete");
       const idx = state.tasks.findIndex((t) => t.id === params.id);
       if (idx === -1) return errorResult(state, `#${params.id} not found`);
       const current = state.tasks[idx];

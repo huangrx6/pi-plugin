@@ -23,7 +23,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { renderTable, makeCell } from "./layout.ts";
 import type { Cell } from "./layout.ts";
 
-type Theme = { fg(color: string, text: string): string; bold(t: string): string };
+type Theme = {
+  fg(color: string, text: string): string;
+  bold(t: string): string;
+};
 type FooterData = {
   getGitBranch: () => string | null;
   getExtensionStatuses: () => ReadonlyMap<string, string>;
@@ -81,7 +84,9 @@ function formatCwd(cwd: string): string {
 // ── cell builders ───────────────────────────────────────────────────────
 
 function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
-  const cells: Cell[] = [makeCell(theme.fg("dim", formatCwd(ctx.sessionManager.getCwd())))];
+  const cells: Cell[] = [
+    makeCell(theme.fg("dim", formatCwd(ctx.sessionManager.getCwd()))),
+  ];
   const branch = footerData.getGitBranch();
   if (branch) cells.push(makeCell(theme.fg("dim", `(${branch})`)));
   const sessionName = ctx.sessionManager.getSessionName();
@@ -101,10 +106,16 @@ function usageCells(ctx: Ctx, theme: Theme): Cell[] {
       totals.cacheRead += u.cacheRead ?? 0;
       totals.cacheWrite += u.cacheWrite ?? 0;
       totals.cost += u.cost?.total ?? 0;
-      const promptTokens = (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
+      const promptTokens =
+        (u.input ?? 0) + (u.cacheRead ?? 0) + (u.cacheWrite ?? 0);
       latestCacheHitRate =
-        promptTokens > 0 ? ((u.cacheRead ?? 0) / promptTokens) * 100 : undefined;
-    } else if (entry.type === "message" && entry.message?.role === "toolResult") {
+        promptTokens > 0
+          ? ((u.cacheRead ?? 0) / promptTokens) * 100
+          : undefined;
+    } else if (
+      entry.type === "message" &&
+      entry.message?.role === "toolResult"
+    ) {
       const u = entry.message.usage;
       if (!u) continue;
       totals.input += u.input ?? 0;
@@ -128,7 +139,10 @@ function usageCells(ctx: Ctx, theme: Theme): Cell[] {
   if (totals.output) parts.push(`↓${formatTokens(totals.output)}`);
   if (totals.cacheRead) parts.push(`R${formatTokens(totals.cacheRead)}`);
   if (totals.cacheWrite) parts.push(`W${formatTokens(totals.cacheWrite)}`);
-  if ((totals.cacheRead || totals.cacheWrite) && latestCacheHitRate !== undefined)
+  if (
+    (totals.cacheRead || totals.cacheWrite) &&
+    latestCacheHitRate !== undefined
+  )
     parts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
   if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
   return parts.map((p) => makeCell(theme.fg("dim", p)));
@@ -146,7 +160,14 @@ function contextCell(
     pct === null || pct === undefined
       ? `?/${formatTokens(window)}`
       : `${pct.toFixed(1)}%/${formatTokens(window)}`;
-  const color = pct === null || pct === undefined ? "dim" : pct > 90 ? "error" : pct > 70 ? "warning" : "dim";
+  const color =
+    pct === null || pct === undefined
+      ? "dim"
+      : pct > 90
+        ? "error"
+        : pct > 70
+          ? "warning"
+          : "dim";
   return [makeCell(theme.fg(color, text))];
 }
 
@@ -162,7 +183,8 @@ function modelCells(
     const level = thinkingLevel || "off";
     text = level === "off" ? `${name} (thinking off)` : `${name} (${level})`;
   }
-  if (providerCount > 1 && model?.provider) text = `(${model.provider}) ${text}`;
+  if (providerCount > 1 && model?.provider)
+    text = `(${model.provider}) ${text}`;
   return [makeCell(theme.fg("dim", text))];
 }
 
@@ -178,11 +200,19 @@ function statusCells(footerData: FooterData): Cell[] {
 // ── extension entry ─────────────────────────────────────────────────────
 
 type FooterTui = { requestRender(): void };
-type FooterTheme = { fg(color: string, text: string): string; bold(t: string): string };
+type FooterTheme = {
+  fg(color: string, text: string): string;
+  bold(t: string): string;
+};
 
 export default function (pi: ExtensionAPI): void {
   let activeCtx: Ctx | null = null;
-  let activeModel: { id?: string; provider?: string; reasoning?: boolean; contextWindow?: number } | null = null;
+  let activeModel: {
+    id?: string;
+    provider?: string;
+    reasoning?: boolean;
+    contextWindow?: number;
+  } | null = null;
   let activeThinking: string | undefined;
   let requestRender: (() => void) | null = null;
 
@@ -194,27 +224,34 @@ export default function (pi: ExtensionAPI): void {
     activeThinking = (ctx as { thinkingLevel?: string }).thinkingLevel;
     ctx.ui.setFooter(
       (tui: FooterTui, theme: FooterTheme, footerData: FooterData) => {
-      requestRender = () => tui.requestRender();
-      const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
-      return {
-        render: (width: number) =>
-          renderTable(
-            [
-              ...envCells(activeCtx as Ctx, footerData, theme),
-              ...usageCells(activeCtx as Ctx, theme),
-              ...contextCell(activeCtx as Ctx, theme, activeModel),
-              ...modelCells(theme, activeModel, activeThinking, footerData.getAvailableProviderCount()),
-              ...statusCells(footerData),
-            ],
-            width,
-            theme,
-          ),
-        invalidate: () => {},
-        dispose: () => {
-          unsubscribe();
-          requestRender = null;
-        },
-      };
+        requestRender = () => tui.requestRender();
+        const unsubscribe = footerData.onBranchChange(() =>
+          tui.requestRender(),
+        );
+        return {
+          render: (width: number) =>
+            renderTable(
+              [
+                ...envCells(activeCtx as Ctx, footerData, theme),
+                ...usageCells(activeCtx as Ctx, theme),
+                ...contextCell(activeCtx as Ctx, theme, activeModel),
+                ...modelCells(
+                  theme,
+                  activeModel,
+                  activeThinking,
+                  footerData.getAvailableProviderCount(),
+                ),
+                ...statusCells(footerData),
+              ],
+              width,
+              theme,
+            ),
+          invalidate: () => {},
+          dispose: () => {
+            unsubscribe();
+            requestRender = null;
+          },
+        };
       },
     );
   });

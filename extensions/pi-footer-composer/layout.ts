@@ -96,7 +96,11 @@ type Theme = { fg(color: string, text: string): string };
  * Pack cells into rows and render them as a pipe table.
  * Cells wider than the whole terminal are truncated to fit alone.
  */
-export function renderTable(cells: readonly Cell[], width: number, theme: Theme): string[] {
+export function renderTable(
+  cells: readonly Cell[],
+  width: number,
+  theme: Theme,
+): string[] {
   if (width <= 0) return [];
   const sepText = theme.fg("dim", " │ ");
   const sepW = 3;
@@ -112,9 +116,7 @@ export function renderTable(cells: readonly Cell[], width: number, theme: Theme)
       currentW = 0;
     }
     const fitted =
-      cell.w > width
-        ? makeCell(truncateToWidth(cell.text, width, "…"))
-        : cell;
+      cell.w > width ? makeCell(truncateToWidth(cell.text, width, "…")) : cell;
     current.push(fitted);
     currentW += current.length === 1 ? fitted.w : sepW + fitted.w;
   }

@@ -104,7 +104,10 @@ export class TodoOverlay {
     const headingColor = hasActive ? "accent" : "dim";
     const headingIcon = hasActive ? "●" : "○";
     const heading = truncateToWidth(
-      theme.fg(headingColor, `${headingIcon} Todos (${c.completed}/${c.total})`),
+      theme.fg(
+        headingColor,
+        `${headingIcon} Todos (${c.completed}/${c.total})`,
+      ),
       width,
     );
     const lines = [heading];
@@ -121,8 +124,12 @@ export class TodoOverlay {
     } else {
       const room = inner - 1; // one row for the summary
       if (nonCompleted.length <= room) {
-        shown = [...nonCompleted, ...completed.slice(0, room - nonCompleted.length)];
-        hiddenCompleted = completed.length - (shown.length - nonCompleted.length);
+        shown = [
+          ...nonCompleted,
+          ...completed.slice(0, room - nonCompleted.length),
+        ];
+        hiddenCompleted =
+          completed.length - (shown.length - nonCompleted.length);
       } else {
         shown = nonCompleted.slice(0, room);
         truncatedTail = nonCompleted.length - room;

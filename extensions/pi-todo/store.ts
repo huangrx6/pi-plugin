@@ -21,58 +21,60 @@ const sessions = new Map<string, TaskState>();
 
 let foreground = "";
 
-export function sid(ctx: { sessionManager: { getSessionId(): string } }): string {
-  return ctx.sessionManager.getSessionId() ?? "";
+export function sid(ctx: {
+ sessionManager: { getSessionId(): string };
+}): string {
+ return ctx.sessionManager.getSessionId() ?? "";
 }
 
 function freshState(): TaskState {
-  return { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
+ return { tasks: [...EMPTY_STATE.tasks], nextId: EMPTY_STATE.nextId };
 }
 
 function slotFor(id: string): TaskState {
-  return sessions.get(id) ?? freshState();
+ return sessions.get(id) ?? freshState();
 }
 
 export function getState(sessionId: string): TaskState {
-  return slotFor(sessionId);
+ return slotFor(sessionId);
 }
 
 /** Test reset — clears every slot and the render pointer. */
 export function __resetState(): void {
-  sessions.clear();
-  foreground = "";
+ sessions.clear();
+ foreground = "";
 }
 
 /** Replay seam: lifecycle handlers publish a reconstructed snapshot. */
 export function replaceState(sessionId: string, next: TaskState): void {
-  sessions.set(sessionId, next);
+ sessions.set(sessionId, next);
 }
 
 /** Post-reducer commit seam: the tool's execute() publishes new state. */
 export function commitState(sessionId: string, next: TaskState): void {
-  sessions.set(sessionId, next);
+ sessions.set(sessionId, next);
 }
 
 export function evictSession(sessionId: string): void {
-  sessions.delete(sessionId);
+ sessions.delete(sessionId);
 }
 
 /** Which slot do ctx-free readers (overlay) render. */
 export function getRenderState(): TaskState {
-  return slotFor(foreground);
+ return slotFor(foreground);
 }
 
 /** Latest-wins foreground claim (see module header). */
 export function setForegroundSession(sessionId: string): void {
-  foreground = sessionId;
+ foreground = sessionId;
 }
 
 export function getForegroundSession(): string {
-  return foreground;
+ return foreground;
 }
 
 export function clearForegroundSession(sessionId: string): void {
-  if (foreground === sessionId) foreground = "";
+ if (foreground === sessionId) foreground = "";
 }
 
 /**
@@ -83,22 +85,22 @@ export function clearForegroundSession(sessionId: string): void {
  * and never dropped by compaction summaries.
  */
 export function replayFromBranch(ctx: {
-  sessionManager: { getBranch(): Iterable<unknown> };
+ sessionManager: { getBranch(): Iterable<unknown> };
 }): TaskState {
-  let result = freshState();
-  for (const entry of ctx.sessionManager.getBranch()) {
-    const e = entry as {
-      type?: string;
-      message?: { role?: string; toolName?: string; details?: unknown };
-    };
-    if (e.type !== "message") continue;
-    const msg = e.message;
-    if (msg?.role !== "toolResult" || msg.toolName !== "todo") continue;
-    if (!isTodoDetails(msg.details)) continue;
-    result = {
-      tasks: msg.details.tasks.map((t) => ({ ...t })),
-      nextId: msg.details.nextId,
-    };
-  }
-  return result;
+ let result = freshState();
+ for (const entry of ctx.sessionManager.getBranch()) {
+  const e = entry as {
+   type?: string;
+   message?: { role?: string; toolName?: string; details?: unknown };
+  };
+  if (e.type !== "message") continue;
+  const msg = e.message;
+  if (msg?.role !== "toolResult" || msg.toolName !== "todo") continue;
+  if (!isTodoDetails(msg.details)) continue;
+  result = {
+   tasks: msg.details.tasks.map((t) => ({ ...t })),
+   nextId: msg.details.nextId,
+  };
+ }
+ return result;
 }

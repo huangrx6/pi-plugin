@@ -17,20 +17,20 @@
 import type { QuotaData } from "./types.ts";
 
 type ExtensionState = {
-  // Quota display
-  quotaData: QuotaData | null;
-  quotaFetchedAt: number;
-  errorText: string;
+ // Quota display
+ quotaData: QuotaData | null;
+ quotaFetchedAt: number;
+ errorText: string;
 
-  // Refresh guards
-  lastRefreshAt: number;
-  fetchSeq: number;
+ // Refresh guards
+ lastRefreshAt: number;
+ fetchSeq: number;
 };
 
 export const state: ExtensionState = {
-  quotaData: null,
-  quotaFetchedAt: 0,
-  errorText: "",
-  lastRefreshAt: 0,
-  fetchSeq: 0,
+ quotaData: null,
+ quotaFetchedAt: 0,
+ errorText: "",
+ lastRefreshAt: 0,
+ fetchSeq: 0,
 };
