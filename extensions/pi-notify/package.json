@@ -1,0 +1,42 @@
+{
+  "name": "pi-notify",
+  "version": "0.1.0",
+  "description": "Single-line OSC 777/9/99 terminal notifications when the pi agent settles, formatted with Unicode (no emoji) so it renders the same across fonts and locales.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": ">=20",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "notification",
+    "osc",
+    "terminal"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc -p . --noEmit",
+    "test": "tsx --test index.test.ts"
+  },
+  "files": [
+    "index.ts",
+    "tsconfig.json",
+    "globals.d.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ]
+}

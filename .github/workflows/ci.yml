@@ -70,6 +70,26 @@ jobs:
       - name: Type check (tsc --noEmit)
         run: npx --yes -p typescript tsc -p extensions/pi-todo
 
+  pi-notify:
+    name: pi-notify (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install (tsx + @types/node devDeps)
+        working-directory: extensions/pi-notify
+        run: npm install --no-audit --no-fund
+      - name: Type check (tsc --noEmit)
+        working-directory: extensions/pi-notify
+        run: npx --yes -p typescript tsc -p . --noEmit
+      - name: Unit tests (tsx --test)
+        working-directory: extensions/pi-notify
+        run: npx --yes -p tsx tsx --test index.test.ts
+
   markdown-lint:
     name: markdownlint
     runs-on: ubuntu-latest

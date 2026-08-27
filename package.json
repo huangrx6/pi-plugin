@@ -1,7 +1,7 @@
 {
   "name": "huangrx6-pi-plugin",
   "version": "0.1.0",
-  "description": "Monorepo of pi extensions: skill-inject, mode-switcher, quota-status, policy-engine.",
+  "description": "Monorepo of pi extensions: skill-inject, mode-switcher, quota-status, policy-engine, footer-composer, todo, notify.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -19,7 +19,8 @@
       "./extensions/pi-quota-status",
       "./extensions/pi-policy-engine",
       "./extensions/pi-footer-composer",
-      "./extensions/pi-todo"
+      "./extensions/pi-todo",
+      "./extensions/pi-notify"
     ]
   },
   "files": [
