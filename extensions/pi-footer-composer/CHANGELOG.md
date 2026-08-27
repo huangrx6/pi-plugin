@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-08-27
+
+- Back to five rows by request: subscription quotas merge into the 模型 row (`│`-separated) and context-governance statuses merge into the 资源 row, so the footer regains its compact single-column form while keeping the generic quota:/context: routing. 集成 now precedes 配置.
+
 ## 0.3.0 - 2026-08-27
 
 - Seven-row layout: subscription quotas move to their own `用量：` row, context-governance statuses get a `压缩：` row, `配置：` now precedes `集成：`, and the resources row returns to pure token/cache/cost/occupancy cells. New routing: `quota:*` (and the unprefixed `quota` key) → 用量, `context:*` (and `context`/`qos` keywords) → 压缩, `usage:*` stays resources. Semantics improve: the subscription percentage and the two context percentages (raw occupancy vs effective-budget pressure) are no longer crammed into one row.

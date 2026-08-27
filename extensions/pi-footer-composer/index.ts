@@ -95,11 +95,9 @@ type LooseUsage = {
 const ROW_LABELS = [
   "环境：",
   "模型：",
-  "用量：",
   "资源：",
-  "压缩：",
-  "配置：",
   "集成：",
+  "配置：",
 ] as const;
 
 // ── formatters (shared shape with the footer conventions) ──────────────
@@ -332,26 +330,26 @@ export default function (pi: ExtensionAPI): void {
               [
                 // row 1: 环境 — cwd · branch · session
                 envCells(activeCtx as Ctx, footerData, theme),
-                // row 2: 模型 — provider · id · thinking
-                modelCells(
-                  theme,
-                  activeModel,
-                  activeThinking,
-                  footerData.getAvailableProviderCount(),
-                ),
-                // row 3: 用量 — subscription-quota statuses (quota-prefixed / quota)
-                sections.quota,
-                // row 4: 资源 — tokens · cache · cost · context window occupancy
+                // row 2: 模型 — provider · id · thinking + subscription quota
+                [
+                  ...modelCells(
+                    theme,
+                    activeModel,
+                    activeThinking,
+                    footerData.getAvailableProviderCount(),
+                  ),
+                  ...sections.quota,
+                ],
+                // row 3: 资源 — tokens · cache · cost · window occupancy + context governance
                 [
                   ...usageCells(activeCtx as Ctx, theme),
                   ...contextCell(activeCtx as Ctx, theme, activeModel),
+                  ...sections.context,
                 ],
-                // row 5: 压缩 — context-governance statuses (context-prefixed)
-                sections.context,
-                // row 6: 配置 — config-prefixed statuses (mode, policy) + misc fallback
-                [...sections.config, ...sections.misc],
-                // row 7: 集成 — integration-prefixed statuses (MCP, LSP)
+                // row 4: 集成 — integration-prefixed statuses (MCP, LSP)
                 sections.integration,
+                // row 5: 配置 — config-prefixed statuses (mode, policy) + misc fallback
+                [...sections.config, ...sections.misc],
               ],
               width,
               theme,
