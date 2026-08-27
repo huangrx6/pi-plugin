@@ -1,28 +1,42 @@
+<!-- markdownlint-disable MD033 MD041 -->
+<p align="center">
+  <img src="../../assets/icons/footer-composer.svg" alt="footer-composer" width="48" />
+</p>
+
 # pi-footer-composer
 
-接管 pi 的 footer，**五行带标签**（单列）：环境、模型、资源（token 用量 + 上下文 + 带 `usage:` 前缀的状态）、集成（带 `integration:` 前缀的状态：MCP / LSP）、配置（带 `config:` 前缀的状态：mode / policy + 未分类兜底）。每行行首是 dim 的 2 字中文标签（`环境：` 等），紧跟首格内容；组内单元格仍用 `│` 分隔，行宽超终端时组内折行，折行内容缩进对齐到标签右侧。
+<p align="center"><strong>Five labelled rows: environment, model, resources, integrations, configuration.</strong></p>
 
-单一职责：它是安装配置里**唯一的 footer 渲染者**（pi 的 `setFooter` 是整体替换语义，两个渲染者会互相覆盖）。
+<p align="center">
+  <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+</p>
 
-## 效果
+Takes over Pi's footer rendering and produces five single-column rows, each prefixed with a dim two-character label. Every other status that any extension publishes via `ctx.ui.setStatus(...)` is collected and routed into the right row by key prefix.
 
-五行固定顺序——环境 → 模型 → 资源 → 集成 → 配置，单列；每行首有 dim 标签，紧跟首格；组内单元格用 `│` 分隔；行宽超终端时组内折行，折行内容缩进到标签宽度：
+This is a renderer only. It does not own any data; it only consumes `ctx.sessionManager` and the public `setStatus` API. If the extension is uninstalled, the original Pi footer returns.
+
+## Output
+
+Five fixed rows in order — environment → model → resources → integrations → configuration. Each row has a dim leading label and a leading first cell; multi-cell rows use `│` to separate cells within the row, and the row wraps (instead of merging rows) when the terminal is too narrow.
+
+Wide terminal:
 
 ```text
 环境： ~/project (main) • 优化
-模型： (zai-coding-cn) glm-5.3
+模型： (zai-coding-cn) glm-5.2
 资源： ↑1.2k ↓890 R340 CH45% $0.012  12%/128k  ⚡GLM 5h:4%
 集成： 🔌 MCP: 3 servers enabled │ LSP Inactive
 配置： ◈ mode:帮我批准 │ policy:standard/executing
 ```
 
-窄终端（折行内容缩进到标签宽度右侧，行不合并）：
+Narrow terminal — wrapped cells indent to the label width, rows stay distinct:
 
 ```text
 环境： ~/project
        (main)
        • 优化
-模型： (zai-coding-cn) glm-5.3
+模型： (zai-coding-cn) glm-5.2
 资源： ↑1.2k ↓890 R340 CH45%
        12%/128k
        ⚡GLM 5h:4%(4h50m)
@@ -32,50 +46,80 @@
        │ policy:standard
 ```
 
-- **行 1 环境**：cwd（`~` 展开） / 分支 / 会话名
-- **行 2 模型**：`(<provider>) <id>` + thinking 级别；多 provider 时带 `(provider)` 前缀
-- **行 3 资源**：token 用量 ↑↓RW · cache hit (CH%) · $cost · context (% / window，>70% 黄、>90% 红）· `usage:` 前缀的状态（quota）
-- **行 4 集成**：`integration:` 前缀的状态（MCP / LSP）
-- **行 5 配置**：`config:` 前缀的状态（mode / policy）+ 未分类状态作为 misc 兜底（不会丢）
-- 标签与首格内容用 1 个空格分隔（没有 `│`）；组内折行从下一格开始，缩进对齐到标签宽度；单元格本身超过整行宽度时截断加 `…`
+## Row contents
 
-## 数据来源（组合而非依赖）
+| Row | Label | Source | Examples |
+| --- | --- | --- | --- |
+| 1 | `环境：` | `ctx.sessionManager` (cwd, session name) + `footerData.getGitBranch()` + session title | `~/project (main) • 优化` |
+| 2 | `模型：` | `ctx.model` (provider, id) + thinking level | `(zai-coding-cn) glm-5.2` |
+| 3 | `资源：` | `ctx.sessionManager` (usage stats) + `ctx.getContextUsage()` + `usage:*` statuses | `↑1.2k ↓890 R340 CH45% $0.012  12%/128k  ⚡GLM 5h:4%` |
+| 4 | `集成：` | `integration:*` statuses (MCP, LSP) | `🔌 MCP: 3 servers enabled │ LSP Inactive` |
+| 5 | `配置：` | `config:*` statuses (mode, policy) + unclassified statuses as misc fallback | `◈ mode:帮我批准 │ policy:standard/executing` |
 
-本扩展**不认识任何其他扩展**——它只消费 pi 的聚合面：
+Label-to-first-cell separator is a single space (no `│`); wrapped continuations from subsequent cells indent to the label width.
 
-| 内容 | 来源 |
+## Status → row routing (key-prefix convention)
+
+Extensions choose which row their status lands in by the key they pass to `ctx.ui.setStatus(...)`. Recommended prefixes:
+
+| Key shape | Lands in |
 | --- | --- |
-| cwd / 会话名 / 用量统计 | `ctx.sessionManager`（entries 的 usage 累加）|
-| 上下文占用 | `ctx.getContextUsage()` |
-| git 分支 / provider 数 | `footerData.getGitBranch()` / `getAvailableProviderCount()` |
-| 扩展状态 | `footerData.getExtensionStatuses()`（即各扩展 `ctx.ui.setStatus()` 发布的文本，**按 key 前缀归入对应行，内容无关**）|
+| `usage:<name>` | row 3 (resources) |
+| `integration:<name>` | row 4 (integrations) |
+| `config:<name>` | row 5 (configuration) |
+| anything else | row 5 (misc fallback — never silently dropped) |
 
-任何扩展只要调 `setStatus` 就会自动出现在表格里——本扩展不知道也不需要知道它们是谁。状态文本里的 ANSI 颜色（如 quota 的阈值配色）原样保留。
+For keys without a recognised prefix, a generic-keyword fallback still routes sensibly:
 
-### 状态 → 行的路由（key 前缀约定）
-
-扩展通过 `setStatus` 的 key 选择落在哪一行。前缀约定（推荐）：
-
-| Key 形式 | 落点 |
+| Unprefixed key contains | Routed to |
 | --- | --- |
-| `usage:<name>` | 行 3 资源 |
-| `integration:<name>` | 行 4 集成 |
-| `config:<name>` | 行 5 配置 |
+| `mcp` or `lsp` | row 4 (integrations) |
+| `mode` or `policy` | row 5 (configuration) |
+| `quota` | row 3 (resources) |
 
-为了兼容尚未采用前缀约定的包，本扩展对无前缀的 key 也用通用关键词做兜底路由：`mcp` 或包含 `lsp` 的 key → 集成；`mode` 或包含 `policy` 的 key → 配置；`quota` → 资源。其他未匹配 key 一律落配置行的 misc 兜底，不会被静默丢弃。
+ANSI colors from upstream statuses (e.g. quota colour thresholds) are preserved verbatim.
 
-### 与 pi 原生 footer 的差异
+## Data sources (composition, not coupling)
 
-pi 原生 footer 有几处扩展拿不到的内部信息（`(sub)` 订阅标记、`xp` 实验特性指示、auto-compact 开关）：本扩展渲染的是**扩展可见的一切**，这些标记不出现。如果需要它们，卸载本扩展即回到原生 footer（`setFooter(undefined)` 语义）。
+This extension **does not know any other extension by name**. It only consumes the public aggregation surface that Pi exposes:
 
-## 安装
+| Content | Source |
+| --- | --- |
+| cwd / session name / usage stats | `ctx.sessionManager` (entries' usage rollup) |
+| context usage | `ctx.getContextUsage()` |
+| git branch / available providers | `footerData.getGitBranch()` / `getAvailableProviderCount()` |
+| extension statuses | `footerData.getExtensionStatuses()` — i.e. whatever every extension has published via `ctx.ui.setStatus()`, routed purely by key prefix |
 
-见仓库根 README 的安装说明（整库安装或单扩展链接均可）。
+Any extension that calls `setStatus` automatically appears in the table; this extension does not need to know — and does not whitelist — who they are.
 
-## 已知限制
+## Differences from Pi's native footer
 
-- **独占 footer**：`setFooter` 是替换语义。同时安装任何其他会调 `setFooter` 的扩展会与本扩展互相覆盖——本扩展的存在本身就是"footer 渲染者唯一"的约定。
-- 用量统计在 `turn_end` 时刷新；分支变更即时（`onBranchChange`）。
+Pi's native footer shows a few internal markers (`(sub)` subscription flag, `xp` experimental indicator, auto-compact toggle) that extensions cannot read. This extension renders **only what extensions can see**, so those markers are absent. If you need them, uninstall this extension and the native footer returns (Pi's `setFooter(undefined)` semantics).
+
+## Install
+
+```bash
+pi install git:github.com/huangrx6/pi-footer-composer
+```
+
+Or via the monorepo. Restart Pi or `/reload`.
+
+## Known limitations
+
+- **Footer exclusive**: `setFooter` is a replacement. Installing any other extension that calls `setFooter` will clash and the two renderers will overwrite each other. This extension's existence IS the "single footer renderer" convention — install it alone.
+- Usage stats refresh on `turn_end`; branch changes refresh immediately via `onBranchChange`.
+
+## File structure
+
+```text
+pi-footer-composer/
+├── index.ts          # event wiring + status collection + render
+├── globals.d.ts      # ambient shim for the Pi runtime types
+├── tsconfig.json     # local type-check
+├── package.json
+├── README.md
+└── LICENSE
+```
 
 ## License
 

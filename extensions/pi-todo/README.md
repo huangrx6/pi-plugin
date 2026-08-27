@@ -1,24 +1,38 @@
+<!-- markdownlint-disable MD033 MD041 -->
+<p align="center">
+  <img src="../../assets/icons/todo.svg" alt="pi-todo" width="48" />
+</p>
+
 # pi-todo
 
-给模型用的待办清单工具：`todo` 工具 + `/todos` 命令 + 编辑器上方常驻 overlay。**状态不落盘**——每次工具调用把全量快照写进 toolResult 的 `details`，生命周期事件从 session branch 重放，因此 `/reload` 和上下文压缩后清单依然健在。
+<p align="center"><strong>Task-list tool plus an editor overlay. State replays from the session branch.</strong></p>
 
-**零运行时依赖**：对 pi 只做 `import type`；参数 schema 是手写的 JSON Schema 字面量（pi 内建工具用的 TypeBox schema 本身就是 JSON Schema）。
+<p align="center">
+  <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+</p>
 
-## 效果
+A `todo` tool the model can call to maintain a checklist, plus a slim overlay above the editor that mirrors the live state. The entire state lives in the session branch — there is no separate store, no file on disk, and no `~/.pi` cache. `/reload` and Pi's built-in compaction both preserve the list.
+
+Zero runtime dependencies. The only Pi import is `import type`; tool parameter schemas are hand-written JSON Schema literals (Pi's built-in tools use TypeBox, which is also JSON Schema under the hood).
+
+## Display
+
+Collapsed overlay (default — up to 12 task rows):
 
 ```text
 ┌────────────────────────────────────────────────┐
-│  (聊天消息区域)                                 │
+│  (chat area)                                   │
 ├────────────────────────────────────────────────┤
-│  ● Todos (1/3)                                 │  ← overlay（编辑器上方，折叠状态）
+│  ● Todos (1/3)                                 │  ← overlay
 │  ├─ ◐ #2 写测试 (writing tests)                │
 │  ├─ ○ #3 部署验证 ⛓#1,#2                       │
 │  └─ +2 more (2 completed) · /todos expand      │
-│  > 在这里输入...                                │  ← 编辑器
+│  > type here...                                │  ← editor
 └────────────────────────────────────────────────┘
 ```
 
-`/todos expand` 后取消 12 行上限，渲染全部任务：
+`/todos expand` removes the 12-row cap and renders everything:
 
 ```text
 ● Todos (15/20)
@@ -29,74 +43,80 @@
 └─ /todos collapse
 ```
 
-- **overlay**：进行中 ◐ 高亮、待办 ○、完成 ✓（先被裁掉，收进 `+N more`）；有依赖关系（`⛓`）时才显示 `#id`；超过 12 行内容自动折叠摘要 + 提示 `/todos expand`；展开时显示全部任务 + 提示 `/todos collapse`；清单为空自动隐藏
-- **`/todos`**：按状态分组打印当前清单
-- **`/todos expand`**：取消 12 行上限，渲染全部任务（per-session UI 偏好，不进 branch）
-- **`/todos collapse`**：回到 12 行预算
-- **`/todos status`**：报告当前折叠 / 展开状态
+- **Overlay** — in-progress ◐ is highlighted; pending ○ is dim; completed ✓ is dropped first, folded into `+N more`; dependency links (`⛓`) only show `#id` numbers when a real `blockedBy` exists; > 12 rows → auto-collapse with a `/todos expand` hint; empty list → overlay hides
+- **`/todos`** — prints the current list grouped by status
+- **`/todos expand`** — show every task; per-session UI preference, never written into the branch
+- **`/todos collapse`** — back to the 12-row budget
+- **`/todos status`** — reports the current fold / expand state
 
-## 模型使用
+## Tool schema
 
 ```json
-todo { "action": "create",  "subject": "调研现有工具" }
-todo { "action": "update",  "id": 3, "status": "in_progress", "activeForm": "writing tests" }
-todo { "action": "delete",  "id": 2 }        // 墓碑：不可再改
-todo { "action": "list",    "status": "pending" }
+todo { "action": "create",   "subject": "调研现有工具" }
+todo { "action": "update",   "id": 3, "status": "in_progress", "activeForm": "writing tests" }
+todo { "action": "delete",   "id": 2 }            // tombstone — never reusable
+todo { "action": "list",     "status": "pending" }
 todo { "action": "clear" }
 ```
 
-状态机：`pending → in_progress → completed → deleted`（deleted 终态）。
+State machine: `pending → in_progress → completed → deleted` (`deleted` is terminal).
 
-## 语义保证
+## Semantic guarantees
 
-| 保证 | 说明 |
+| Guarantee | Why |
 | --- | --- |
-| **id 永不复用** | `clear` 只清空列表，`nextId` 单调递增——会话里残留的 "#N" 引用永远不会指向新任务 |
-| **墓碑不可变** | 对已删除任务的任何 `update`（含改 subject/metadata）都被拒绝 |
-| **依赖健全** | blockedBy 悬空引用 / 已删依赖 / 自阻塞 / 成环全部拒绝，错误信息具体 |
-| **无操作检测** | 重复提交相同 update 返回 "No change"（metadata 键序不敏感），防止模型重试循环 |
-| **终端安全** | 模型可控文本经过 CSI/OSC/换行/bidi 清洗，无法破坏布局或重排输出 |
-| **每会话隔离** | 状态按 sessionId 分槽，子会话/分支不互相污染 |
-| **前台跟随** | overlay 渲染**最近**带 UI 的 session（非先到先得）——切换会话即切换清单 |
-| **零渲染期 IO** | 行数预算是常量，不读任何配置文件 |
-| **展开状态独立于 branch** | `/todos expand` 的偏好存在 foreground slot，不写进 details——`/reload` 后重置，但避免 legacy branch 的兼容问题 |
+| **IDs never reuse** | `clear` empties the list but `nextId` only increments. Stale "#N" references in the conversation always stay dead. |
+| **Tombstones immutable** | Any `update` on a deleted task — including subject / metadata changes — is rejected. |
+| **Dependencies healthy** | Dangling `blockedBy`, deleted dependencies, self-blocks, and cycles are all rejected with specific error messages. |
+| **No-op detection** | A duplicate `update` with identical fields returns "No change" (metadata key order is insensitive) — prevents model retry loops. |
+| **Terminal-safe text** | Model-controlled strings are scrubbed for CSI / OSC / newlines / bidi controls before rendering. |
+| **Per-session isolation** | State is keyed by `sessionId`; sub-sessions and branches do not pollute each other. |
+| **Follows foreground** | The overlay always shows the latest UI-bearing session — switching sessions switches the list. |
+| **Zero render-time I/O** | Row budget is constant; no config files are read during render. |
+| **Expand state independent of branch** | `/todos expand` lives in a foreground UI slot, not in branch details — `/reload` resets it by design. |
 
-## 持久化原理
+## Persistence
 
 ```text
-todo 调用 → details 携带 {tasks, nextId} 快照 → 追加进 branch
-session_start / compact / tree → 从 branch 重放最后一个有效快照
+todo call → details carries {tasks, nextId} snapshot → appended to branch
+session_start / compact / tree → replay the latest valid snapshot from branch
 ```
 
-pi 的 session 是 append-only、压缩摘要不删 branch 条目，所以重放永远找得到最新快照。
+Pi's session is append-only and built-in compaction does not remove branch entries, so the most recent snapshot is always recoverable.
 
-## 与同名扩展共存
+## Coexistence
 
-工具名 `todo` 是持久化键（branch 里按 `toolName === "todo"` 过滤）。如果同时安装其它也叫 `todo` 的工具扩展会注册冲突——二者取其一。
+Tool name `todo` is the persistence key — branch entries are filtered by `toolName === "todo"`. If you install another extension that also registers a `todo` tool, the two will conflict; pick one.
 
-## 安装
+## Install
 
-见仓库根 README。
+```bash
+pi install git:github.com/huangrx6/pi-todo
+```
 
-## 已知限制（v0.2）
+Or via the monorepo. Restart Pi or `/reload`.
 
-- 行数预算固定 12（默认折叠），展开后渲染全部任务无上限（用户手动控制；刻意：避免配置文件 + 渲染期读盘）
-- 展开状态是 per-session UI 偏好，**不进 branch details**——`/reload` 或 compaction 后会重置回折叠（意图明确：用户重新敲 `/todos expand`）
-- overlay 无 i18n（chrome 文案为英文）
+## Known limitations
 
-## 文件结构
+- Row budget is fixed at 12 (default fold); expanded view has no cap (user-controlled; deliberate — avoid config-file reads during render)
+- Expand state is per-session UI preference, never persisted to branch — `/reload` and compaction reset to fold (the user re-runs `/todos expand`)
+- Overlay chrome is not localised (English)
+
+## File structure
 
 ```text
 pi-todo/
-├── index.ts       # 入口：工具/命令注册 + 事件接线
-├── types.ts       # 领域类型 + JSON Schema
-├── reducer.ts     # 纯 reducer（状态机/环检测/无操作检测）
-├── store.ts       # 会话分槽 + 前台指针 + branch 重放
-├── format.ts      # 三视图格式化 + 终端清洗 + 宽度计算
-├── overlay.ts     # setWidget overlay
-├── globals.d.ts   # pi 运行时 ambient shim（本地 tsc 用）
-├── tsconfig.json  # 本地类型检查
-└── package.json
+├── index.ts          # tool + command registration + event wiring
+├── types.ts          # domain types + JSON Schema
+├── reducer.ts        # pure reducer: state machine / cycle detection / no-op detection
+├── store.ts          # session-keyed slots + foreground pointer + branch replay
+├── format.ts         # three-view formatting + terminal scrubbing + width calc
+├── overlay.ts        # setWidget overlay
+├── globals.d.ts      # ambient shim for the Pi runtime types
+├── tsconfig.json     # local type-check
+├── package.json
+├── README.md
+└── LICENSE
 ```
 
 ## License

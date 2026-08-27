@@ -1,35 +1,29 @@
+<!-- markdownlint-disable MD033 MD041 -->
+<p align="center">
+  <img src="../../assets/icons/notify.svg" alt="pi-notify" width="48" />
+</p>
+
 # pi-notify
 
-Single-line OSC 777 / OSC 9 / OSC 99 terminal notifications when the pi agent
-settles. Formatted with basic Unicode (no emoji) so it renders the same in
-monospace fonts across macOS, Linux, and SSH sessions — including the long
-tail of fonts that have no emoji glyphs.
+<p align="center"><strong>Single-line OSC terminal notification when the Pi agent settles.</strong></p>
 
-## Install
+<p align="center">
+  <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+</p>
 
-```bash
-# From the monorepo (after symlink via bin/install.sh)
-pi -e ./extensions/pi-notify
-
-# Single session, without installing
-pi -e npm:pi-notify
-```
+Sends a one-line OSC notification each time the agent finishes a run and is waiting for input. Formatted with basic Unicode (no emoji) so the output looks the same in monospace fonts across macOS, Linux, and SSH sessions — including the long tail of fonts that lack emoji glyphs.
 
 ## What it adds
 
-- **Hook**: `agent_settled` — sends a one-line OSC notification each time the
-  agent finishes a run and is waiting for input. Fires once per run (not per
-  retry / queued follow-up), so you don't get spammed mid-retry.
-- **Command**: `/notify [message]` — one-shot test notification. Defaults to
-  `"Waiting for your input"` when called with no argument. Use it to verify
-  the extension is wired correctly after install.
+- **Hook**: `agent_settled` — emits one OSC notification per run, fires once per run (not per retry or queued follow-up), so you don't get spammed mid-retry
+- **Command**: `/notify [message]` — one-shot test notification; defaults to `"Waiting for your input"` when called with no argument; use it to verify the extension is wired correctly after install
 
-No tools are registered. The LLM does not call this extension directly.
+No tools are registered. The model does not call this extension directly.
 
 ## Output format
 
-The body is a single line, separated by ` · ` (U+00B7). The status glyph is
-`✓` (U+2713) on success or `✗` (U+2717) when any tool call errored.
+A single line, fields separated by ` · ` (U+00B7). Status glyph is `✓` (U+2713) on success or `✗` (U+2717) when any tool call errored:
 
 ```text
 ✓ Pi · 3 turns · 5 tools (3 unique) · 1m24s · feature-branch
@@ -42,18 +36,15 @@ Duration auto-formats:
 
 | Range | Format |
 | --- | --- |
-| < 60s | `42s` |
-| < 60m | `1m24s` |
-| ≥ 60m | `1h12m` |
+| < 60 s | `42s` |
+| < 60 min | `1m24s` |
+| ≥ 60 min | `1h12m` |
 
-The body is capped at **240 characters**. If the session name is too long
-to fit, it is truncated with `…`. The terminal notification protocol varies
-in how it truncates; we truncate explicitly to keep the layout predictable.
+The body is capped at **240 characters**. If the session name is too long to fit, it is truncated with `…`. Terminal notification protocols truncate unpredictably; truncating explicitly keeps the layout predictable.
 
 ## Terminal support
 
-Notifications go through your terminal emulator's native OSC protocol. No
-OS daemons, no extra packages, no external binaries.
+Notifications go through your terminal emulator's native OSC protocol. No OS daemons, no extra packages, no external binaries.
 
 | Terminal | Protocol | Detection |
 | --- | --- | --- |
@@ -66,8 +57,7 @@ OS daemons, no extra packages, no external binaries.
 
 ### Multiplexers (DCS passthrough)
 
-OSC sequences are wrapped in DCS `ESC P tmux; … ESC \` so they survive
-multiplexers (which would otherwise swallow the raw OSC bytes). Detected via:
+OSC sequences are wrapped in DCS `ESC P tmux; … ESC \` so they survive multiplexers (which would otherwise swallow the raw OSC bytes):
 
 | Multiplexer | Env |
 | --- | --- |
@@ -77,49 +67,46 @@ multiplexers (which would otherwise swallow the raw OSC bytes). Detected via:
 
 ### Unsupported terminals
 
-Apple Terminal, Alacritty, and the native Windows console (outside WSL) do
-not implement any OSC notification protocol. In those environments the
-extension surfaces a TUI notice recommending an issue be filed, instead
-of emitting a silent no-op.
+Apple Terminal, Alacritty, and the native Windows console (outside WSL) do not implement any OSC notification protocol. In those environments the extension surfaces a TUI notice recommending an issue be filed, instead of emitting a silent no-op.
 
 ## Why Unicode, not emoji
 
-The upstream packages use `✅ ❌ 🔔` for status. That looks fine on macOS
-with the system emoji font, but in:
+Upstream packages use `✅ ❌ 🔔` for status. That looks fine on macOS with the system emoji font, but in:
 
 - Linux distros without a Noto Color Emoji fallback
 - SSH sessions with a stripped-down terminal font
 - Windows Terminal in some configurations
 
-those characters render as `?` boxes or width-doubled glyphs that break the
-single-line layout. `\u2713` and `\u2717` are part of every monospace font
-shipped with a serious terminal emulator since 2010, so we get a consistent
-look everywhere without making the user install fonts.
+those characters render as `?` boxes or width-doubled glyphs that break the single-line layout. `\u2713` and `\u2717` are part of every monospace font shipped with a serious terminal emulator since 2010, so we get a consistent look everywhere without making the user install fonts.
 
-## Requirements
+## Install
 
-- Node `>= 20`
-- pi (latest)
-- No API keys or external configuration
+```bash
+pi install git:github.com/huangrx6/pi-notify
+```
+
+Or via the monorepo. Restart Pi or `/reload`. No API keys or external configuration.
 
 ## Development
 
-This package is part of the huangrx6/pi-plugin monorepo. From the repo root:
-
 ```bash
-# Run the unit tests (covers formatBody, OSC bytes, multiplexer wrapping,
-# terminal detection, extension factory).
 cd extensions/pi-notify
 npm install
-npm test
+npm run check      # type-check
+npm test           # format / OSC bytes / multiplexer wrapping / terminal detection / extension factory
+```
 
-# Type-check
-npm run check
+Try it against a real Pi session:
 
-# Try it against a real pi session
+```bash
 pi -e ./extensions/pi-notify
 ```
 
+## Requirements
+
+- Node `>=20`
+- Pi (latest)
+
 ## License
 
-[MIT](./LICENSE)
+MIT © huangrx6
