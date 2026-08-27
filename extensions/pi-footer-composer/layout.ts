@@ -1,13 +1,13 @@
 /**
- * Width helpers (grapheme-aware, ANSI-safe) + the table layout.
+ * Width helpers (grapheme-aware, ANSI-safe) + the footer layout.
  *
  * A "cell" is one content atom (cwd / branch / one usage stat / model /
- * ONE extension status). `renderTable` greedily packs cells into rows
- * separated by a dim `│`; a row wraps when the next cell would overflow
- * the terminal width. Narrow terminals naturally get more, shorter rows;
- * wide terminals get fewer, longer rows. An over-height table is capped
- * at MAX_ROWS with a `+N` overflow cell so the footer never crowds the
- * editor.
+ * ONE extension status). `renderTable` lays out one content GROUP per
+ * line — environment, usage, context, model, then the status cells —
+ * forming a single column of rows. Within a group, cells are joined by
+ * a dim `│`; a group wider than the terminal greedy-wraps onto
+ * continuation lines. Cells wider than the whole terminal are
+ * truncated with an ellipsis.
  */
 
 const ANSI_PATTERN = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))/g;
@@ -87,48 +87,48 @@ export function makeCell(text: string): Cell {
   return { text, w: visibleWidth(text) };
 }
 
-/** Hard cap so a status-heavy session cannot push the editor off-screen. */
-export const MAX_ROWS = 4;
-
 type Theme = { fg(color: string, text: string): string };
 
 /**
- * Pack cells into rows and render them as a pipe table.
- * Cells wider than the whole terminal are truncated to fit alone.
+ * One content group per line (single column, multiple rows). Within a
+ * group, cells are joined by a dim `│`; a group wider than the terminal
+ * greedy-wraps. Cells wider than the whole terminal are truncated.
  */
 export function renderTable(
-  cells: readonly Cell[],
+  groups: readonly (readonly Cell[])[],
   width: number,
   theme: Theme,
 ): string[] {
-  if (width <= 0) return [];
+  if (width <= 0 || groups.length === 0) return [];
   const sepText = theme.fg("dim", " │ ");
   const sepW = 3;
 
-  const rows: Cell[][] = [];
-  let current: Cell[] = [];
-  let currentW = 0;
-  for (const cell of cells) {
-    const needW = current.length === 0 ? cell.w : sepW + cell.w;
-    if (currentW + needW > width && current.length > 0) {
-      rows.push(current);
+  const lines: string[] = [];
+  for (const group of groups) {
+    const cells = group.filter((c) => c.w > 0);
+    if (cells.length === 0) continue;
+
+    // Greedy packing of this group's cells within the terminal width.
+    let current: Cell[] = [];
+    let currentW = 0;
+    const flush = () => {
+      if (current.length > 0) {
+        lines.push(current.map((c) => c.text).join(sepText));
+      }
       current = [];
       currentW = 0;
+    };
+    for (const cell of cells) {
+      const fitted =
+        cell.w > width
+          ? makeCell(truncateToWidth(cell.text, width, "…"))
+          : cell;
+      const needW = current.length === 0 ? fitted.w : sepW + fitted.w;
+      if (currentW + needW > width && current.length > 0) flush();
+      current.push(fitted);
+      currentW += current.length === 1 ? fitted.w : sepW + fitted.w;
     }
-    const fitted =
-      cell.w > width ? makeCell(truncateToWidth(cell.text, width, "…")) : cell;
-    current.push(fitted);
-    currentW += current.length === 1 ? fitted.w : sepW + fitted.w;
+    flush();
   }
-  if (current.length > 0) rows.push(current);
-
-  if (rows.length > MAX_ROWS) {
-    const dropped = rows.slice(MAX_ROWS - 1).reduce((n, r) => n + r.length, 0);
-    const kept = rows.slice(0, MAX_ROWS - 1);
-    kept.push([makeCell(theme.fg("dim", `…+${dropped}`))]);
-    rows.length = 0;
-    rows.push(...kept);
-  }
-
-  return rows.map((row) => row.map((c) => c.text).join(sepText));
+  return lines;
 }

@@ -1,8 +1,10 @@
 /**
- * pi-footer-composer — table-style footer, single responsibility.
+ * pi-footer-composer — one content per line, single responsibility.
  *
  * The ONLY footer owner in a setup: calls ctx.ui.setFooter() once and
- * renders the whole footer as a pipe table. Everything it shows comes
+ * renders the whole footer as a single column — one line per content
+ * group (environment / usage / context / model / statuses), cells
+ * joined by dim pipes. Everything it shows comes
  * from pi's aggregate surfaces — it never imports or knows about any
  * other extension:
  *
@@ -232,16 +234,16 @@ export default function (pi: ExtensionAPI): void {
           render: (width: number) =>
             renderTable(
               [
-                ...envCells(activeCtx as Ctx, footerData, theme),
-                ...usageCells(activeCtx as Ctx, theme),
-                ...contextCell(activeCtx as Ctx, theme, activeModel),
-                ...modelCells(
+                envCells(activeCtx as Ctx, footerData, theme),
+                usageCells(activeCtx as Ctx, theme),
+                contextCell(activeCtx as Ctx, theme, activeModel),
+                modelCells(
                   theme,
                   activeModel,
                   activeThinking,
                   footerData.getAvailableProviderCount(),
                 ),
-                ...statusCells(footerData),
+                statusCells(footerData),
               ],
               width,
               theme,
