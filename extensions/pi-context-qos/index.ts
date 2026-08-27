@@ -207,9 +207,7 @@ const CONTEXT_SUBS: ContextSub[] = [
  * when the user cancelled, or null when the runtime has no ui.select and
  * the usage table was shown instead (caller should just return).
  */
-async function pickSubcommand(
-  ctx: any,
-): Promise<string | null | undefined> {
+async function pickSubcommand(ctx: any): Promise<string | null | undefined> {
   const options = CONTEXT_SUBS.map((s) => `${s.name} — ${s.desc}`);
   const select = ctx?.ui?.select?.bind(ctx.ui);
   if (typeof select !== "function") {

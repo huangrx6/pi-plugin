@@ -71,7 +71,9 @@ const CONFIG_PATH = `${process.env.HOME ?? process.env.USERPROFILE}/.pi/agent/mo
 function loadPersistedMode(): Mode {
   try {
     const parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
-    return parsed.mode === "ask" || parsed.mode === "smart" || parsed.mode === "full"
+    return parsed.mode === "ask" ||
+      parsed.mode === "smart" ||
+      parsed.mode === "full"
       ? (parsed.mode as Mode)
       : "smart";
   } catch {
@@ -116,11 +118,24 @@ export function splitSegments(cmd: string): string[] {
 
 /** Write heuristics for a SINGLE command segment (no separators inside). */
 function segWriteBash(c: string): boolean {
-  if (/^(rm|mv|cp|mkdir|touch|chmod|chown|dd|ln|truncate|install|patch)\b/.test(c)) return true;
+  if (
+    /^(rm|mv|cp|mkdir|touch|chmod|chown|dd|ln|truncate|install|patch)\b/.test(c)
+  )
+    return true;
   if (/[>»]/.test(c) && !/[>»]\s*\/dev\/null/.test(c)) return true;
   if (/\b(tee|sed\s+-i)\b/.test(c)) return true;
-  if (/^git\s+(commit|push|reset|rebase|merge|checkout|restore|clean|stash|tag|branch\s+-[dD])\b/.test(c)) return true;
-  if (/^(npm|yarn|pnpm|pip|pip3|poetry|cargo|go|brew|apt|apt-get|yum|dnf)\s+(install|add|remove|uninstall|publish|update|upgrade)\b/.test(c)) return true;
+  if (
+    /^git\s+(commit|push|reset|rebase|merge|checkout|restore|clean|stash|tag|branch\s+-[dD])\b/.test(
+      c,
+    )
+  )
+    return true;
+  if (
+    /^(npm|yarn|pnpm|pip|pip3|poetry|cargo|go|brew|apt|apt-get|yum|dnf)\s+(install|add|remove|uninstall|publish|update|upgrade)\b/.test(
+      c,
+    )
+  )
+    return true;
   if (/^(curl|wget|ssh|scp|rsync|nc|nmap)\b/.test(c)) return true;
   return false;
 }
@@ -170,7 +185,8 @@ function rmTargetsRisky(cmd: string): boolean {
   const tokens = cmd.trim().split(/\s+/).slice(1);
   const targets = tokens.filter((t) => !t.startsWith("-"));
   return targets.some((t) => {
-    if (t === "/" || t === "/*" || t === "." || t === ".." || t === "~") return true;
+    if (t === "/" || t === "/*" || t === "." || t === ".." || t === "~")
+      return true;
     if (t === "*" || t === ".*" || t === "/*.*") return true;
     if (t.includes("*")) return true;
     return false;
@@ -179,12 +195,23 @@ function rmTargetsRisky(cmd: string): boolean {
 
 /** High-risk heuristics for a SINGLE command segment. */
 function segRiskyBash(c: string): boolean {
-  if (/^rm\b/.test(c) && (/(\s|^)(-[a-zA-Z]*[rf][a-zA-Z]*|--recursive|--force)(\s|$)/.test(c) || rmTargetsRisky(c))) return true;
+  if (
+    /^rm\b/.test(c) &&
+    (/(\s|^)(-[a-zA-Z]*[rf][a-zA-Z]*|--recursive|--force)(\s|$)/.test(c) ||
+      rmTargetsRisky(c))
+  )
+    return true;
   if (/^(mkfs|fdisk|parted)\b/.test(c)) return true;
   if (/^dd\b.*\bof=\/dev\//.test(c)) return true;
-  if (/^git\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f|push\s+--force(\s|$)|push\s+-f(\s|$))/.test(c)) return true;
+  if (
+    /^git\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f|push\s+--force(\s|$)|push\s+-f(\s|$))/.test(
+      c,
+    )
+  )
+    return true;
   if (/\bsudo\b/.test(c)) return true;
-  if (/\bchmod\s+(-[a-zA-Z]*\s+)*-?R?[0-7]{3,4}\s+\/(\s|$)/.test(c)) return true;
+  if (/\bchmod\s+(-[a-zA-Z]*\s+)*-?R?[0-7]{3,4}\s+\/(\s|$)/.test(c))
+    return true;
   if (/\bmkfifo\b|\bshred\b/.test(c)) return true;
   return false;
 }
@@ -196,21 +223,28 @@ export function isRiskyBash(cmd: string): boolean {
   // Piping anything into an interpreter is remote code execution
   // (`curl … | sh`) — flag the interpreter segment when a pipe exists.
   if (cmd.includes("|")) {
-    return segments.some((seg) => /^(sh|bash|zsh|fish|python3?|node|ruby|perl)\b/.test(seg));
+    return segments.some((seg) =>
+      /^(sh|bash|zsh|fish|python3?|node|ruby|perl)\b/.test(seg),
+    );
   }
   return false;
 }
 
 /** Short human description of a tool call for the confirm dialog. */
-function describeCall(toolName: string, input: Record<string, unknown>): string {
+function describeCall(
+  toolName: string,
+  input: Record<string, unknown>,
+): string {
   if (toolName === "bash") {
     const cmd = typeof input.command === "string" ? input.command : "";
     return `执行命令: ${cmd.slice(0, 120)}`;
   }
   const path = typeof input.path === "string" ? input.path : "";
   if (path) return `${toolName} → ${path}`;
-  if (typeof input.url === "string") return `${toolName} → ${input.url.slice(0, 100)}`;
-  if (typeof input.query === "string") return `${toolName} → ${input.query.slice(0, 100)}`;
+  if (typeof input.url === "string")
+    return `${toolName} → ${input.url.slice(0, 100)}`;
+  if (typeof input.query === "string")
+    return `${toolName} → ${input.query.slice(0, 100)}`;
   return toolName;
 }
 
@@ -234,7 +268,8 @@ async function checkPermission(
   if (READ_TOOLS.has(toolName)) return null;
 
   const isBash = toolName === "bash";
-  const command = isBash && typeof input.command === "string" ? input.command : "";
+  const command =
+    isBash && typeof input.command === "string" ? input.command : "";
 
   // --- full: 完全访问, never ask ---
   if (mode === "full") return null;
@@ -324,7 +359,9 @@ export default function (pi: ExtensionAPI): void {
       }
 
       // No argument (or an unrecognized one): interactive selector.
-      const options = valid.map((m) => `${m} — ${MODE_LABELS[m]}：${MODE_ZH[m]}`);
+      const options = valid.map(
+        (m) => `${m} — ${MODE_LABELS[m]}：${MODE_ZH[m]}`,
+      );
       const choice = await ctx.ui.select(
         name
           ? `选择权限模式（当前: ${MODE_LABELS[currentMode]}，未识别 "${name.slice(0, 20)}"）`
@@ -336,7 +373,9 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       // select() returns the chosen option text; extract the mode key prefix.
-      const picked = String(choice).split(/[\s—:]/)[0].toLowerCase();
+      const picked = String(choice)
+        .split(/[\s—:]/)[0]
+        .toLowerCase();
       if (!valid.includes(picked as Mode)) return;
       switchMode(picked as Mode, uiCtx);
     },

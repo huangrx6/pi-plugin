@@ -34,13 +34,19 @@ declare module "@earendil-works/pi-coding-agent" {
     ): void;
     on(
       event: "session_start" | "session_tree" | "turn_end",
-      handler: (event: unknown, ctx: ModeSwitcherEventCtx) => Promise<unknown> | unknown,
+      handler: (
+        event: unknown,
+        ctx: ModeSwitcherEventCtx,
+      ) => Promise<unknown> | unknown,
     ): void;
     registerCommand(
       name: string,
       definition: {
         description: string;
-        handler: (args: string, ctx: ModeSwitcherEventCtx) => Promise<void> | void;
+        handler: (
+          args: string,
+          ctx: ModeSwitcherEventCtx,
+        ) => Promise<void> | void;
       },
     ): void;
   }

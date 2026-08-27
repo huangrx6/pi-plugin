@@ -233,8 +233,7 @@ function isPromptStartSlashToken(
     .slice(0, cursorLine)
     .every((line) => line.trim().length === 0);
   return (
-    earlierLinesBlank &&
-    textBeforeCursor.slice(0, slashStart).trim() === ""
+    earlierLinesBlank && textBeforeCursor.slice(0, slashStart).trim() === ""
   );
 }
 
@@ -296,7 +295,8 @@ function fuzzyScore(value: string, query: string): number {
   if (!needle) return 1;
   if (target === needle) return 1000;
   if (target.startsWith(needle)) return 800 - target.length;
-  if (target.includes(needle)) return 600 - target.indexOf(needle) - target.length;
+  if (target.includes(needle))
+    return 600 - target.indexOf(needle) - target.length;
   let score = 0;
   let last = -1;
   for (const ch of needle) {
@@ -352,7 +352,9 @@ function mergeAutocompleteItems(options: {
   const seen = new Set<string>();
   const items = ordered.filter((item) => {
     const isSkill = item.label.startsWith("skill:");
-    const key = isSkill ? `skill:${item.label}` : `${item.label}\u0000${item.value}`;
+    const key = isSkill
+      ? `skill:${item.label}`
+      : `${item.label}\u0000${item.value}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -391,7 +393,12 @@ function createIdempotentSkillWrapper(
       const matches = query
         ? filterSkills(skills, query).slice(0, MAX_SUGGESTIONS)
         : skills.slice(0, MAX_SUGGESTIONS);
-      const atPromptStart = isPromptStartSlashToken(lines, cursorLine, before, query);
+      const atPromptStart = isPromptStartSlashToken(
+        lines,
+        cursorLine,
+        before,
+        query,
+      );
       // Consult native only at the prompt start (slash-command suggestions)
       // or when nothing skill-ish matches (fall back to file completion on
       // Tab). Mid-text skill matches skip native: the "/word" prefix would
@@ -464,7 +471,10 @@ function createIdempotentSkillWrapper(
 function restoreLoadedSkills(ctx: ExtensionContext): Set<string> {
   const loaded = new Set<string>();
   for (const entry of ctx.sessionManager.getBranch() as InlineSkillSessionEntry[]) {
-    if (entry.type === "custom" && entry.customType === LOADED_SKILL_ENTRY_TYPE) {
+    if (
+      entry.type === "custom" &&
+      entry.customType === LOADED_SKILL_ENTRY_TYPE
+    ) {
       const data = entry.data;
       if (data?.source === "tool-result" && data.name?.trim()) {
         loaded.add(data.name);
@@ -512,7 +522,11 @@ export default function (pi: ExtensionAPI): void {
       const container = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
       if (details?.skills?.length) {
         container.addChild(
-          new Text(`${label} ${theme.fg("customMessageText", names)} ${theme.fg("dim", `(${details.skills.length} skills)`)}`, 0, 0),
+          new Text(
+            `${label} ${theme.fg("customMessageText", names)} ${theme.fg("dim", `(${details.skills.length} skills)`)}`,
+            0,
+            0,
+          ),
         );
       } else {
         container.addChild(
@@ -622,7 +636,10 @@ export default function (pi: ExtensionAPI): void {
       message: {
         customType: INLINE_SKILL_MESSAGE_TYPE,
         content: skills
-          .map((s) => `<skill name="${escapeXml(s.name)}" location="${escapeXml(s.location)}">\n${s.content}\n</skill>`)
+          .map(
+            (s) =>
+              `<skill name="${escapeXml(s.name)}" location="${escapeXml(s.location)}">\n${s.content}\n</skill>`,
+          )
           .join("\n\n"),
         display: true,
         details: { names, skills },

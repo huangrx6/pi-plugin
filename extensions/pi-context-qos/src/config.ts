@@ -79,7 +79,9 @@ function validate(config: ContextQosConfig): ContextQosConfig {
     config.budget.critical,
   ];
   if (
-    points.some((point) => !Number.isFinite(point) || point <= 0 || point >= 1) ||
+    points.some(
+      (point) => !Number.isFinite(point) || point <= 0 || point >= 1,
+    ) ||
     !points.every((point, index) => index === 0 || points[index - 1]! < point)
   ) {
     throw new Error(
@@ -104,26 +106,42 @@ function validate(config: ContextQosConfig): ContextQosConfig {
       throw new Error(`context-qos ${name} must be a positive integer`);
     }
   }
-  if (!Number.isFinite(config.storage.maxBytes) || config.storage.maxBytes < 1) {
+  if (
+    !Number.isFinite(config.storage.maxBytes) ||
+    config.storage.maxBytes < 1
+  ) {
     throw new Error("context-qos storage.maxBytes must be positive");
   }
-  if (!Number.isFinite(config.storage.maxAgeDays) || config.storage.maxAgeDays <= 0) {
+  if (
+    !Number.isFinite(config.storage.maxAgeDays) ||
+    config.storage.maxAgeDays <= 0
+  ) {
     throw new Error("context-qos storage.maxAgeDays must be positive");
   }
   if (
     !Array.isArray(config.security.excludePatterns) ||
-    config.security.excludePatterns.some((pattern) => typeof pattern !== "string")
+    config.security.excludePatterns.some(
+      (pattern) => typeof pattern !== "string",
+    )
   ) {
-    throw new Error("context-qos security.excludePatterns must be a string array");
+    throw new Error(
+      "context-qos security.excludePatterns must be a string array",
+    );
   }
-  if (!config.storage.directory || typeof config.storage.directory !== "string") {
+  if (
+    !config.storage.directory ||
+    typeof config.storage.directory !== "string"
+  ) {
     throw new Error("context-qos storage.directory must be a non-empty string");
   }
   config.storage.directory = expandHome(config.storage.directory);
   return config;
 }
 
-export function loadConfig(cwd: string, projectTrusted: boolean): ContextQosConfig {
+export function loadConfig(
+  cwd: string,
+  projectTrusted: boolean,
+): ContextQosConfig {
   const defaultDirectory = expandHome(DEFAULT_CONFIG.storage.directory);
   const globalConfig = readJson(join(defaultDirectory, "config.json"));
   const projectConfig = projectTrusted

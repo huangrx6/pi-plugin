@@ -36,11 +36,17 @@ declare module "@earendil-works/pi-coding-agent" {
       name: string,
       definition: {
         description: string;
-        handler: (args: string, ctx: InlineSkillEventCtx) => Promise<void> | void;
+        handler: (
+          args: string,
+          ctx: InlineSkillEventCtx,
+        ) => Promise<void> | void;
       },
     ): void;
     appendEntry(type: string, data?: unknown): void;
-    on(event: string, handler: (event: any, ctx: InlineSkillEventCtx) => unknown): void;
+    on(
+      event: string,
+      handler: (event: any, ctx: InlineSkillEventCtx) => unknown,
+    ): void;
   }
   export type ExtensionContext = InlineSkillEventCtx;
   export type ParsedSkillBlock = {
