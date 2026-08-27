@@ -92,13 +92,7 @@ type LooseUsage = {
  * content. The set is closed — adding/removing a row requires
  * editing both this array and the `renderTable` call below.
  */
-const ROW_LABELS = [
-  "环境：",
-  "模型：",
-  "资源：",
-  "集成：",
-  "配置：",
-] as const;
+const ROW_LABELS = ["环境：", "模型：", "资源：", "集成：", "配置："] as const;
 
 // ── formatters (shared shape with the footer conventions) ──────────────
 
