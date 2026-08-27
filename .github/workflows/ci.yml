@@ -110,6 +110,46 @@ jobs:
         working-directory: extensions/pi-context-qos
         run: npm test
 
+  pi-skill-inject:
+    name: pi-skill-inject (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: extensions/pi-skill-inject
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        working-directory: extensions/pi-skill-inject
+        run: npm run check
+      - name: Token boundary tests
+        working-directory: extensions/pi-skill-inject
+        run: npm test
+
+  pi-mode-switcher:
+    name: pi-mode-switcher (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: extensions/pi-mode-switcher
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        working-directory: extensions/pi-mode-switcher
+        run: npm run check
+      - name: Composite-command risk tests
+        working-directory: extensions/pi-mode-switcher
+        run: npm test
+
   markdown-lint:
     name: markdownlint
     runs-on: ubuntu-latest
