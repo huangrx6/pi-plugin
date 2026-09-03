@@ -460,8 +460,11 @@ const DEFERRED_APPROVAL_RE =
 //   "不需要确认后再执行，直接修改代码" → gate (WRONG — the user lifted it)
 //   把 README 里的"确认后再执行"改成"确认后部署" → gate (WRONG — doc edit)
 //   "如果确认后再执行，会发生什么？" → gate (WRONG — a question)
+// v0.24: the object list grows 询问/请示/征求…意见 and EN ask-me forms —
+// the live failure that motivated v0.24 lifted a gate with
+// "不用征求我的意见了", which the v0.23 vocabulary simply did not see.
 const APPROVAL_NEGATOR_RE =
-        /(不需要?|不用|无需|不必|别)[^，。;,]{0,4}(等)?[^，。;,]{0,4}(确认|批准|审批|同意|点头|approval|confirmation|confirm)|no need (?:to wait|for|to)|don'?t (?:wait|need)|without (?:my |your )?(?:approval|confirmation)/i;
+        /(不需要?|不用|无需|无须|不必|别)[^，。;,]{0,6}(等)?[^，。;,]{0,6}(确认|批准|审批|同意|点头|询问|请示|问我|征求[^，。;,]{0,4}意见|approval|confirmation|confirm|ask(?:ing)?[\s]+me)|no need (?:to wait|for|to)|don'?t (?:wait|need|ask)|without (?:my |your )?(?:approval|confirmation|asking)/i;
 const APPROVAL_HYPOTHETICAL_RE =
         /^(如果|假如|假设|要是|万一)|会发生什么|会怎么样|会怎样|有什么影响|what (?:happens|would happen)/i;
 

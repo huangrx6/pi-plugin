@@ -169,6 +169,54 @@ function isFillerOnly(rest) {
   return tokens.every((t) => ZH_FILLER_RE.test(t) || EN_FILLER_RE.test(t));
 }
 
+// Autonomy grants (v0.24): the user explicitly hands over the approval
+// decision — "不用征求我的意见了" / "don't ask me" / "自己决定". This is a
+// DIFFERENT thing from a plain approval: it releases the gate AND
+// authorizes continued execution without further stops.
+//
+// Verified live failure (2026-09-03, the exact message that motivated
+// v0.24): "所有的内容你自动进行评估，不用询问我，你自己给出具体的实施
+// 方案…构思完就执行，不用征求我的意见了" was classified REVISE because
+// (a) "构思完就执行" contains the approval phrase 执行 with substantive
+// leftover (approval flavor + content = revise), and (b) 询问/意见 were
+// not approval vocabulary anywhere, so nothing lifted the gate. The user
+// went to bed with the agent still stuck presenting plans for approval.
+//
+// Precision rules: negator + ask-object forms REQUIRE the object
+// (意见/同意/批准/我) so "别问问题" never matches; "不用问" requires 了 or
+// 我. Kept deliberately narrow — a false release is worse than a missed
+// one (the user can always approve explicitly).
+export const AUTONOMY_GRANT_RE = new RegExp(
+  [
+    "不用征求(?:我的)?(?:意见|同意|批准)",
+    "(?:不用|无需|无须|不需要)(?:再)?(?:询问|请示|问)(?:我)?(?:了)?",
+    "(?:不用|无需|不需要)我?(?:确认|批准|点头|审批)",
+    "别问我(?:了)?",
+    "自己(?:决定|拿主意|判断|评估后执行)",
+    "自主(?:决定|执行|判断|完成)",
+    "全权(?:处理|负责|决定)",
+    "(?:不用|不要|别)(?:再)?(?:停下来|停下来等我|停)",
+    "不(?:希望|用|要)(?:你)?(?:停下来|中断|停下来问|打断)",
+    "don'?t ask me",
+    "without asking",
+    "no need to ask",
+    "don'?t (?:stop|wait for my|interrupt)",
+    "keep going",
+    "act autonomously",
+    "you decide",
+    "carry on",
+  ].join("|"),
+  "i",
+);
+
+// Constraint markers reused by the lifecycle to decide whether an
+// APPROVE-shaped response still needs evidence merging (v0.24).
+export const APPROVAL_CONSTRAINT_RES = [
+  NEGATED_TARGET_RE,
+  SCOPED_REJECT_RE,
+  INSTRUCTION_RE,
+];
+
 /**
  * Classify one clause of a plan response:
  *   "approve"     approval flavor + filler only
@@ -220,10 +268,17 @@ export function classifyPlanResponse(prompt) {
 
   let verdict = null;
   let stickyRevise = false;
+  // v0.24: an autonomy grant releases the gate for the REST of the
+  // message. Constraints that ride along ("…不用征求我的意见了，但别动数
+  // 据库") become execution constraints — they must NOT re-lock the gate
+  // the user just handed over. Only a whole-clause cancel or a correction
+  // head (不对/等等…) revokes the release.
+  let released = false;
   for (let clause of clauses) {
     if (CANCEL_WHOLE_RE.test(clause)) {
       verdict = "cancel";
       stickyRevise = false;
+      released = false;
       continue;
     }
     const stripped = clause.replace(APPROVAL_CORRECTION_HEAD_RE, "").trim();
@@ -231,22 +286,39 @@ export function classifyPlanResponse(prompt) {
       // Correction resets everything; its remainder is the new instruction.
       verdict = null;
       stickyRevise = false;
+      released = false;
       if (!stripped) continue;
       clause = stripped;
+    }
+    if (AUTONOMY_GRANT_RE.test(clause)) {
+      verdict = "approve";
+      stickyRevise = false;
+      released = true;
+      continue;
     }
     const v = classifyApprovalClause(clause);
     if (v === "cancel") {
       verdict = "cancel";
       stickyRevise = false;
+      released = false;
     } else if (v === "revise") {
+      if (released) continue; // constraint on released execution — noted, gate stays open
       verdict = "revise";
       stickyRevise = true; // constraints stick; later approve ≠ un-stick
     } else if (v === "discuss") {
       // A question after approval DOWNGRADES the release: "批准，为什么
       // 第二步要改数据库？" is a discussion, not an approval.
-      if (!stickyRevise && verdict !== "cancel") verdict = "discuss";
+      // After an autonomy grant the release stands (the user already
+      // authorized execution; a mid-flight question is not a retraction).
+      if (!stickyRevise && !released && verdict !== "cancel")
+        verdict = "discuss";
     } else if (v === "approve") {
-      if (!stickyRevise && verdict !== "cancel" && verdict !== "discuss") {
+      if (
+        !stickyRevise &&
+        !released &&
+        verdict !== "cancel" &&
+        verdict !== "discuss"
+      ) {
         verdict = "approve";
       }
     } else if (v === "substantive") {
@@ -254,7 +326,7 @@ export function classifyPlanResponse(prompt) {
       // an approval is a revision of it ("批准，我还有一个要求" / "批准，
       // 不要重构" / "批准，顺序别变"). Only filler/continuation keeps a
       // release pure.
-      if (verdict === "approve") {
+      if (verdict === "approve" && !released) {
         verdict = "revise";
         stickyRevise = true;
       }

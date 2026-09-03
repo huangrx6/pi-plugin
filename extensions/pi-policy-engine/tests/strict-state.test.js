@@ -1,7 +1,7 @@
 // v0.20: strict-plan state persists across session restarts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import policyEngine from "../extensions/policy-engine/index.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -366,5 +366,42 @@ test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", as
   } finally {
     process.env.HOME = realHome;
     rmSync(home, { recursive: true, force: true });
+  }
+});
+
+// v0.24: stale strict-state files are pruned on session_start.
+test("pruneStrictStates removes only stale namespaced files", async () => {
+  const { pruneStrictStates } = await import("../src/core/history-store.js");
+  const { utimesSync, writeFileSync } = await import("node:fs");
+  const dir = mkdtempSync(join(tmpdir(), "pi-policy-prune-"));
+  try {
+    const mk = (name) => {
+      const p = join(dir, name);
+      writeFileSync(p, "{}", "utf8");
+      return p;
+    };
+    const stale = mk("strict-state-deadbeefdeadbeef.json");
+    const fresh = mk("strict-state-0123456789abcdef.json");
+    const legacy = mk("strict-state.json");
+    const untouched = mk("other.json");
+    const old = new Date(Date.now() - 20 * 24 * 3600 * 1000);
+    utimesSync(stale, old, old);
+    utimesSync(legacy, old, old);
+
+    const removed = await pruneStrictStates(join(dir, "history.jsonl"));
+    assert.equal(removed, 2);
+    assert.equal(existsSync(stale), false, "stale namespaced removed");
+    assert.equal(existsSync(legacy), false, "stale legacy removed");
+    assert.equal(existsSync(fresh), true, "fresh namespaced kept");
+    assert.equal(existsSync(untouched), true, "non-strict-state kept");
+
+    // Missing directory / empty path: best-effort, returns 0.
+    assert.equal(await pruneStrictStates(null), 0);
+    assert.equal(
+      await pruneStrictStates(join(dir, "nope", "history.jsonl")),
+      0,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

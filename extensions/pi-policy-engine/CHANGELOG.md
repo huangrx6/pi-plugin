@@ -1,5 +1,52 @@
 # Changelog
 
+## 0.24.0
+
+### Autonomy grants release the strict approval gate
+
+**The bug (verified live, 2026-09-03):** the user's go-to-bed message —
+"…构思完就执行，不用征求我的意见了" — was classified REVISE, so the
+engine kept demanding plan approval while the user slept. Two causes:
+
+1. "构思完就执行" contains the approval phrase 执行 with substantive
+   leftover → approval flavor + content = revise (correct per v0.23
+   semantics, wrong for this intent).
+2. Nothing lifted the gate because 询问/意见/请示 were not approval
+   vocabulary — `APPROVAL_NEGATOR_RE` only knew 确认/批准/同意/点头.
+
+**Fixes:**
+
+- `approval.js` — new exported `AUTONOMY_GRANT_RE` (中/英授权短语:
+  不用征求我的意见 / 不用询问我 / 别问我了 / 自己决定 / 全权处理 /
+  不用停下来 / don't ask me / keep going …). In
+  `classifyPlanResponse` a grant clause → `approve` AND releases the
+  rest of the message: riding constraints (“…但别动数据库”) become
+  execution constraints instead of re-locking the gate; only a
+  whole-clause cancel or a correction head (不对/等等…) revokes the
+  release. Precision is guarded — "别问问题" and "自己写个方案" do NOT
+  match (a false release is worse than a missed one).
+- `intent.js` — `APPROVAL_NEGATOR_RE` object list grows
+  询问/请示/问我/征求…意见 + EN ask-me forms, so
+  "给方案，确认后再执行，不用征求我的意见了" lifts its own explicit
+  gate instead of re-arming it.
+- `lifecycle.js` — the approve branch now MERGES revision evidence when
+  the approval carries content (grant + constraints, scoped
+  approvals): risk only up, domains/concerns union — identical to the
+  revise merge, but the phase enters `executing`. When an autonomy
+  grant is present the Approved block states it explicitly:
+  do-not-pause-for-approval guidance is injected.
+
+### Strict-state hygiene
+
+`pruneStrictStates` (history-store.js): every cwd gets a
+`strict-state-<hash>.json` and nothing ever removed them (20+ stale
+files accumulated next to the history). session_start now prunes
+strict-state files older than 14 days. Best-effort; never throws.
+
+New tests: live-message regression, grant vocabulary, grant+constraint,
+grant+question, no-false-release precision, cancel/correction revocation,
+gate-lift meta, prune round-trip (all fixtures under `os.tmpdir()`).
+
 ## 0.23.1 - 2026-08-27
 
 - Fix the `/policy` interactive picker rendering one glyph per row: the option labels were `join("\n")`-ed into a single string before being passed to `ctx.ui.select`, whose widget iterates the argument per option — a string iterates per character. `selectOptionLabel` now returns a proper `string[]` (one label per option), and the stray third `options` argument to `select` was dropped.

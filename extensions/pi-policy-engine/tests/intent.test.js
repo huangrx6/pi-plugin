@@ -166,6 +166,26 @@ test("v0.21 explicit approval gate + scoped negation meta", () => {
   );
 });
 
+test("v0.24 ask-me vocabulary lifts an explicit gate", () => {
+  // The demand half still creates the gate when nothing lifts it…
+  assert.equal(
+    extractExecutionMeta("给方案，确认后再执行").approvalRequired,
+    "explicit",
+  );
+  // …but the same message plus an ask-me release lifts it to null —
+  // the live v0.24 failure mode (询问/意见 were invisible to v0.23).
+  assert.equal(
+    extractExecutionMeta("给方案，确认后再执行，不用征求我的意见了")
+      .approvalRequired,
+    null,
+  );
+  assert.equal(
+    extractExecutionMeta("先给方案，确认后再执行，不用询问我")
+      .approvalRequired,
+    null,
+  );
+});
+
 test("research frame includes 分析", () => {
   const frame = extractIntentFrame("分析一下这个方案");
   assert.equal(frame.action, "research");

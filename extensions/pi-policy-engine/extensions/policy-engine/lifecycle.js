@@ -18,7 +18,11 @@
 //
 // v0.12 note still applies: no tool_call handler — model-behavior layer only.
 
-import { classifyPlanResponse } from "../../src/core/approval.js";
+import {
+  APPROVAL_CONSTRAINT_RES,
+  AUTONOMY_GRANT_RE,
+  classifyPlanResponse,
+} from "../../src/core/approval.js";
 import { loadModelRules, modelPolicyId } from "../../src/core/router.js";
 import {
   composeAllPolicies,
@@ -28,6 +32,7 @@ import {
   appendHistory,
   clearStrictState,
   loadStrictState,
+  pruneStrictStates,
   readHistory,
   resolveHistoryPath,
   saveStrictState,
@@ -124,6 +129,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         if (Array.isArray(diskEntries) && diskEntries.length > 0) {
           state.history = diskEntries;
         }
+        // v0.24 hygiene: strict-state-<hash>.json files never had a
+        // cleanup path — prune stale ones (>14d) so the data dir doesn't
+        // accumulate forever. Fire-and-forget; failures are ignored.
+        pruneStrictStates(path).catch(() => {});
       }
     }
 
@@ -254,8 +263,30 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       if (verdict === "approve") {
         state.phase = "executing";
         clearAwaitState(cfgAwait, cwd).catch(() => {});
-        const decision = { ...state.lastDecision };
+        // v0.24: an approval that CARRIES content (autonomy grant with
+        // riding constraints, scoped approvals like "批准但别动 schema")
+        // must not lose that evidence — merge it exactly like a revision
+        // (risk only up, domains/concerns union) while still entering the
+        // executing phase. A bare "批准" keeps the frozen decision as-is.
+        const carriesEvidence =
+          AUTONOMY_GRANT_RE.test(prompt) ||
+          APPROVAL_CONSTRAINT_RES.some((re) => re.test(prompt));
+        const decision = carriesEvidence
+          ? mergeRevisionDecision({
+              previous: state.lastDecision,
+              prompt,
+              config: cfgAwait,
+              packageRoot,
+            })
+          : { ...state.lastDecision };
         state.lastDecision = decision;
+        const granted = AUTONOMY_GRANT_RE.test(prompt);
+        if (granted) {
+          decision.reasons = [
+            ...(decision.reasons ?? []),
+            "approval:autonomy granted — the user explicitly authorized execution without further stops; do not pause for approval again",
+          ];
+        }
         const block = buildBlock({
           model: ctx?.model ?? state.currentModel,
           packageRoot,
@@ -267,7 +298,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         if (cfgAwait.showStatus !== false)
           setStatus(ctx, `policy:${decision.rigor}/executing`);
         return {
-          systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Approved\nThe plan has been approved by the user. Execute the bounded waves defined in the plan; re-check constraints after each wave.`,
+          systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Approved\nThe plan has been approved by the user. Execute the bounded waves defined in the plan; re-check constraints after each wave.${granted ? " The user has granted AUTONOMOUS execution: do not stop to ask for further approvals — carry the task through to completion, verifying each wave yourself." : ""}`,
         };
       }
 

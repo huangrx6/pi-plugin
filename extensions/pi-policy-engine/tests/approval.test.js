@@ -2,7 +2,96 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyPlanResponse } from "../src/core/approval.js";
+import {
+  AUTONOMY_GRANT_RE,
+  classifyPlanResponse,
+} from "../src/core/approval.js";
+
+// ── v0.24 autonomy grants ────────────────────────────────────────
+// Live regression (2026-09-03): the user's go-to-bed message released
+// the gate but classifyPlanResponse said REVISE, so the agent kept
+// presenting plans for an approval that was already granted.
+
+test("v0.24 live regression: 构思完就执行，不用征求我的意见了 → approve", () => {
+  assert.equal(
+    classifyPlanResponse(
+      "所有的内容你自动进行评估，不用询问我，你自己给出具体的实施方案，因为我要休息了，但是你需要持续完成目标，不希望你停下来，优化好再停下来，先好好地构思构思吧，构思完就执行，不用征求我的意见了",
+    ),
+    "approve",
+  );
+  // The minimal tail alone must also release.
+  assert.equal(
+    classifyPlanResponse("构思完就执行，不用征求我的意见了"),
+    "approve",
+  );
+});
+
+test("autonomy grant vocabulary releases the gate", () => {
+  const cases = [
+    "不用征求我的意见了",
+    "不用询问我，直接执行",
+    "不用问我了",
+    "不需要我确认，直接做",
+    "别问我了，你自己决定",
+    "自己拿主意就行，不用请示我",
+    "全权处理，不用停下来",
+    "don't ask me, just do it",
+    "keep going without asking",
+  ];
+  for (const p of cases) {
+    assert.equal(classifyPlanResponse(p), "approve", JSON.stringify(p));
+  }
+});
+
+test("grant + riding constraint stays released (constraint, not re-lock)", () => {
+  const cases = [
+    "不用征求我的意见了，但是别动数据库",
+    "不用问我了，不要重构，保持 API 兼容",
+    "don't ask me, but don't touch the schema",
+  ];
+  for (const p of cases) {
+    assert.equal(classifyPlanResponse(p), "approve", JSON.stringify(p));
+  }
+});
+
+test("grant then question keeps the release (mid-flight question ≠ retraction)", () => {
+  assert.equal(
+    classifyPlanResponse("不用征求我的意见了，为什么选这个方案？"),
+    "approve",
+  );
+});
+
+test("AUTONOMY_GRANT_RE stays precise (no false releases)", () => {
+  const nonGrants = [
+    "别问问题，先查文档", // 别问 without the ask-me object
+    "自己写个方案", // 自己 + verb, not a decision grant
+    "问一下数据库要不要备份", // asking about, not lifting the gate
+  ];
+  for (const p of nonGrants) {
+    assert.equal(AUTONOMY_GRANT_RE.test(p), false, JSON.stringify(p));
+  }
+});
+
+test("cancel/correction still revokes a release", () => {
+  assert.equal(classifyPlanResponse("不用问我了。等等，先别动"), "cancel");
+  // A correction head resets the release entirely, so the remainder is
+  // classified exactly as it would be with no grant in front (here:
+  // bare substantive replacement → unknown; the lifecycle re-decides).
+  assert.equal(
+    classifyPlanResponse("不用问我了，不对，改成只改 README"),
+    classifyPlanResponse("不对，改成只改 README"),
+  );
+  assert.notEqual(
+    classifyPlanResponse("不用问我了，不对，改成只改 README"),
+    "approve",
+  );
+});
+
+test("conditional-execute alone (no grant) stays conservative revise", () => {
+  // "构思完就执行" without an explicit grant is approval flavor +
+  // substantive leftover — kept as revise (v0.23 semantics unchanged).
+  assert.equal(classifyPlanResponse("构思完就执行"), "revise");
+});
 
 test("constraint-bearing approvals NEVER release execution", () => {
   const cases = [

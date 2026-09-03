@@ -270,3 +270,51 @@ export async function clearStrictState(filePath, fs = null) {
     return { ok: false, reason: err?.message ?? String(err) };
   }
 }
+
+/**
+ * Prune stale namespaced strict-state files (v0.24).
+ *
+ * Every project cwd gets its own strict-state-<hash>.json and nothing
+ * ever removed them — 20+ stale files (some empty, some months old)
+ * accumulated next to the history. Restores already ignore files older
+ * than maxAgeMs; this actually deletes them.
+ *
+ * Only files matching strict-state-<16-hex>.json (or the legacy
+ * strict-state.json) in the SAME directory as the history file are
+ * considered. Best-effort: never throws, returns the removal count.
+ */
+export async function pruneStrictStates(
+  historyFilePath,
+  { maxAgeMs = 14 * 24 * 3600 * 1000 } = {},
+  fs = null,
+) {
+  if (typeof historyFilePath !== "string" || !historyFilePath) return 0;
+  const lib = fs ?? (await import("node:fs/promises"));
+  const dir = dirname(historyFilePath);
+  let names;
+  try {
+    names = await lib.readdir(dir);
+  } catch {
+    return 0;
+  }
+  const STALE_RE = /^strict-state(?:-[0-9a-f]{16})?\.json$/;
+  let removed = 0;
+  for (const name of names) {
+    if (!STALE_RE.test(name)) continue;
+    const full = join(dir, name);
+    try {
+      const st = await lib.stat(full);
+      const birth = Math.max(
+        typeof st.birthtimeMs === "number" ? st.birthtimeMs : 0,
+        typeof st.mtimeMs === "number" ? st.mtimeMs : 0,
+      );
+      if (Date.now() - birth > maxAgeMs) {
+        await lib.unlink(full);
+        removed++;
+      }
+    } catch {
+      // stat/unlink race or permissions — skip this file.
+    }
+  }
+  return removed;
+}
