@@ -66,7 +66,13 @@ type StatusCtx = {
 
 /** Publish (or clear) the quota status line. null text → clear. */
 function publishStatus(ctx: StatusCtx): void {
-  ctx.ui.setStatus(WIDGET_KEY, buildQuotaText() ?? undefined);
+  try {
+    ctx.ui.setStatus(WIDGET_KEY, buildQuotaText() ?? undefined);
+  } catch {
+    // Stale ctx after session replacement / reload: the status widget
+    // belongs to the replaced session, so dropping the update is correct.
+    // An unhandled throw here kills the host process (e.g. `pi -p`).
+  }
 }
 
 // ---------------------------------------------------------------------------
