@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.2 - 2026-09-04
+
+### Fix: `truncateToWidth` infinite loop on ANSI-colored wide cells
+
+The inner escape-scan regex was built without the `g` flag, so `exec`
+kept returning the FIRST escape forever. Any theme-colored cell wider
+than its row budget — the footer's normal case: usage stats, context
+percentage, extension statuses (e.g. quota bars) are all colored —
+looped forever and froze the renderer on narrow terminals. One-flag
+fix (`new RegExp(ANSI_PATTERN.source, "g")`) plus a regression test
+that previously hung indefinitely.
+
+### Local dev parity
+
+- `npm run check` (`tsc --noEmit`) and `npm test` (`tsx --test
+  tests/*.test.ts`) scripts added, with typescript/tsx/@types/node
+  devDependencies and a committed lockfile — same gates CI already
+  runs via `npx`.
+- `tests/layout.test.ts` (9 cases): visibleWidth (ASCII / ANSI /
+  CJK), truncateToWidth (short / exact / over-wide ASCII / CJK grapheme
+  boundary / ANSI-preserving), makeCell.
+
 ## 0.3.1 - 2026-08-27
 
 - Back to five rows by request: subscription quotas merge into the 模型 row (`│`-separated) and context-governance statuses merge into the 资源 row, so the footer regains its compact single-column form while keeping the generic quota:/context: routing. 集成 now precedes 配置.

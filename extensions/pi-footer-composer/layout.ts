@@ -52,7 +52,13 @@ export function visibleWidth(text: string): number {
   return width;
 }
 
-/** Truncate a possibly-ANSI string to a visible width, keeping escapes. */
+/** Truncate a possibly-ANSI string to a visible width, keeping escapes.
+ *
+ *  v0.3.2 bugfix: the inner escape-scan regex MUST carry the `g` flag.
+ *  Without it `exec` keeps returning the FIRST escape forever, so any
+ *  ANSI-colored text wider than maxWidth (the footer's normal case —
+ *  usage cells and extension statuses are theme-colored) infinite-
+ *  looped and froze the renderer. */
 export function truncateToWidth(
   text: string,
   maxWidth: number,
@@ -65,9 +71,8 @@ export function truncateToWidth(
   let used = 0;
   let cursor = 0;
   let result = "";
-  ANSI_PATTERN.lastIndex = 0;
+  const single = new RegExp(ANSI_PATTERN.source, "g");
   let m: RegExpExecArray | null;
-  const single = new RegExp(ANSI_PATTERN.source);
   while ((m = single.exec(text)) !== null) {
     const plain = text.slice(cursor, m.index);
     for (const { segment } of graphemeSegmenter.segment(plain)) {
