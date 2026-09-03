@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
-  <img alt="version" src="https://img.shields.io/badge/version-0.4.2-2ea44f?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.5.1-2ea44f?style=flat-square" />
 </p>
 
 A `todo` tool the model can call, a `/todos` command for the user, and a slim overlay above the editor. State is owned by a per-workspace **durable envelope** stored on disk; the session branch is no longer the authority. Pi `/reload` and built-in compaction both preserve the list (the workspace is the identity, not the session).
@@ -233,7 +233,7 @@ Tool name `todo` is the persistence key. If you install another extension that a
 ## Install
 
 ```bash
-pi install git:github.com/huangrx6/pi-todo
+pi install git:github.com/huangrx6/pi-plugin
 ```
 
 Or via the monorepo. Restart Pi or `/reload`.
