@@ -27,7 +27,7 @@
  * session-local state is no longer a production read source.
  */
 
-import { formatTaskRow } from "./format.ts";
+import { formatTaskRow, formatTaskRowStyled } from "./format.ts";
 import { projectActiveView } from "./projection.ts";
 import { buildDependencyPresentation } from "./read-model.ts";
 import type { ScopeKey } from "./persistence-contract.ts";
@@ -51,13 +51,24 @@ const BLOCKED_BUDGET = 2;
  *  overlay renders [] without ever touching legacy store. */
 const EMPTY_STATE: TaskState = { tasks: [], nextId: 1 };
 
+/** Minimal theme contract the overlay needs (v0.6). The runtime hands
+ *  the real theme to the setWidget factory; tests pass a fake. Only
+ *  well-known pi theme tokens are requested, so every built-in theme
+ *  satisfies it. */
+export interface OverlayTheme {
+  fg(color: string, text: string): string;
+}
+
 type UICtx = {
   setWidget(
     key: string,
     value:
       | undefined
       | string[]
-      | ((tui: { requestRender(force?: boolean): void }) => {
+      | ((
+          tui: { requestRender(force?: boolean): void },
+          theme: OverlayTheme,
+        ) => {
           render: (width: number) => string[];
           invalidate: () => void;
           dispose: () => void;
@@ -76,8 +87,17 @@ type UICtx = {
  *
  * The header `Todos · ▶N ◆M ○K · ✓C` omits sections whose count is 0,
  * so it adapts to whatever is present.
+ *
+ * v0.6: an optional `theme` colorizes the presentation (accent header,
+ * dim section labels, role-colored row prefixes, dim deps suffixes).
+ * WITHOUT a theme the output is byte-identical to the plain rendering —
+ * the un-themed path stays the canonical test oracle.
  */
-export function renderOverlay(state: TaskState, width: number): string[] {
+export function renderOverlay(
+  state: TaskState,
+  width: number,
+  theme?: OverlayTheme,
+): string[] {
   const view = projectActiveView(state);
   const hasActive = view.counts.active > 0;
   const hasCompleted = view.counts.completedVisible > 0;
@@ -94,7 +114,7 @@ export function renderOverlay(state: TaskState, width: number): string[] {
   const lines: string[] = [];
 
   // Header.
-  const header = formatHeader(view);
+  const header = formatHeader(view, theme);
   if (header) {
     lines.push(header);
     lines.push("");
@@ -108,6 +128,7 @@ export function renderOverlay(state: TaskState, width: number): string[] {
     "running",
     width,
     depsMap,
+    theme,
   );
   if (running.length > 0) {
     lines.push(...running);
@@ -121,6 +142,7 @@ export function renderOverlay(state: TaskState, width: number): string[] {
     "ready",
     width,
     depsMap,
+    theme,
   );
   if (ready.length > 0) {
     lines.push(...ready);
@@ -134,6 +156,7 @@ export function renderOverlay(state: TaskState, width: number): string[] {
     "blocked",
     width,
     depsMap,
+    theme,
   );
   if (blocked.length > 0) {
     lines.push(...blocked);
@@ -142,8 +165,12 @@ export function renderOverlay(state: TaskState, width: number): string[] {
 
   // ✓ summary (only when there are visible completed tasks).
   if (hasCompleted) {
+    const count = `✓ ${view.counts.completedVisible} completed`;
+    const hint = " · /todos completed";
     lines.push(
-      `✓ ${view.counts.completedVisible} completed · /todos completed`,
+      theme
+        ? theme.fg("success", count) + theme.fg("dim", hint)
+        : `${count}${hint}`,
     );
   }
 
@@ -159,15 +186,37 @@ export function renderOverlay(state: TaskState, width: number): string[] {
  *  ✓N is appended with a " · " separator from the active counts. When
  *  there are no active tasks, this returns "" — the caller emits a
  *  standalone ✓ summary line in that case instead. */
-function formatHeader(view: ActiveView): string {
+function formatHeader(view: ActiveView, theme?: OverlayTheme): string {
+  const sep = theme ? theme.fg("dim", " · ") : " · ";
   const active: string[] = [];
-  if (view.running.length > 0) active.push(`▶${view.running.length}`);
-  if (view.ready.length > 0) active.push(`◆${view.ready.length}`);
-  if (view.blocked.length > 0) active.push(`○${view.blocked.length}`);
+  if (view.running.length > 0)
+    active.push(
+      theme
+        ? theme.fg("accent", `▶${view.running.length}`)
+        : `▶${view.running.length}`,
+    );
+  if (view.ready.length > 0)
+    active.push(
+      theme
+        ? theme.fg("text", `◆${view.ready.length}`)
+        : `◆${view.ready.length}`,
+    );
+  if (view.blocked.length > 0)
+    active.push(
+      theme
+        ? theme.fg("muted", `○${view.blocked.length}`)
+        : `○${view.blocked.length}`,
+    );
   if (active.length === 0) return "";
-  let result = `Todos · ${active.join(" ")}`;
+  let result = theme
+    ? theme.fg("accent", "Todos") + sep + active.join(" ")
+    : `Todos · ${active.join(" ")}`;
   if (view.counts.completedVisible > 0) {
-    result += ` · ✓${view.counts.completedVisible}`;
+    result +=
+      sep +
+      (theme
+        ? theme.fg("success", `✓${view.counts.completedVisible}`)
+        : `✓${view.counts.completedVisible}`);
   }
   return result;
 }
@@ -180,22 +229,27 @@ function renderSection(
   role: "running" | "ready" | "blocked",
   width: number,
   depsMap: ReadonlyMap<number, readonly TaskDependencyPresentation[]>,
+  theme?: OverlayTheme,
 ): string[] {
   if (tasks.length === 0) return [];
   const lines: string[] = [];
-  lines.push(label);
+  lines.push(theme ? theme.fg("dim", label) : label);
   const shown = tasks.slice(0, budget);
   for (const t of shown) {
+    const ctx = {
+      role,
+      width,
+      dependencies: depsMap.get(t.id),
+    };
     lines.push(
-      formatTaskRow(t, {
-        role,
-        width,
-        dependencies: depsMap.get(t.id),
-      }),
+      theme
+        ? formatTaskRowStyled(t, ctx, theme)
+        : formatTaskRow(t, ctx),
     );
   }
   if (tasks.length > budget) {
-    lines.push(`+${tasks.length - budget} ${role}`);
+    const overflow = `+${tasks.length - budget} ${role}`;
+    lines.push(theme ? theme.fg("muted", overflow) : overflow);
   }
   return lines;
 }
@@ -206,6 +260,7 @@ export class TodoOverlay {
   private uiCtx: UICtx | undefined;
   private registered = false;
   private tui: { requestRender(force?: boolean): void } | undefined;
+  private theme: OverlayTheme | undefined;
 
   constructor(
     private readonly cache: OverlaySnapshotCache,
@@ -219,6 +274,7 @@ export class TodoOverlay {
       this.uiCtx = ctx;
       this.registered = false;
       this.tui = undefined;
+      this.theme = undefined;
     }
   }
 
@@ -250,14 +306,16 @@ export class TodoOverlay {
     } else {
       this.uiCtx.setWidget(
         WIDGET_KEY,
-        (tui) => {
+        (tui, theme) => {
           this.tui = tui;
+          this.theme = theme;
           return {
             render: (width: number) =>
-              renderOverlay(this.currentState(), width),
+              renderOverlay(this.currentState(), width, this.theme),
             invalidate: () => {},
             dispose: () => {
               this.tui = undefined;
+              this.theme = undefined;
             },
           };
         },

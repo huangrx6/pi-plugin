@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0
+
+### Colored TUI rendering: overlay widget + tool result
+
+The todo list finally looks like part of the terminal instead of
+pasted plain text. All coloring uses theme tokens only
+(`accent`/`text`/`muted`/`dim`/`success`/`error`) — every built-in
+theme satisfies it, and the un-themed code paths are byte-identical
+to 0.5.1.
+
+- **Overlay widget** — the setWidget factory now receives `theme`
+  (pi 0.84 contract) and the panel renders with hierarchy:
+  `Todos` header in accent, per-role count colors (▶ accent / ◆ text /
+  ○ muted / ✓ success), dim section labels, role-colored row prefixes
+  (▶ accent / ◆ default / ○ muted), dim dependency suffixes, muted
+  overflow hints, dim drill-down hints.
+- **Chat tool results** — `renderResult` no longer shows a single dim
+  line. Collapsed: the first line colored by its marker (✓ success /
+  ▶ accent / ○ muted / `Error:` error) with a muted `(+N)` hint when
+  the result has more lines (e.g. `todo list`). Expanded: every line
+  rendered, each colored by its own marker. `renderCall` shows the
+  action verb in muted so the dim rest doesn't bury it. The
+  LLM-facing text is untouched — display-only.
+- **format.ts** — `formatTaskRow` decomposed into the exported
+  `planTaskRowParts` / `joinRowParts` (byte-identical join invariant,
+  oracle-tested across every tier) plus `formatTaskRowStyled` for
+  themed surfaces. Frozen B3 output unchanged.
+
+New tests: `render-tui.test.ts` (15 cases — parts equivalence across
+widths/roles/tiers, themed-vs-plain overlay strip-equality, collapsed/
+expanded renderer behavior).
+
 ## 0.5.1
 
 ### Fix: tool `parameters` must be a JSON Schema object (strict-provider 400)
@@ -56,7 +88,7 @@ invocation path of tests that call the handler with `""` expecting
 the default view. Semantic assertions are unchanged — each test now
 stubs the level-1 picker to pick the `总览` row first:
 
-```
+```text
 files:    index.test.ts (6 call sites), mutation-wiring.test.ts (1)
 change:   helper functions stub ui.select → "总览 — …" when invoking
           with empty args
@@ -87,7 +119,7 @@ v1 test evidence RE-FROZEN after T2.
 after adding menu-panel.test.ts to the script). tsc clean. P0–P3
 frozen modules untouched.
 
-## 0.4.2
+## 0.4.2 (P4-D 补丁)
 
 ### P4-D Terminal fix: `.slice(2)` retirement (LOCK D3)
 
@@ -132,7 +164,7 @@ implementation. Row 8 is part of the **P1-D frozen contract evidence**
 Per the freeze audit rule (analogous to P3-A Amendments A1 / A2),
 this is recorded as a controlled, intentional amendment:
 
-```
+```text
 P1-D TEST AMENDMENT T1
 
 file:       mutation-wiring.test.ts

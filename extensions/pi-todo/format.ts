@@ -438,20 +438,41 @@ function formatDepsSuffix(
  * Subject NEVER truncated to keep "+N". Width is total terminal columns.
  * Empty subject → just the prefix (no duplicate #id).
  */
-export function formatTaskRow(task: Task, ctx: TaskRowContext): string {
+/** Structured row parts (v0.6): the SAME tier-degraded pieces
+ *  formatTaskRow joins, exposed separately so themed surfaces (the
+ *  overlay widget) can color the prefix / subject / deps segments
+ *  independently without string surgery on rendered output.
+ *  Invariant: formatTaskRow(task, ctx) === joinRowParts(planTaskRowParts(task, ctx)).
+ *  Returns null when width <= 0 (mirrors formatTaskRow's "" short-circuit). */
+export interface TaskRowParts {
+   prefix: string;
+   subject: string;
+   depsSuffix: string;
+}
+
+/** Join parts exactly the way formatTaskRow always did: single spaces,
+ *  absent pieces skipped. */
+export function joinRowParts(parts: TaskRowParts): string {
+   return [parts.prefix, parts.subject, parts.depsSuffix]
+      .filter((s) => s !== "")
+      .join(" ");
+}
+
+export function planTaskRowParts(
+   task: Task,
+   ctx: TaskRowContext,
+): TaskRowParts | null {
    const { role, width, dependencies } = ctx;
-   if (width <= 0) return "";
+   if (width <= 0) return null;
 
    const icon = ROLE_ICON[role];
    const prefix = `${icon} #${task.id}`;
    const prefixWidth = displayWidth(prefix);
    if (prefixWidth >= width) {
       // Prefix itself doesn't fit — truncate it (rare; only in extreme widths).
-      return truncateToWidth(prefix, width, "…");
+      return { prefix: truncateToWidth(prefix, width, "…"), subject: "", depsSuffix: "" };
    }
 
-   // Reserve 1 char separator between prefix and subject, and (if a deps
-   // suffix is present) 1 char between subject and deps.
    const subjectSpace = width - prefixWidth - 1;
    const subject = sanitizeTerminalText(task.subject);
    const fullDepsStr = formatDepsSuffix(dependencies, "full");
@@ -460,7 +481,7 @@ export function formatTaskRow(task: Task, ctx: TaskRowContext): string {
 
    // Empty subject → just prefix (no duplicate id).
    if (subject === "") {
-      return prefix;
+      return { prefix, subject: "", depsSuffix: "" };
    }
 
    // Tier 1: full subject + full deps.
@@ -469,7 +490,7 @@ export function formatTaskRow(task: Task, ctx: TaskRowContext): string {
          displayWidth(subject) + 1 + displayWidth(fullDepsStr) <=
          subjectSpace
       ) {
-         return `${prefix} ${subject} ${fullDepsStr}`;
+         return { prefix, subject, depsSuffix: fullDepsStr };
       }
       // Tier 2: full subject + compact deps (only when compact differs).
       if (compactDepsStr !== fullDepsStr) {
@@ -477,18 +498,55 @@ export function formatTaskRow(task: Task, ctx: TaskRowContext): string {
             displayWidth(subject) + 1 + displayWidth(compactDepsStr) <=
             subjectSpace
          ) {
-            return `${prefix} ${subject} ${compactDepsStr}`;
+            return { prefix, subject, depsSuffix: compactDepsStr };
          }
       }
    }
 
    // Tier 3: full subject, no deps suffix.
    if (displayWidth(subject) <= subjectSpace) {
-      return `${prefix} ${subject}`;
+      return { prefix, subject, depsSuffix: "" };
    }
 
    // Tier 4: truncate subject (last resort).
-   return `${prefix} ${truncateToWidth(subject, subjectSpace, "…")}`;
+   return {
+      prefix,
+      subject: truncateToWidth(subject, subjectSpace, "…"),
+      depsSuffix: "",
+   };
+}
+
+export function formatTaskRow(task: Task, ctx: TaskRowContext): string {
+   const parts = planTaskRowParts(task, ctx);
+   return parts === null ? "" : joinRowParts(parts);
+}
+
+/** Themed row for TUI widget surfaces (v0.6): same tier degradation as
+ *  formatTaskRow via planTaskRowParts, with per-segment coloring:
+ *    prefix (icon + #id)  → role color (running=accent, ready=default,
+ *                            blocked=muted, completed=dim, archived=dim)
+ *    subject              → default foreground (untinted)
+ *    deps suffix          → dim
+ *  Theme contract mirrors formatOverlayRow: only well-known theme tokens
+ *  are used, so any pi theme satisfies it without crashing the renderer. */
+export function formatTaskRowStyled(
+   task: Task,
+   ctx: TaskRowContext,
+   theme: { fg(color: string, text: string): string },
+): string {
+   const parts = planTaskRowParts(task, ctx);
+   if (parts === null) return "";
+   const ROLE_COLOR: Record<TaskRowRole, string> = {
+      running: "accent",
+      ready: "text",
+      blocked: "muted",
+      completed: "dim",
+      archived: "dim",
+   };
+   let out = theme.fg(ROLE_COLOR[ctx.role], parts.prefix);
+   if (parts.subject !== "") out += " " + parts.subject;
+   if (parts.depsSuffix !== "") out += " " + theme.fg("dim", parts.depsSuffix);
+   return out;
 }
 
 // ── formatTaskDetail (multi-line panel) ──────────────────────────────────────

@@ -876,17 +876,44 @@ export default function factory(
       ? ""
       : ` #${a.id}`;
    const extra = a.status ? ` → ${a.status}` : "";
+   // v0.6: verb in muted so the dim rest doesn't bury the action.
+   const call =
+    theme.fg("dim", "todo ") +
+    theme.fg("muted", String(a.action ?? "?")) +
+    theme.fg("dim", `${what}${extra}`);
    return {
-    render: (_width: number) => [
-     theme.fg("dim", `todo ${a.action ?? "?"}${what}${extra}`),
-    ],
+    render: (_width: number) => [call],
    };
   },
 
-  renderResult(result, _opts, theme) {
+  renderResult(result, opts, theme) {
+   // v0.6 rendering contract:
+   //   collapsed — first line, colored by its leading marker
+   //     (✓ success / ▶ accent / ○ muted / Error error), plus a muted
+   //     "(+N)" hint when the result has more lines (list output).
+   //   expanded — every line, each colored by its own marker, so a
+   //     `todo list` reads with the same role colors as the overlay.
+   // The LLM-facing text is untouched; this is display-only.
    const text = result?.content?.[0]?.text ?? "";
-   const first = String(text).split("\n")[0];
-   return { render: (_width: number) => [theme.fg("dim", first)] };
+   const lines = String(text).split("\n");
+   const lineColor = (line: string): string => {
+    if (line.startsWith("Error:")) return "error";
+    if (line.startsWith("✓")) return "success";
+    if (line.startsWith("▶")) return "accent";
+    if (line.startsWith("○")) return "muted";
+    return "text";
+   };
+   if (opts?.expanded) {
+    return {
+     render: (_width: number) => lines.map((l) => theme.fg(lineColor(l), l)),
+    };
+   }
+   const first = lines[0] ?? "";
+   let collapsed = theme.fg(lineColor(first), first);
+   if (lines.length > 1) {
+    collapsed += theme.fg("muted", ` (+${lines.length - 1})`);
+   }
+   return { render: (_width: number) => [collapsed] };
   },
  });
 
