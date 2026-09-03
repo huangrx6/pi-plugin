@@ -33,6 +33,19 @@ import type { ScopeKey, ScopeKeyResolver } from "./persistence-contract.ts";
 import type { TodoRuntimePersistence } from "./runtime-persistence.ts";
 import type { Task, TaskState } from "./types.ts";
 import { ScopeResolutionError } from "./workspace-scope.ts";
+
+// ── v1.1 command-panel test affordances ──────────────────────────────
+// `/todos` with no args opens the panel; tests that exercise the
+// default overview route through it by stubbing the level-1 picker.
+
+/** The exact level-1 row string for the overview entry. */
+export const OVERVIEW_ROW =
+	"总览 — 全部任务概览（进行中 / 可开始 / 被阻塞）";
+
+/** Stub the panel to pick the overview row (default bounded view). */
+export function stubSelectOverview(): void {
+	commandRegistry.setSelect(async () => OVERVIEW_ROW);
+}
 // Note: store.ts is RETIRED (P3-E LOCK §2 / §33). Seeding via
 // replaceState/__resetState is no longer wired in production code; this
 // test file uses an InMemoryDurableTodoStore instead (see
@@ -57,6 +70,11 @@ function callTodos(args: string): Promise<{
 	notices.length = 0;
 	const handler = commandRegistry.handlers.get("todos");
 	if (!handler) throw new Error("todos handler not registered");
+	if (String(args ?? "").trim() === "") {
+		stubSelectOverview();
+	} else {
+		commandRegistry.clearSelect();
+	}
 	const seedDone = pendingSeed ?? Promise.resolve();
 	pendingSeed = undefined;
 	return seedDone
@@ -460,6 +478,11 @@ describe("/todos command", () => {
 		notices.length = 0;
 		const handler = commandRegistry.handlers.get("todos");
 		if (!handler) throw new Error("todos handler not registered");
+		if (String(args ?? "").trim() === "") {
+			stubSelectOverview();
+		} else {
+			commandRegistry.clearSelect();
+		}
 		const seedDone = pendingSeed ?? Promise.resolve();
 		pendingSeed = undefined;
 		return seedDone
@@ -1038,6 +1061,11 @@ describe("P2-D graph query wiring", () => {
 			["finish 12", "mutation flow (empty state)"], // mutation → domain TASK_NOT_FOUND
 		];
 		for (const [input, label] of cases) {
+			if (input === "") {
+				// v1.1: empty args open the panel; stub the overview row so
+				// this fallthrough test still exercises the read path.
+				stubSelectOverview();
+			}
 			const r = await invoke(input);
 			// None of these should produce graph output.
 			const msg = r.notices[0]?.message ?? "";
@@ -1243,6 +1271,11 @@ describe("P3-E: production integration", () => {
 		notices.length = 0;
 		const handler = commandRegistry.handlers.get("todos");
 		if (!handler) throw new Error("todos handler not registered");
+		if (String(args ?? "").trim() === "") {
+			stubSelectOverview();
+		} else {
+			commandRegistry.clearSelect();
+		}
 		await handler(args, commandRegistry.ctx);
 		return { notices: [...notices] };
 	}
@@ -2181,6 +2214,7 @@ describe("P4-C1: bounded default /todos overview", () => {
 
 	async function readDefault(): Promise<string> {
 		notices.length = 0;
+		stubSelectOverview();
 		const handler = commandRegistry.handlers.get("todos");
 		if (!handler) throw new Error("todos handler not registered");
 		await handler("", commandRegistry.ctx);
@@ -2687,5 +2721,159 @@ describe("P4-C2: architecture — frozen mtimes + grammar isolation", () => {
 			),
 			"graph-command.ts must NOT contain the 'here' verb (P2-C frozen)",
 		);
+	});
+});
+
+// ── v1.1: /todos command panel ─────────────────────────────────────────
+//
+// `/todos` with no args opens a two-level picker. Every picked action
+// re-dispatches through the frozen paths — the panel composes commands,
+// it never executes semantics itself.
+
+import { BATCH_ARCHIVE_ALL, MENU_TITLE } from "./menu-panel.ts";
+
+describe("v1.1: /todos command panel", () => {
+	beforeEach(() => {
+		resetHarness();
+		currentTp = makeIndexTestPersistence();
+		factory(commandRegistry.api, { persistence: currentTp.persistence });
+	});
+
+	afterEach(() => {
+		resetHarness();
+		currentTp = undefined;
+	});
+
+	async function seedRaw(tasks: Task[]): Promise<void> {
+		if (!currentTp) throw new Error("tp not initialized");
+		await currentTp.store
+			.commit(INDEX_TEST_SCOPE, 0, { tasks, nextId: 1000 })
+			.then(() => undefined);
+	}
+
+	async function runTodos(args: string): Promise<void> {
+		const handler = commandRegistry.handlers.get("todos");
+		if (!handler) throw new Error("todos handler not registered");
+		await handler(args, commandRegistry.ctx);
+	}
+
+	it("no-args opens the panel with the catalog (title + key rows)", async () => {
+		const calls: Array<{ title: string; options: string[] }> = [];
+		commandRegistry.setSelect(async (title, options) => {
+			calls.push({ title, options });
+			return undefined;
+		});
+		notices.length = 0;
+		await runTodos("");
+		assert.equal(calls.length, 1, "exactly one level-1 picker");
+		assert.equal(calls[0]!.title, MENU_TITLE);
+		const rows = calls[0]!.options.join("\n");
+		assert.match(rows, /^here — /m);
+		assert.match(rows, /^finish — /m);
+		assert.match(rows, /^总览 — /m);
+		assert.equal(notices[0]?.message, "已取消");
+	});
+
+	it("总览 row renders the default bounded overview", async () => {
+		await seedRaw([
+			buildTestTask({ id: 17, status: "in_progress" }),
+			buildTestTask({ id: 18, status: "pending" }),
+		]);
+		stubSelectOverview();
+		notices.length = 0;
+		await runTodos("");
+		const out = notices[0]?.message ?? "";
+		assert.match(out, /▶ #17/);
+		assert.match(out, /◆ #18/);
+	});
+
+	it("finish flow: level-2 picker → mutation committed via frozen path", async () => {
+		await seedRaw([buildTestTask({ id: 17, status: "in_progress" })]);
+		const picks: string[] = [
+			"finish — 完成任务（从进行中的任务里选）",
+			"▶ #17 task 17",
+		];
+		let call = 0;
+		const calls: Array<{ title: string; options: string[] }> = [];
+		commandRegistry.setSelect(async (title, options) => {
+			calls.push({ title, options });
+			const pick = picks[call];
+			call++;
+			return pick;
+		});
+		notices.length = 0;
+		await runTodos("");
+		// Level-2 picker was offered the running task.
+		assert.equal(calls.length, 2);
+		assert.match(calls[1]!.title, /选择要完成的任务/);
+		assert.match(calls[1]!.options.join("\n"), /#17/);
+		// Mutation executed through runMutationFlow.
+		const success = notices.filter((n) => n.level !== "error");
+		assert.match(success[0]?.message ?? "", /Finished/);
+		if (!currentTp) throw new Error("tp not initialized");
+		const env = await currentTp.store.load(INDEX_TEST_SCOPE);
+		assert.equal(
+			env.state.tasks.find((t) => t.id === 17)?.status,
+			"completed",
+		);
+	});
+
+	it("archive batch row executes 'archive completed'", async () => {
+		await seedRaw([buildTestTask({ id: 1, status: "completed" })]);
+		const picks = ["archive — 归档已完成的任务", BATCH_ARCHIVE_ALL];
+		let call = 0;
+		commandRegistry.setSelect(async () => {
+			const pick = picks[call];
+			call++;
+			return pick;
+		});
+		notices.length = 0;
+		await runTodos("");
+		if (!currentTp) throw new Error("tp not initialized");
+		const env = await currentTp.store.load(INDEX_TEST_SCOPE);
+		assert.ok(
+			env.state.tasks.find((t) => t.id === 1)?.archivedAt !== undefined,
+		);
+	});
+
+	it("empty level-2 list → '没有进行中的任务', no second picker", async () => {
+		await seedRaw([]);
+		const calls: Array<{ title: string; options: string[] }> = [];
+		commandRegistry.setSelect(async (title, options) => {
+			calls.push({ title, options });
+			return calls.length === 1 ? "finish — 完成任务（从进行中的任务里选）" : undefined;
+		});
+		notices.length = 0;
+		await runTodos("");
+		assert.equal(calls.length, 1, "level-2 picker must not open on empty list");
+		assert.equal(notices[0]?.message, "没有进行中的任务");
+		assert.equal(notices[0]?.level, "info");
+	});
+
+	it("headless runtime (no ui.select) → falls back to the text catalog", async () => {
+		// SAFETY: temporarily remove ui.select from the harness ctx to
+		// simulate a headless/rpc runtime; restored right after.
+		const uiObj = (commandRegistry.ctx as unknown as { ui: Record<string, unknown> })
+			.ui;
+		const originalSelect = uiObj.select;
+		uiObj.select = undefined;
+		try {
+			notices.length = 0;
+			await runTodos("");
+			const out = notices[0]?.message ?? "";
+			assert.match(out, /^用法: \/todos <命令>$/m);
+			assert.match(out, /here — /);
+			assert.match(out, /finish — /);
+		} finally {
+			uiObj.select = originalSelect;
+		}
+	});
+
+	it("direct verbs still bypass the panel (no select stub needed)", async () => {
+		await seedRaw([buildTestTask({ id: 18, status: "pending" })]);
+		commandRegistry.clearSelect();
+		notices.length = 0;
+		await runTodos("ready");
+		assert.match(notices[0]?.message ?? "", /◆ #18/);
 	});
 });

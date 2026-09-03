@@ -29,7 +29,16 @@ export interface WidgetCall {
 	rendered?: string[][];
 }
 
+/** Stub for ctx.ui.select — lets tests drive the /todos command panel. */
+export type SelectImpl = (
+	title: string,
+	options: string[],
+) => Promise<string | undefined>;
+
 export const widgetCalls: WidgetCall[] = [];
+
+/** Swappable ctx.ui.select stub (module level so resetHarness can clear). */
+let selectImpl: SelectImpl | undefined;
 
 const handlers = new Map<
 	string,
@@ -51,6 +60,8 @@ interface Harness {
 	handlers: Map<string, (args: unknown, ctx: ExtensionContext) => unknown>;
 	sessionId: string;
 	setInteractive(value: boolean): void;
+	setSelect(impl: SelectImpl | undefined): void;
+	clearSelect(): void;
 	triggerLifecycle(
 		event: string,
 		payload: unknown,
@@ -80,8 +91,11 @@ function buildHarness(): Harness {
 
 	// SAFETY: same idea — only the ExtensionContext fields touched by the
 	// /todos handler + lifecycle hooks are present (hasUI,
-	// sessionManager.getSessionId, ui.notify, ui.setWidget). Missing
-	// fields are intentional (harness is for tests, not the full API).
+	// sessionManager.getSessionId, ui.notify, ui.setWidget, ui.select).
+	// Missing fields are intentional (harness is for tests, not the full API).
+	// `select` delegates to the module-level `selectImpl` stub so tests can
+	// drive the /todos command panel; default resolves undefined (= user
+	// cancelled).
 	const ctx = {
 		hasUI: interactive,
 		sessionManager: {
@@ -90,6 +104,10 @@ function buildHarness(): Harness {
 		ui: {
 			notify(message: string, level?: string) {
 				notices.push({ message, level });
+			},
+			select(title: string, options: string[]): Promise<string | undefined> {
+				if (selectImpl) return selectImpl(title, options);
+				return Promise.resolve(undefined);
 			},
 			setWidget(key: string, value: unknown, options?: { placement?: string }) {
 				// If the widget factory returns a renderable object with
@@ -112,6 +130,10 @@ function buildHarness(): Harness {
 				widgetCalls.push({ key, value, options, rendered });
 			},
 		},
+		// SAFETY: this object implements exactly the ExtensionContext surface
+		// the extension touches (hasUI / sessionManager / ui.notify / ui.select /
+		// ui.setWidget); the double cast only bridges the partial shape to the
+		// full interface for the tests.
 	} as unknown as ExtensionContext;
 
 	return {
@@ -134,6 +156,12 @@ function buildHarness(): Harness {
 			}
 			return handler(payload, ctx ?? ctx);
 		},
+		setSelect(impl: SelectImpl | undefined) {
+			selectImpl = impl;
+		},
+		clearSelect() {
+			selectImpl = undefined;
+		},
 	};
 }
 
@@ -145,6 +173,7 @@ export function resetHarness(): void {
 	handlers.clear();
 	lifecycleHandlers.clear();
 	interactive = true;
+	selectImpl = undefined;
 	(commandRegistry.ctx as { hasUI: boolean }).hasUI = true;
 	__resetState();
 }

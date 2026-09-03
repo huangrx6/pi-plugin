@@ -36,7 +36,7 @@ P4     Pi-native Personal UX        CLOSED / FROZEN
 | Surface | When | What |
 | --- | --- | --- |
 | `todo` tool | Model | create / update / delete / list / clear tasks atomically. |
-| `/todos` | User | Bounded overview of the workspace's current state. |
+| `/todos` | User | Command panel: pick any action from an annotated list (no memorizing). |
 | `/todos ready` / `blocked` / `completed` / `archived` | User | Section drill-downs — full lists, no budget. |
 | `/todos all` | User | Full historical state including archived. |
 | `/todos next` | User | Explicit "what is ready right now" answer (complete READY list). |
@@ -69,7 +69,32 @@ P4     Pi-native Personal UX        CLOSED / FROZEN
 - Empty state (no active, no visible completed) → overlay hidden.
 - Hidden on cold start until first successful durable load.
 
-### `/todos` (default — bounded overview)
+### `/todos` (command panel)
+
+No arguments opens an interactive two-level panel. Every row carries a Chinese explanation — the panel doubles as living documentation:
+
+```text
+┌ Todos — 选择操作 ─────────────────────────┐
+│ here    — 我现在在做什么（当前任务 + 完成后会解锁什么）│
+│ finish  — 完成任务（从进行中的任务里选）        │
+│ start   — 开始任务（从可开始的任务里选）        │
+│ next    — 现在可以开始哪些任务              │
+│ 总览    — 全部任务概览（进行中 / 可开始 / 被阻塞）│
+│ 详情    — 查看某个任务（说明 / 依赖 / 解锁）    │
+│ …      — why / unlocks / archive / restore … │
+└──────────────────────────────────────┘
+```
+
+- **Level 2**: action rows offer a task picker (canonical task rows,
+  role icons) built from one durable snapshot; `archive` / `restore`
+  prepend batch rows equivalent to `archive completed` / `restore
+  archived`.
+- **总览** renders the bounded overview below (per-section budget
+  2 / 3 / 2 with `+N more <role>` drill-down hints; section commands
+  remain full lists).
+- Direct verbs (`/todos next`, `/todos finish 17`, `/todos 17`) bypass
+  the panel and keep working unchanged.
+- Headless runtimes (no `ui.select`) get the catalog as plain text.
 
 ```text
 RUNNING
@@ -87,8 +112,6 @@ BLOCKED
 
 ✓ 6 completed · /todos completed
 ```
-
-Per-section budget (2 / 3 / 2) with explicit `+N more <role>` drill-down hints. Section commands (`/todos ready`, `/todos blocked`, …) remain full lists.
 
 ### `/todos here` (workflow recovery)
 

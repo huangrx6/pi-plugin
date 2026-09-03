@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.5.0
+
+### v1.1: `/todos` command panel (no-args entry)
+
+`/todos` with no arguments now opens an interactive two-level command
+panel instead of the default view. Every row carries a Chinese
+explanation, so the panel doubles as living documentation — nothing
+has to be memorized. Direct verbs (`/todos next`, `/todos finish 17`,
+`/todos 17`, …) keep working unchanged; the panel is a discovery
+entry, not a replacement.
+
+- **Level 1 — action catalog** (16 rows, frequency-ordered):
+  `here / finish / start / next / 总览 / 详情 / why / unlocks /
+  archive / reopen / restore / all / ready / blocked / completed /
+  archived`, each as `命令 — 中文说明`.
+- **Level 2 — task picker**: action rows offer a second picker of
+  concrete tasks (canonical `formatTaskRow` rows, role icons intact)
+  populated from one durable snapshot. `archive` / `restore` prepend
+  a batch row equivalent to the frozen `archive completed` /
+  `restore archived` selectors. Empty lists surface a plain notice
+  (`没有进行中的任务`) instead of an empty picker.
+- **Authority boundary**: the panel only composes commands. Every
+  picked action re-dispatches through the frozen paths
+  (`runMutationFlow` / `runGraphQuery` / `runWorkflowQuery` /
+  `runReadCommand`), each owning its own durable snapshot. The
+  overview is still reachable via the `总览` row ("" maps to the
+  default bounded view — no recursion: the read path never re-enters
+  the menu).
+- **Headless fallback**: when `ctx.ui.select` is unavailable (rpc /
+  json runtimes), the panel degrades to a plain text catalog.
+- **No grammar change**: no new verbs were added. Empty args route to
+  the panel inside the handler; `parse-todos-command.ts` and every
+  other frozen parser are untouched.
+
+### Test Amendment T2 (controlled, auditable)
+
+The no-args behavior change (overview → panel) required updating the
+invocation path of tests that call the handler with `""` expecting
+the default view. Semantic assertions are unchanged — each test now
+stubs the level-1 picker to pick the `总览` row first:
+
+```
+files:    index.test.ts (6 call sites), mutation-wiring.test.ts (1)
+change:   helper functions stub ui.select → "总览 — …" when invoking
+          with empty args
+reason:   v1.1 panel entry on /todos no-args
+
+semantic effect:
+  - default bounded overview output unchanged
+  - all read/mutation/graph semantics unchanged
+  - assertions on rendered output unchanged
+
+v1 test evidence RE-FROZEN after T2.
+```
+
+### Files
+
+- **New**: `menu-panel.ts` (catalog + task rows + fallback),
+  `menu-panel.test.ts` (19 tests).
+- **Updated**: `index.ts` (B3 tail extracted into `runReadCommand`;
+  `runMenu` / `runMenuImmediate` wiring; empty-args → panel),
+  `test-harness.ts` (swappable `ui.select` stub + reset),
+  `index.test.ts` (+7 panel integration tests, T2 amendments),
+  `mutation-wiring.test.ts` (T2 amendment), `package.json` (0.5.0,
+  menu-panel.test.ts in test script).
+
+### Tests
+
+861 tests / 0 fail (842 via old script + 19 menu-panel; final count
+after adding menu-panel.test.ts to the script). tsc clean. P0–P3
+frozen modules untouched.
+
 ## 0.4.2
 
 ### P4-D Terminal fix: `.slice(2)` retirement (LOCK D3)

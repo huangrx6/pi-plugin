@@ -622,6 +622,11 @@ describe("P1-D mutation wiring: architecture", () => {
   const handler = commandRegistry.handlers.get("todos");
   if (!handler) throw new Error("todos command handler not registered");
   notices.length = 0;
+  // v1.1: empty args open the panel; stub the overview row so this
+  // fallthrough test still exercises the read path (T2 amendment).
+  commandRegistry.setSelect(
+   async () => "总览 — 全部任务概览（进行中 / 可开始 / 被阻塞）",
+  );
   await handler("", commandRegistry.ctx);
   const success = notices.filter((n) => n.level !== "error");
   assert.ok(success.length > 0, "empty /todos still renders read view");

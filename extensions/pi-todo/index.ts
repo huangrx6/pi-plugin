@@ -31,6 +31,20 @@ import {
 } from "./workflow-command.ts";
 import { formatWorkflowSyntaxError } from "./workflow-format.ts";
 import {
+	BATCH_ARCHIVE_ALL,
+	MENU_TITLE,
+	buildTaskOptions,
+	cancelledNotice,
+	emptyTaskNotice,
+	fallbackMenuText,
+	isBatchRow,
+	menuRows,
+	parseMenuChoice,
+	parseTaskIdFromChoice,
+	taskKindFor,
+	taskPickerTitle,
+} from "./menu-panel.ts";
+import {
  formatNextTasks,
  formatUnlocksTask,
  formatWhyTask,
@@ -516,6 +530,214 @@ async function runWorkflowQuery(
  ui.notify(lines.join("\n"), "info");
 }
 
+// ── v1.1: /todos read command (B3 + P4-C2 detail) ────────────────────
+
+/**
+ * B3 read path: one durable snapshot → parse → render → notify.
+ * Extracted from the command handler so the menu panel can dispatch
+ * directly into it (`""` maps to the default bounded overview).
+ */
+async function runReadCommand(
+ raw: unknown,
+ ctx: unknown,
+ persistence: TodoRuntimePersistence,
+ overlayCache: OverlaySnapshotCache,
+): Promise<void> {
+ const ui = (ctx as { ui: UiNotify }).ui;
+ const loaded = await loadEnvelope(ctx, persistence);
+ if (loaded.ok !== true) {
+  reportLoadFailure(loaded, ui.notify);
+  return;
+ }
+ const { scope, envelope } = loaded;
+ overlayCache.update(scope, envelope);
+ const state = envelope.state;
+ const parsed = parseTodosCommand(raw);
+ let lines: string[];
+ switch (parsed.command) {
+  case "default":
+   lines = renderDefault(state, DEFAULT_WIDTH);
+   break;
+  case "detail":
+   lines = formatTaskDetailRich(
+    state,
+    parsed.taskId as number,
+    DEFAULT_WIDTH,
+   );
+   break;
+  case "ready":
+   lines = renderReady(state, DEFAULT_WIDTH);
+   break;
+  case "blocked":
+   lines = renderBlocked(state, DEFAULT_WIDTH);
+   break;
+  case "completed":
+   lines = renderCompleted(state, DEFAULT_WIDTH);
+   break;
+  case "archived":
+   lines = renderArchived(state, DEFAULT_WIDTH);
+   break;
+  case "all":
+   lines = renderAll(state, DEFAULT_WIDTH);
+   break;
+  case "unknown":
+   lines = renderUnknown();
+   break;
+ }
+ const level = parsed.command === "unknown" ? "error" : "info";
+ ui.notify(lines.join("\n"), level);
+}
+
+// ── v1.1: /todos command panel (no-args entry) ─────────────────────
+
+interface MenuUi {
+ notify: (msg: string, level?: string) => void;
+ select?: (
+  title: string,
+  options: string[],
+ ) => Promise<string | undefined>;
+}
+
+/**
+ * `/todos` with no args opens a two-level command panel.
+ *
+ * Authority boundary: the panel only COMPOSES commands — every picked
+ * action re-dispatches through the frozen paths (runMutationFlow /
+ * runGraphQuery / runWorkflowQuery / runReadCommand), each owning its
+ * own durable snapshot. The level-2 task list does one extra
+ * presentation load; that is a UI affordance, not a canonical read.
+ */
+async function runMenu(
+ ctx: unknown,
+ persistence: TodoRuntimePersistence,
+ overlayCache: OverlaySnapshotCache,
+): Promise<void> {
+ const ui = (ctx as { ui: MenuUi }).ui;
+ const select = ui.select?.bind(ui);
+ if (typeof select !== "function") {
+  // Headless / rpc runtime: degrade to the text catalog.
+  ui.notify(fallbackMenuText(), "info");
+  return;
+ }
+
+ const choice = await select(MENU_TITLE, menuRows());
+ if (choice === undefined) {
+  ui.notify(cancelledNotice(), "info");
+  return;
+ }
+ const name = parseMenuChoice(choice);
+ if (name === undefined) {
+  ui.notify(fallbackMenuText(), "info");
+  return;
+ }
+
+ const taskKind = taskKindFor(name);
+ if (taskKind === undefined) {
+  await runMenuImmediate(name, ctx, persistence, overlayCache);
+  return;
+ }
+
+ // Second level: pick a concrete task from one snapshot.
+ const loaded = await loadEnvelope(ctx, persistence);
+ if (loaded.ok !== true) {
+  reportLoadFailure(loaded, ui.notify);
+  return;
+ }
+ overlayCache.update(loaded.scope, loaded.envelope);
+ const options = buildTaskOptions(loaded.envelope.state, taskKind);
+ if (options.length === 0) {
+  ui.notify(emptyTaskNotice(taskKind), "info");
+  return;
+ }
+ const taskChoice = await select(taskPickerTitle(taskKind), options);
+ if (taskChoice === undefined) {
+  ui.notify(cancelledNotice(), "info");
+  return;
+ }
+ if (isBatchRow(taskChoice)) {
+  await runMutationFlow(
+   taskChoice === BATCH_ARCHIVE_ALL
+    ? "archive completed"
+    : "restore archived",
+   ctx,
+   persistence,
+   overlayCache,
+  );
+  return;
+ }
+ const id = parseTaskIdFromChoice(taskChoice);
+ if (id === undefined) {
+  ui.notify(fallbackMenuText(), "info");
+  return;
+ }
+ switch (taskKind) {
+  case "finish":
+  case "start":
+  case "reopen":
+  case "archive":
+  case "restore":
+   await runMutationFlow(
+    `${taskKind} ${id}`,
+    ctx,
+    persistence,
+    overlayCache,
+   );
+   return;
+  case "why":
+   await runGraphQuery(
+    { kind: "why", id },
+    ctx,
+    persistence,
+    overlayCache,
+   );
+   return;
+  case "unlocks":
+   await runGraphQuery(
+    { kind: "unlocks", id },
+    ctx,
+    persistence,
+    overlayCache,
+   );
+   return;
+  case "detail":
+   await runReadCommand(String(id), ctx, persistence, overlayCache);
+   return;
+ }
+}
+
+/** Immediate rows (no second level): re-dispatch to frozen paths. */
+async function runMenuImmediate(
+ name: string,
+ ctx: unknown,
+ persistence: TodoRuntimePersistence,
+ overlayCache: OverlaySnapshotCache,
+): Promise<void> {
+ const ui = (ctx as { ui: UiNotify }).ui;
+ switch (name) {
+  case "here":
+   await runWorkflowQuery({ kind: "here" }, ctx, persistence, overlayCache);
+   return;
+  case "next":
+   await runGraphQuery({ kind: "next" }, ctx, persistence, overlayCache);
+   return;
+  case "总览":
+   // "" maps to the default bounded overview inside runReadCommand —
+   // no loop: runReadCommand never re-enters the menu.
+   await runReadCommand("", ctx, persistence, overlayCache);
+   return;
+  case "ready":
+  case "blocked":
+  case "completed":
+  case "archived":
+  case "all":
+   await runReadCommand(name, ctx, persistence, overlayCache);
+   return;
+  default:
+   ui.notify(fallbackMenuText(), "info");
+   return;
+ }
+}
+
 // ── minimal sid / foreground helpers (avoid store.ts) ─────────────
 
 interface MinimalCtx {
@@ -740,52 +962,15 @@ export default function factory(
     return;
    }
 
-   const loaded = await loadEnvelope(ctx, persistence);
-   if (loaded.ok !== true) {
-    reportLoadFailure(loaded, ctx.ui.notify);
+   // v1.1: `/todos` with no args opens the interactive command panel.
+   // Direct verbs (`/todos next`, `/todos finish 17`, `/todos 17`, …)
+   // keep working unchanged — the panel is a discovery entry, not a
+   // replacement.
+   if (String(args ?? "").trim() === "") {
+    await runMenu(ctx, persistence, overlayCache);
     return;
    }
-   const { scope, envelope } = loaded;
-   overlayCache.update(scope, envelope);
-   const state = envelope.state;
-   const parsed = parseTodosCommand(args);
-   let lines: string[];
-   switch (parsed.command) {
-    case "default":
-     lines = renderDefault(state, DEFAULT_WIDTH);
-     break;
-    case "detail":
-     // P4-C2: rich detail via formatTaskDetailRich (C18: queryWhyTask
-     // is the sole classification authority; C19: no reverse-dep
-     // inspection; C20: no second Status/State vocabulary; C28: raw
-     // Task lookup restricted to .id and .description only).
-     lines = formatTaskDetailRich(
-      state,
-      parsed.taskId as number,
-      DEFAULT_WIDTH,
-     );
-     break;
-    case "ready":
-     lines = renderReady(state, DEFAULT_WIDTH);
-     break;
-    case "blocked":
-     lines = renderBlocked(state, DEFAULT_WIDTH);
-     break;
-    case "completed":
-     lines = renderCompleted(state, DEFAULT_WIDTH);
-     break;
-    case "archived":
-     lines = renderArchived(state, DEFAULT_WIDTH);
-     break;
-    case "all":
-     lines = renderAll(state, DEFAULT_WIDTH);
-     break;
-    case "unknown":
-     lines = renderUnknown();
-     break;
-   }
-   const level = parsed.command === "unknown" ? "error" : "info";
-   ctx.ui.notify(lines.join("\n"), level);
+   await runReadCommand(args, ctx, persistence, overlayCache);
   },
  });
 
