@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.1
+
+### Fix: tool `parameters` must be a JSON Schema object (strict-provider 400)
+
+The P3-E rewrite had registered the `todo` tool with
+`parameters: []`. Lenient providers tolerated it, but strict
+OpenAI-compatible endpoints reject it with
+`tools.function.parameters ... expected an object, but got [] instead`
+(e.g. ZhipuGLM code 1210). Restored the frozen `TODO_PARAMS_SCHEMA`
+(types.ts) as the registered schema.
+
+- Regression test added: the harness now captures `registerTool` defs
+  and a contract test asserts `parameters` is a non-array object that
+  describes the `action` discriminator.
+
 ## 0.5.0
 
 ### v1.1: `/todos` command panel (no-args entry)

@@ -65,7 +65,11 @@ const MENU_ROWS: readonly MenuRow[] = [
 	{ name: "start", desc: "开始任务（从可开始的任务里选）", taskKind: "start" },
 	{ name: "next", desc: "现在可以开始哪些任务" },
 	{ name: "总览", desc: "全部任务概览（进行中 / 可开始 / 被阻塞）" },
-	{ name: "详情", desc: "查看某个任务（说明 / 依赖 / 解锁）", taskKind: "detail" },
+	{
+		name: "详情",
+		desc: "查看某个任务（说明 / 依赖 / 解锁）",
+		taskKind: "detail",
+	},
 	{ name: "why", desc: "某个任务为什么被阻塞", taskKind: "why" },
 	{ name: "unlocks", desc: "完成某个任务会解锁什么", taskKind: "unlocks" },
 	{ name: "archive", desc: "归档已完成的任务", taskKind: "archive" },
@@ -133,7 +137,10 @@ export function parseTaskIdFromChoice(choice: string): number | undefined {
 	return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
-function rows(tasks: readonly Task[], role: Parameters<typeof formatTaskRow>[1]["role"]): string[] {
+function rows(
+	tasks: readonly Task[],
+	role: Parameters<typeof formatTaskRow>[1]["role"],
+): string[] {
 	return tasks.map((t) => formatTaskRow(t, { role, width: ROW_WIDTH }));
 }
 
@@ -161,15 +168,9 @@ export function buildTaskOptions(
 		case "reopen":
 			return rows(projectCompleted(state), "completed");
 		case "archive":
-			return [
-				BATCH_ARCHIVE_ALL,
-				...rows(projectCompleted(state), "completed"),
-			];
+			return [BATCH_ARCHIVE_ALL, ...rows(projectCompleted(state), "completed")];
 		case "restore":
-			return [
-				BATCH_RESTORE_ALL,
-				...rows(projectArchived(state), "archived"),
-			];
+			return [BATCH_RESTORE_ALL, ...rows(projectArchived(state), "archived")];
 		case "why":
 			return rows(view.blocked, "blocked");
 		case "unlocks":

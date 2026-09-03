@@ -71,7 +71,10 @@ describe("menu-panel: catalog", () => {
 
 describe("menu-panel: parse + map", () => {
 	it("parseMenuChoice extracts the name before the — separator", () => {
-		assert.equal(parseMenuChoice("finish — 完成任务（从进行中的任务里选）"), "finish");
+		assert.equal(
+			parseMenuChoice("finish — 完成任务（从进行中的任务里选）"),
+			"finish",
+		);
 		assert.equal(parseMenuChoice("总览 — 全部任务概览"), "总览");
 	});
 

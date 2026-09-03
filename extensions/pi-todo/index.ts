@@ -31,18 +31,18 @@ import {
 } from "./workflow-command.ts";
 import { formatWorkflowSyntaxError } from "./workflow-format.ts";
 import {
-	BATCH_ARCHIVE_ALL,
-	MENU_TITLE,
-	buildTaskOptions,
-	cancelledNotice,
-	emptyTaskNotice,
-	fallbackMenuText,
-	isBatchRow,
-	menuRows,
-	parseMenuChoice,
-	parseTaskIdFromChoice,
-	taskKindFor,
-	taskPickerTitle,
+ BATCH_ARCHIVE_ALL,
+ MENU_TITLE,
+ buildTaskOptions,
+ cancelledNotice,
+ emptyTaskNotice,
+ fallbackMenuText,
+ isBatchRow,
+ menuRows,
+ parseMenuChoice,
+ parseTaskIdFromChoice,
+ taskKindFor,
+ taskPickerTitle,
 } from "./menu-panel.ts";
 import {
  formatNextTasks,
@@ -69,6 +69,7 @@ import type {
 import type { GraphCommand } from "./graph-command.ts";
 import { ScopeResolutionError } from "./workspace-scope.ts";
 import type { TaskMutationParams, TaskState, TodoDetails } from "./types.ts";
+import { TODO_PARAMS_SCHEMA } from "./types.ts";
 
 import { createObservedReduceContext } from "./replay-capture.ts";
 import { OverlaySnapshotCache } from "./overlay-snapshot-cache.ts";
@@ -559,11 +560,7 @@ async function runReadCommand(
    lines = renderDefault(state, DEFAULT_WIDTH);
    break;
   case "detail":
-   lines = formatTaskDetailRich(
-    state,
-    parsed.taskId as number,
-    DEFAULT_WIDTH,
-   );
+   lines = formatTaskDetailRich(state, parsed.taskId as number, DEFAULT_WIDTH);
    break;
   case "ready":
    lines = renderReady(state, DEFAULT_WIDTH);
@@ -592,10 +589,7 @@ async function runReadCommand(
 
 interface MenuUi {
  notify: (msg: string, level?: string) => void;
- select?: (
-  title: string,
-  options: string[],
- ) => Promise<string | undefined>;
+ select?: (title: string, options: string[]) => Promise<string | undefined>;
 }
 
 /**
@@ -656,9 +650,7 @@ async function runMenu(
  }
  if (isBatchRow(taskChoice)) {
   await runMutationFlow(
-   taskChoice === BATCH_ARCHIVE_ALL
-    ? "archive completed"
-    : "restore archived",
+   taskChoice === BATCH_ARCHIVE_ALL ? "archive completed" : "restore archived",
    ctx,
    persistence,
    overlayCache,
@@ -676,28 +668,13 @@ async function runMenu(
   case "reopen":
   case "archive":
   case "restore":
-   await runMutationFlow(
-    `${taskKind} ${id}`,
-    ctx,
-    persistence,
-    overlayCache,
-   );
+   await runMutationFlow(`${taskKind} ${id}`, ctx, persistence, overlayCache);
    return;
   case "why":
-   await runGraphQuery(
-    { kind: "why", id },
-    ctx,
-    persistence,
-    overlayCache,
-   );
+   await runGraphQuery({ kind: "why", id }, ctx, persistence, overlayCache);
    return;
   case "unlocks":
-   await runGraphQuery(
-    { kind: "unlocks", id },
-    ctx,
-    persistence,
-    overlayCache,
-   );
+   await runGraphQuery({ kind: "unlocks", id }, ctx, persistence, overlayCache);
    return;
   case "detail":
    await runReadCommand(String(id), ctx, persistence, overlayCache);
@@ -820,7 +797,7 @@ export default function factory(
    "Plan and track multi-step work as a task list. Actions: create, update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
   promptSnippet: DEFAULT_PROMPT_SNIPPET,
   promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
-  parameters: [],
+  parameters: TODO_PARAMS_SCHEMA,
 
   async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
    const loaded = await loadEnvelope(ctx, persistence);

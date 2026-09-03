@@ -1,6 +1,6 @@
 {
   "name": "pi-todo",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Workspace-scoped durable todo tool for Pi: a `todo` tool for the model, a `/todos` command panel for the user, and a live editor overlay. State persists on disk per workspace and survives /reload, restarts and compaction. Zero runtime dependencies.",
   "license": "MIT",
   "type": "module",

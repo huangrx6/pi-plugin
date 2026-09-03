@@ -40,6 +40,9 @@ export const widgetCalls: WidgetCall[] = [];
 /** Swappable ctx.ui.select stub (module level so resetHarness can clear). */
 let selectImpl: SelectImpl | undefined;
 
+/** Captured tool registrations (for tool-def regression tests). */
+export const toolDefs: Array<Record<string, unknown>> = [];
+
 const handlers = new Map<
 	string,
 	(args: unknown, ctx: ExtensionContext) => unknown
@@ -75,8 +78,8 @@ function buildHarness(): Harness {
 	// The cast keeps the literal shape narrow without forcing every
 	// unused ExtensionAPI method to be stubbed.
 	const api = {
-		registerTool(_def: unknown) {
-			/* not exercised by /todos parsing tests */
+		registerTool(def: unknown) {
+			toolDefs.push(def as Record<string, unknown>);
 		},
 		registerCommand(
 			name: string,
@@ -170,6 +173,7 @@ export const commandRegistry: Harness = buildHarness();
 export function resetHarness(): void {
 	notices.length = 0;
 	widgetCalls.length = 0;
+	toolDefs.length = 0;
 	handlers.clear();
 	lifecycleHandlers.clear();
 	interactive = true;

@@ -23,6 +23,7 @@ import {
 	commandRegistry,
 	notices,
 	resetHarness,
+	toolDefs,
 	widgetCalls,
 } from "./test-harness.ts";
 
@@ -39,8 +40,7 @@ import { ScopeResolutionError } from "./workspace-scope.ts";
 // default overview route through it by stubbing the level-1 picker.
 
 /** The exact level-1 row string for the overview entry. */
-export const OVERVIEW_ROW =
-	"总览 — 全部任务概览（进行中 / 可开始 / 被阻塞）";
+export const OVERVIEW_ROW = "总览 — 全部任务概览（进行中 / 可开始 / 被阻塞）";
 
 /** Stub the panel to pick the overview row (default bounded view). */
 export function stubSelectOverview(): void {
@@ -2812,10 +2812,7 @@ describe("v1.1: /todos command panel", () => {
 		assert.match(success[0]?.message ?? "", /Finished/);
 		if (!currentTp) throw new Error("tp not initialized");
 		const env = await currentTp.store.load(INDEX_TEST_SCOPE);
-		assert.equal(
-			env.state.tasks.find((t) => t.id === 17)?.status,
-			"completed",
-		);
+		assert.equal(env.state.tasks.find((t) => t.id === 17)?.status, "completed");
 	});
 
 	it("archive batch row executes 'archive completed'", async () => {
@@ -2831,9 +2828,7 @@ describe("v1.1: /todos command panel", () => {
 		await runTodos("");
 		if (!currentTp) throw new Error("tp not initialized");
 		const env = await currentTp.store.load(INDEX_TEST_SCOPE);
-		assert.ok(
-			env.state.tasks.find((t) => t.id === 1)?.archivedAt !== undefined,
-		);
+		assert.ok(env.state.tasks.find((t) => t.id === 1)?.archivedAt !== undefined);
 	});
 
 	it("empty level-2 list → '没有进行中的任务', no second picker", async () => {
@@ -2841,7 +2836,9 @@ describe("v1.1: /todos command panel", () => {
 		const calls: Array<{ title: string; options: string[] }> = [];
 		commandRegistry.setSelect(async (title, options) => {
 			calls.push({ title, options });
-			return calls.length === 1 ? "finish — 完成任务（从进行中的任务里选）" : undefined;
+			return calls.length === 1
+				? "finish — 完成任务（从进行中的任务里选）"
+				: undefined;
 		});
 		notices.length = 0;
 		await runTodos("");
@@ -2853,8 +2850,9 @@ describe("v1.1: /todos command panel", () => {
 	it("headless runtime (no ui.select) → falls back to the text catalog", async () => {
 		// SAFETY: temporarily remove ui.select from the harness ctx to
 		// simulate a headless/rpc runtime; restored right after.
-		const uiObj = (commandRegistry.ctx as unknown as { ui: Record<string, unknown> })
-			.ui;
+		const uiObj = (
+			commandRegistry.ctx as unknown as { ui: Record<string, unknown> }
+		).ui;
 		const originalSelect = uiObj.select;
 		uiObj.select = undefined;
 		try {
@@ -2875,5 +2873,35 @@ describe("v1.1: /todos command panel", () => {
 		notices.length = 0;
 		await runTodos("ready");
 		assert.match(notices[0]?.message ?? "", /◆ #18/);
+	});
+});
+
+// ── Tool registration contract ─────────────────────────────────────────
+//
+// Production regression: a strict OpenAI-compatible provider rejected
+// `tools.function.parameters` = `[]` ("expected an object, but got []
+// instead"). The tool schema must always be a JSON Schema OBJECT.
+
+describe("tool registration contract", () => {
+	it("todo tool parameters is a JSON Schema object (never an array)", () => {
+		resetHarness();
+		currentTp = makeIndexTestPersistence();
+		factory(commandRegistry.api, { persistence: currentTp.persistence });
+		const todo = toolDefs.find((d) => d.name === "todo");
+		assert.ok(todo, "todo tool must be registered");
+		const params = todo.parameters;
+		assert.ok(
+			typeof params === "object" &&
+				params !== null &&
+				!Array.isArray(params),
+			`parameters must be a JSON Schema object, got ${
+				Array.isArray(params) ? "array" : typeof params
+			}`,
+		);
+		// Sanity: the schema actually describes the action discriminator.
+		assert.ok(
+			JSON.stringify(params).includes("action"),
+			"schema should describe the `action` discriminator",
+		);
 	});
 });
