@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -587,6 +587,85 @@ test("capacity GC never removes blobs referenced by pinned or unresolved items",
     db.setPinned(item.id, false);
     collectGarbage(db, blobs, cfg);
     assert.equal(blobs.has(item.blobHash!), false);
+  } finally {
+    db.close();
+  }
+});
+
+test("v0.2: non-raw representations are self-describing (context_recall path)", async () => {
+  const { cfg, archive, db } = await fixture();
+  try {
+    const messages: LooseMessage[] = [{ role: "user", content: "go" }];
+    const visible = new Set<string>();
+    for (let index = 0; index < 6; index++) {
+      // A mid-flight user turn splits the frontier: blocks 0–2 fall
+      // outside the protected window and become downgradable.
+      if (index === 3) messages.push({ role: "user", content: "continue" });
+      const origin = `s2-entry-${index}`;
+      const call = `s2-call-${index}`;
+      visible.add(origin);
+      archive.archive({
+        sessionId: "session-1",
+        taskId: null,
+        originEntryId: origin,
+        toolCallId: call,
+        toolName: "bash",
+        input: { command: "ls" },
+        rawText: `evidence ${index} `.repeat(300),
+        isError: false,
+        turn: index + 1,
+      });
+      messages.push({
+        role: "toolResult",
+        toolCallId: call,
+        toolName: "bash",
+        content: [{ type: "text", text: `evidence ${index} `.repeat(300) }],
+      });
+    }
+    const result = planContext({
+      messages,
+      usageTokens: 20_000,
+      model: { contextWindow: 8_000 },
+      config: cfg,
+      db,
+      sessionId: "session-1",
+      objective: "work",
+      currentTurn: 7,
+      visibleEntryIds: visible,
+      frozen: false,
+    });
+    assert.ok(result.transformed > 0);
+    const firstTextOf = (message: LooseMessage): string => {
+      const content = message.content as Array<{ type?: string; text?: string }> | undefined;
+      const first = Array.isArray(content) ? content[0] : undefined;
+      return typeof first?.text === "string" ? first.text : "";
+    };
+    const originalTextOf = new Map(
+      messages.map((message) => [
+        message.toolCallId ?? "",
+        firstTextOf(message),
+      ] as const),
+    );
+    const replaced = result.messages.filter(
+      (message) =>
+        message.role === "toolResult" &&
+        firstTextOf(message) !== "" &&
+        firstTextOf(message) !== originalTextOf.get(message.toolCallId ?? ""),
+    );
+    assert.ok(replaced.length > 0, "some tool results must be downgraded");
+    for (const message of replaced) {
+      assert.match(
+        firstTextOf(message),
+        /context_recall\(ctx:\/\/item\/[0-9a-f-]+\)/,
+        "every downgraded stub must name its recovery command",
+      );
+    }
+    // Tombstone form specifically carries the imperative hint.
+    assert.ok(
+      replaced.some((message) =>
+        firstTextOf(message).includes("archived · restore: context_recall("),
+      ),
+    );
   } finally {
     db.close();
   }

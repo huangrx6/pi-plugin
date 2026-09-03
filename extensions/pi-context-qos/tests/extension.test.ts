@@ -8,7 +8,7 @@ import test from "node:test";
 import extension, { formatStatus } from "../index.ts";
 import type { ContextStats } from "../src/types.ts";
 
-test("extension registers lifecycle hooks, four model tools, and /context", async () => {
+test("extension registers lifecycle hooks, ONE model tool, and /context", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "pi-context-qos-smoke-"));
   const storage = join(cwd, "cold-store");
   mkdirSync(join(cwd, ".pi"), { recursive: true });
@@ -37,9 +37,12 @@ test("extension registers lifecycle hooks, four model tools, and /context", asyn
     },
   } as any);
 
+  // v0.2: only context_recall stays as a MODEL tool — the search/pin/
+  // unpin schemas were dead weight (0 model invocations across 17 live
+  // sessions) and their /context commands are unchanged.
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    ["context_recall", "context_search", "context_pin", "context_unpin"],
+    ["context_recall"],
   );
   assert.ok(commands.has("context"));
   for (const event of [

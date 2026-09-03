@@ -27,6 +27,13 @@ export interface ContextPlanResult {
   overBudget: boolean;
 }
 
+/** Minimal structured form of an archived tool result, chosen by the
+ *  planner under pressure. Every non-raw form is SELF-DESCRIBING (v0.2):
+ *  it names the recovery command so the model can act on it without
+ *  knowing the extension's docs. Verified motivation: across 17 live
+ *  sessions the tombstone form `[bash archived: ctx://item/N]` was
+ *  restored via context_recall exactly ZERO times — the stub never told
+ *  the model a recovery path existed. */
 function representationText(
   item: StoredContextItem,
   representation: Representation,
@@ -34,10 +41,11 @@ function representationText(
   const ref = `ctx://item/${item.id}`;
   if (representation === "raw") return "";
   if (representation === "extract") {
-    return [item.extractText, `raw: ${ref}`].filter(Boolean).join("\n");
+    return [item.extractText, `raw: context_recall(${ref})`].filter(Boolean).join("\n");
   }
-  if (representation === "summary") return item.summaryText;
-  return `[${item.kind} archived: ${ref}]`;
+  if (representation === "summary")
+    return [item.summaryText, `raw: context_recall(${ref})`].filter(Boolean).join("\n");
+  return `[${item.kind} archived · restore: context_recall(${ref})]`;
 }
 
 function contextWindow(model: unknown): number {

@@ -48,19 +48,6 @@ const REF_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const SEARCH_SCHEMA = {
-  type: "object",
-  properties: {
-    query: {
-      type: "string",
-      description: "Terms to search in the session cold store.",
-    },
-    limit: { type: "integer", minimum: 1, maximum: 20, default: 8 },
-  },
-  required: ["query"],
-  additionalProperties: false,
-} as const;
-
 function lineComponent(line: string) {
   return {
     render: (_width: number) => [line],
@@ -225,9 +212,9 @@ export default function (pi: ExtensionAPI): void {
     name: "context_recall",
     label: "Context recall",
     description:
-      "Restore the archived raw content behind a ctx://item/<id> reference into the current working context.",
+      "Restore the archived raw content behind a ctx://item/<id> reference into the current working context. Old tool results whose text was replaced by `[... archived · restore: context_recall(ctx://item/N)]` (or `raw: context_recall(...)` under an extract/summary) can be brought back verbatim with this tool.",
     promptSnippet:
-      "Use context_recall when an archived summary lacks evidence needed for the current task.",
+      "When an old tool result shows `[… archived · restore: context_recall(ctx://item/N)]` or `raw: context_recall(…)` and you need that evidence for the current task, call context_recall with that ref instead of guessing or re-running the tool.",
     parameters: REF_SCHEMA,
     async execute(_id, params) {
       const runtime = requireController(controller);
@@ -250,67 +237,13 @@ export default function (pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerTool({
-    name: "context_search",
-    label: "Context search",
-    description:
-      "Search archived context metadata and deterministic summaries in the current session branch using SQLite FTS5.",
-    parameters: SEARCH_SCHEMA,
-    async execute(_id, params) {
-      const runtime = requireController(controller);
-      const items = runtime.search(
-        String(params.query),
-        Number(params.limit ?? 8),
-      );
-      const text = items.length
-        ? items.map(itemLine).join("\n")
-        : "No archived context matched this query on the active branch.";
-      return {
-        content: [{ type: "text", text }],
-        details: { count: items.length },
-      };
-    },
-    renderCall(args, theme) {
-      return lineComponent(
-        theme.fg("dim", `context search ${String(args.query ?? "")}`),
-      );
-    },
-  });
-
-  for (const [name, pinned] of [
-    ["context_pin", true],
-    ["context_unpin", false],
-  ] as const) {
-    pi.registerTool({
-      name,
-      label: pinned ? "Context pin" : "Context unpin",
-      description: `${pinned ? "Pin" : "Unpin"} an archived context item. Pinned items are never automatically downgraded.`,
-      parameters: REF_SCHEMA,
-      async execute(_id, params) {
-        const runtime = requireController(controller);
-        const ok = runtime.pin(String(params.ref), pinned);
-        return {
-          content: [
-            {
-              type: "text",
-              text: ok
-                ? `${pinned ? "Pinned" : "Unpinned"} ${String(params.ref)}`
-                : `Context ref not found on this branch: ${String(params.ref)}`,
-            },
-          ],
-          details: { pinned, found: ok },
-        };
-      },
-      renderCall(args, theme) {
-        return lineComponent(
-          theme.fg(
-            "dim",
-            `${name.replace("context_", "context ")} ${String(args.ref ?? "")}`,
-          ),
-        );
-      },
-    });
-  }
+  // v0.2: context_search / context_pin / context_unpin are NO LONGER
+  // registered as model tools. Live evidence across 17 sessions / 4482
+  // items: zero model invocations of any of them — three dead tool
+  // schemas taxing every request. The user-facing /context search|pin|
+  // unpin commands are unchanged; the recovery loop (the one that
+  // matters for the model) is context_recall + the self-describing
+  // stubs emitted by representationText.
 
   pi.registerCommand("context", {
     description:

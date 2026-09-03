@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.2.0
+
+### The recovery loop becomes self-teaching (and sheds dead weight)
+
+**Live evidence that drove this release:** across 17 real sessions / 4482
+archived items / 2517 tombstones, the model invoked `context_recall`
+**zero** times and `context_search`/`context_pin`/`context_unpin` zero
+times. Two causes, both fixed:
+
+1. **Stubs were mute.** A tombstone rendered as
+   `[bash archived: ctx://item/123]` — a bare ref with no recovery
+   path, so the model never learned it could restore evidence. Stubs
+   are now self-describing:
+   - tombstone → `[bash archived · restore: context_recall(ctx://item/123)]`
+   - extract / summary → trailing `raw: context_recall(ctx://item/123)`
+2. **Three dead tool schemas taxed every request.** The search/pin/unpin
+   model tools (0 invocations ever, pin state used 0 times) are removed
+   from the model tool surface; `/context search|pin|unpin` user commands
+   are unchanged. `context_recall` stays as the single model tool, with a
+   promptSnippet that names the stub pattern explicitly.
+
+The compact-fallback behavior users actually feel (native compaction at
+the critical threshold) is unchanged. `/context stats` continues to
+report cumulative saved tokens.
+
+New test: every downgraded representation must carry a
+`context_recall(ctx://item/…)` recovery hint (planContext end-to-end).
+
 ## 0.1.7 - 2026-08-27
 
 - Footer cell minimized to `◎QoS 6%` — icon + pressure percentage with the level conveyed by color only. Drops the level word (`(绿)`), the token breakdown (活/省/库), and switches the icon from ⚡ (which collided with the quota prefix) to ◎. `/context stats` keeps the full report. Frozen renders as `◎QoS 6%·冻结`.

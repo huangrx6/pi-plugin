@@ -156,12 +156,16 @@ First-version compressors: tests, git, file reads, search and generic Bash. Stru
 
 ## Model tools
 
+Since v0.2 exactly ONE model tool is registered — the recovery valve.
+Live evidence across 17 sessions / 4482 items: the model invoked
+`context_search` / `context_pin` / `context_unpin` **zero times** ever,
+so those schemas (taxing every request) were removed from the model
+tool surface. Their user-facing `/context search|pin|unpin` commands
+are unchanged.
+
 | Tool | Purpose |
 | --- | --- |
-| `context_recall({ ref })` | Restore `ctx://item/<id>` to the current working context. If the raw body was not archived or has been GC'd, returns a traceable summary instead. |
-| `context_search({ query, limit? })` | FTS5 search across the current session branch's metadata and summaries. |
-| `context_pin({ ref })` | Pin an item; subsequent auto-degradation skips it. |
-| `context_unpin({ ref })` | Unpin. |
+| `context_recall({ ref })` | Restore `ctx://item/<id>` to the current working context. Every downgraded stub names this command inline (`… · restore: context_recall(ctx://item/N)`), so the recovery loop is self-teaching. If the raw body was not archived or has been GC'd, returns a traceable summary instead. |
 
 ## User commands
 
