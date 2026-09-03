@@ -15,7 +15,12 @@
  * UI-bearing start reclaims it.
  */
 
-import { EMPTY_STATE, isTodoDetails, type TaskState } from "./types.ts";
+import {
+ EMPTY_STATE,
+ isTodoDetails,
+ normalizeTask,
+ type TaskState,
+} from "./types.ts";
 
 const sessions = new Map<string, TaskState>();
 
@@ -114,14 +119,26 @@ export function replayFromBranch(ctx: {
  for (const entry of ctx.sessionManager.getBranch()) {
   const e = entry as {
    type?: string;
-   message?: { role?: string; toolName?: string; details?: unknown };
+   message?: {
+    role?: string;
+    toolName?: string;
+    details?: unknown;
+   };
   };
   if (e.type !== "message") continue;
   const msg = e.message;
   if (msg?.role !== "toolResult" || msg.toolName !== "todo") continue;
   if (!isTodoDetails(msg.details)) continue;
+  // v1 snapshots (schemaVersion === 1) carry full timestamps; shallow-copy.
+  // Legacy snapshots (no schemaVersion or !== 1) predate timestamps;
+  // per-task normalizeTask fills createdAt=0 / updatedAt=createdAt defaults
+  // and passes archivedAt through. See TodoDetails doc on types.ts.
+  const isV1 = msg.details.schemaVersion === 1;
+  const tasks = isV1
+   ? msg.details.tasks.map((t) => ({ ...t }))
+   : msg.details.tasks.map((t) => normalizeTask(t));
   result = {
-   tasks: msg.details.tasks.map((t) => ({ ...t })),
+   tasks,
    nextId: msg.details.nextId,
   };
  }

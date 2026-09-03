@@ -3,7 +3,8 @@
  *
  * Provides a minimal ExtensionAPI / ExtensionContext stub that captures
  * every registration the factory makes, lets the test invoke captured
- * command handlers, and asserts on ctx.ui.notify side-effects.
+ * command handlers + lifecycle handlers, and asserts on
+ * ctx.ui.notify / ui.setWidget side-effects.
  *
  * This file exists ONLY to keep the test surface focused. The factory
  * (index.ts) is not modified; it sees an object that quacks like the
@@ -21,10 +22,25 @@ import { __resetState } from "./store.ts";
 export const notices: Array<{ message: string; level: string | undefined }> =
 	[];
 
+export interface WidgetCall {
+	key: string;
+	value: unknown;
+	options?: { placement?: string };
+	rendered?: string[][];
+}
+
+export const widgetCalls: WidgetCall[] = [];
+
 const handlers = new Map<
 	string,
 	(args: unknown, ctx: ExtensionContext) => unknown
 >();
+
+/** P4-C1: lifecycle handler registry (session_start / compact / tree /
+ *  shutdown / tool_execution_end). Keyed by event name. */
+type LifecycleHandler = (event: unknown, ctx: unknown) => Promise<void> | void;
+const lifecycleHandlers = new Map<string, LifecycleHandler>();
+
 let interactive = true;
 
 export const sessionId = "test-session";
@@ -35,14 +51,18 @@ interface Harness {
 	handlers: Map<string, (args: unknown, ctx: ExtensionContext) => unknown>;
 	sessionId: string;
 	setInteractive(value: boolean): void;
+	triggerLifecycle(
+		event: string,
+		payload: unknown,
+		ctx?: unknown,
+	): Promise<void> | void;
 }
 
 function buildHarness(): Harness {
 	// SAFETY: the harness implements exactly the ExtensionAPI methods the
-	// factory (index.ts) calls during /todos command parsing: registerTool,
-	// registerCommand, and on. Other ExtensionAPI members are not exercised
-	// by these tests; the cast keeps the literal shape narrow without
-	// forcing every unused method to be stubbed.
+	// factory (index.ts) calls: registerTool, registerCommand, and on.
+	// The cast keeps the literal shape narrow without forcing every
+	// unused ExtensionAPI method to be stubbed.
 	const api = {
 		registerTool(_def: unknown) {
 			/* not exercised by /todos parsing tests */
@@ -53,15 +73,15 @@ function buildHarness(): Harness {
 		) {
 			handlers.set(name, def.handler);
 		},
-		on(_event: string, _handler: unknown) {
-			/* not exercised here */
+		on(event: string, handler: unknown) {
+			lifecycleHandlers.set(event, handler as LifecycleHandler);
 		},
 	} as unknown as ExtensionAPI;
 
 	// SAFETY: same idea — only the ExtensionContext fields touched by the
-	// /todos handler are present (hasUI, sessionManager.getSessionId,
-	// ui.notify). The factory's other lifecycle handlers aren't invoked
-	// in these tests, so missing fields are intentional.
+	// /todos handler + lifecycle hooks are present (hasUI,
+	// sessionManager.getSessionId, ui.notify, ui.setWidget). Missing
+	// fields are intentional (harness is for tests, not the full API).
 	const ctx = {
 		hasUI: interactive,
 		sessionManager: {
@@ -70,6 +90,26 @@ function buildHarness(): Harness {
 		ui: {
 			notify(message: string, level?: string) {
 				notices.push({ message, level });
+			},
+			setWidget(key: string, value: unknown, options?: { placement?: string }) {
+				// If the widget factory returns a renderable object with
+				// `render(width)`, capture each rendered output for the
+				// test to assert on.
+				let rendered: string[][] | undefined;
+				if (typeof value === "function") {
+					const tui = { requestRender: () => {} };
+					const produced = (value as (tui: unknown) => unknown)(tui);
+					if (
+						produced &&
+						typeof (produced as { render?: unknown }).render === "function"
+					) {
+						// Capture render at the registered width 80 (overlay
+						// default). Tests that need other widths construct
+						// their own harness.
+						rendered = [(produced as { render: (w: number) => string[] }).render(80)];
+					}
+				}
+				widgetCalls.push({ key, value, options, rendered });
 			},
 		},
 	} as unknown as ExtensionContext;
@@ -83,6 +123,17 @@ function buildHarness(): Harness {
 			interactive = value;
 			(ctx as { hasUI: boolean }).hasUI = value;
 		},
+		triggerLifecycle(
+			event: string,
+			payload: unknown,
+			ctx?: unknown,
+		): Promise<void> | void {
+			const handler = lifecycleHandlers.get(event);
+			if (!handler) {
+				throw new Error(`no lifecycle handler registered for "${event}"`);
+			}
+			return handler(payload, ctx ?? ctx);
+		},
 	};
 }
 
@@ -90,7 +141,9 @@ export const commandRegistry: Harness = buildHarness();
 
 export function resetHarness(): void {
 	notices.length = 0;
+	widgetCalls.length = 0;
 	handlers.clear();
+	lifecycleHandlers.clear();
 	interactive = true;
 	(commandRegistry.ctx as { hasUI: boolean }).hasUI = true;
 	__resetState();

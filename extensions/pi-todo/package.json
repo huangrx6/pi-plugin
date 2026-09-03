@@ -1,6 +1,6 @@
 {
   "name": "pi-todo",
-  "version": "0.2.2",
+  "version": "0.4.2",
   "description": "A todo tool for the model with a live overlay: state replays from the session branch, so it survives /reload and compaction. Zero runtime dependencies.",
   "license": "MIT",
   "type": "module",
@@ -25,6 +25,6 @@
   },
   "scripts": {
     "check": "tsc -p . --noEmit",
-    "test": "tsx --test index.test.ts"
+    "test": "tsx --test index.test.ts graph.test.ts reducer.test.ts projection.test.ts format.test.ts read-model.test.ts mutation-command.test.ts mutation-selector.test.ts mutation-executor.test.ts mutation-outcome.test.ts mutation-format.test.ts mutation-wiring.test.ts graph-query.test.ts graph-format.test.ts graph-command.test.ts persistence-contract.test.ts persistence-codec.test.ts persistence-migration.test.ts durable-store.test.ts file-durable-store.test.ts workspace-scope.test.ts replay-engine.test.ts overview-format.test.ts workflow-command.test.ts workflow-format.test.ts current-task-format.test.ts task-detail-format.test.ts selector-policy-notice.test.ts direct-unlock-format.test.ts"
   }
 }

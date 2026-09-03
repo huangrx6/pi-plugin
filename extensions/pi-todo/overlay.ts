@@ -1,45 +1,63 @@
 /**
- * Persistent overlay widget above the editor.
+ * Persistent overlay widget above the editor (P0-B / B4 / P3-E §28).
  *
- * setWidget contract: register once via factory form, refresh with
- * requestRender(). Auto-hides when no visible tasks remain. Content-row
- * budget is a constant — NO config file, NO per-render disk IO (the
- * per-render readFileSync anti-pattern observed in other todo overlays
- * is exactly what this avoids).
+ * Layer chain:
+ *   graph → projection → read-model → format → overlay
  *
- * Overflow rule: drop completed rows first (they are history), then
- * truncate the non-completed tail, and summarize with "+N more (x
- * completed, y pending)". Per-row #id prefixes appear only when some
- * task carries a dependency — otherwise ids have no anchor.
+ * The overlay consumes:
+ *   - projectActiveView (B1) — single source for grouping + counts.
+ *   - buildDependencyPresentation (B3) — for blocked-row deps.
+ *   - formatTaskRow (B2) — for row rendering.
  *
- * Expand / collapse: `/todos expand` shows every visible task with no row
- * cap (use when 12-row truncation hides work you need to see); `/todos
- * collapse` returns to the 12-row budget. The expanded flag is a per-
- * session UI preference kept in the foreground slot — it is NOT replayed
- * from the branch, so legacy sessions start collapsed and a /reload
- * resets the choice (intentional: the user re-toggles explicitly).
+ * Visibility rules (LOCKED B4):
+ *   - active > 0              → header + sections + ✓ summary
+ *   - active = 0, completed > 0 → just "✓ N completed · /todos completed"
+ *   - active = 0, completed = 0 → overlay hidden ([])
+ *   - archived is NEVER shown (no count, no section). Use `/todos archived`.
+ *
+ * Per-section budgets (NEVER global slice):
+ *   RUNNING ≤ 2, READY ≤ 3, BLOCKED ≤ 2.
+ *   Each section's overflow is its own "+N <role>" line; no section
+ *   can be crowded out by another's growth.
+ *
+ * P3-E §28 — overlay presentation identity = ScopeKey, NOT sessionId.
+ * The overlay reads from OverlaySnapshotCache (ScopeKey-keyed
+ * presentation cache populated ONLY from successful durable load /
+ * commit). It does NOT import from store.ts; legacy
+ * session-local state is no longer a production read source.
  */
 
-import { countsOf, formatOverlayRow, truncateToWidth } from "./format.ts";
-import { getExpanded, getForegroundSession, getRenderState } from "./store.ts";
-import type { Task } from "./types.ts";
+import { formatTaskRow } from "./format.ts";
+import { projectActiveView } from "./projection.ts";
+import { buildDependencyPresentation } from "./read-model.ts";
+import type { ScopeKey } from "./persistence-contract.ts";
+import type {
+  ActiveView,
+  Task,
+  TaskDependencyPresentation,
+  TaskState,
+} from "./types.ts";
+import type { OverlaySnapshotCache } from "./overlay-snapshot-cache.ts";
 
 const WIDGET_KEY = "pi-todo";
 
-/** Fixed content-row budget (heading excluded). Constant by design. */
-export const MAX_ROWS = 12;
+/** Per-section budgets (LOCKED B4). */
+const RUNNING_BUDGET = 2;
+const READY_BUDGET = 3;
+const BLOCKED_BUDGET = 2;
 
-type Theme = { fg(color: string, text: string): string };
+/** Empty TaskState returned by the cache when no scope has been
+ *  loaded / committed yet. Used as the cold-cache sentinel so the
+ *  overlay renders [] without ever touching legacy store. */
+const EMPTY_STATE: TaskState = { tasks: [], nextId: 1 };
+
 type UICtx = {
   setWidget(
     key: string,
     value:
       | undefined
       | string[]
-      | ((
-          tui: { requestRender(force?: boolean): void },
-          theme: Theme,
-        ) => {
+      | ((tui: { requestRender(force?: boolean): void }) => {
           render: (width: number) => string[];
           invalidate: () => void;
           dispose: () => void;
@@ -48,10 +66,151 @@ type UICtx = {
   ): void;
 };
 
+// ── Pure rendering function (exported for unit testing) ─────────────────
+
+/**
+ * Render the overlay content for `state` at the given terminal width.
+ *
+ * Returns string[] which the TUI renders line-by-line. Empty array
+ * means "no overlay" (caller should call setWidget(undefined)).
+ *
+ * The header `Todos · ▶N ◆M ○K · ✓C` omits sections whose count is 0,
+ * so it adapts to whatever is present.
+ */
+export function renderOverlay(state: TaskState, width: number): string[] {
+  const view = projectActiveView(state);
+  const hasActive = view.counts.active > 0;
+  const hasCompleted = view.counts.completedVisible > 0;
+
+  // Hidden: nothing to show.
+  if (!hasActive && !hasCompleted) return [];
+
+  // Pre-compute deps map for blocked rows.
+  const depsMap = new Map<number, readonly TaskDependencyPresentation[]>();
+  for (const task of view.blocked) {
+    depsMap.set(task.id, buildDependencyPresentation(state, task.id));
+  }
+
+  const lines: string[] = [];
+
+  // Header.
+  const header = formatHeader(view);
+  if (header) {
+    lines.push(header);
+    lines.push("");
+  }
+
+  // Sections (each gated by its own count > 0; no global slice).
+  const running = renderSection(
+    "RUNNING",
+    view.running,
+    RUNNING_BUDGET,
+    "running",
+    width,
+    depsMap,
+  );
+  if (running.length > 0) {
+    lines.push(...running);
+    lines.push("");
+  }
+
+  const ready = renderSection(
+    "READY",
+    view.ready,
+    READY_BUDGET,
+    "ready",
+    width,
+    depsMap,
+  );
+  if (ready.length > 0) {
+    lines.push(...ready);
+    lines.push("");
+  }
+
+  const blocked = renderSection(
+    "BLOCKED",
+    view.blocked,
+    BLOCKED_BUDGET,
+    "blocked",
+    width,
+    depsMap,
+  );
+  if (blocked.length > 0) {
+    lines.push(...blocked);
+    lines.push("");
+  }
+
+  // ✓ summary (only when there are visible completed tasks).
+  if (hasCompleted) {
+    lines.push(
+      `✓ ${view.counts.completedVisible} completed · /todos completed`,
+    );
+  }
+
+  // Strip trailing blank line(s).
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+
+  return lines;
+}
+
+/** Format the "Todos · ▶N ◆M ○K · ✓C" header; empty if no active tasks.
+ *  ✓N is appended with a " · " separator from the active counts. When
+ *  there are no active tasks, this returns "" — the caller emits a
+ *  standalone ✓ summary line in that case instead. */
+function formatHeader(view: ActiveView): string {
+  const active: string[] = [];
+  if (view.running.length > 0) active.push(`▶${view.running.length}`);
+  if (view.ready.length > 0) active.push(`◆${view.ready.length}`);
+  if (view.blocked.length > 0) active.push(`○${view.blocked.length}`);
+  if (active.length === 0) return "";
+  let result = `Todos · ${active.join(" ")}`;
+  if (view.counts.completedVisible > 0) {
+    result += ` · ✓${view.counts.completedVisible}`;
+  }
+  return result;
+}
+
+/** Render a single section with its per-budget overflow. */
+function renderSection(
+  label: string,
+  tasks: readonly Task[],
+  budget: number,
+  role: "running" | "ready" | "blocked",
+  width: number,
+  depsMap: ReadonlyMap<number, readonly TaskDependencyPresentation[]>,
+): string[] {
+  if (tasks.length === 0) return [];
+  const lines: string[] = [];
+  lines.push(label);
+  const shown = tasks.slice(0, budget);
+  for (const t of shown) {
+    lines.push(
+      formatTaskRow(t, {
+        role,
+        width,
+        dependencies: depsMap.get(t.id),
+      }),
+    );
+  }
+  if (tasks.length > budget) {
+    lines.push(`+${tasks.length - budget} ${role}`);
+  }
+  return lines;
+}
+
+// ── Widget class (registration lifecycle only) ────────────────────────────
+
 export class TodoOverlay {
   private uiCtx: UICtx | undefined;
   private registered = false;
   private tui: { requestRender(force?: boolean): void } | undefined;
+
+  constructor(
+    private readonly cache: OverlaySnapshotCache,
+    private readonly scopeGetter: () => ScopeKey | undefined,
+  ) {}
 
   setUICtx(ctx: UICtx): void {
     // Identity compare: repeat session_start on the same ctx is a no-op;
@@ -63,10 +222,22 @@ export class TodoOverlay {
     }
   }
 
+  /**
+   * Read the current scope's cached TaskState. Returns EMPTY_STATE
+   * when no scope is active OR the active scope has not been loaded /
+   * committed yet (cold cache). NEVER touches legacy store.
+   */
+  private currentState(): TaskState {
+    const scope = this.scopeGetter();
+    if (scope === undefined) return EMPTY_STATE;
+    return this.cache.getOrEmpty(scope);
+  }
+
   update(): void {
     if (!this.uiCtx) return;
-    const visible = visibleTasks();
-    if (visible.length === 0) {
+    const state = this.currentState();
+    const lines = renderOverlay(state, 80);
+    if (lines.length === 0) {
       if (this.registered) {
         this.uiCtx.setWidget(WIDGET_KEY, undefined);
         this.registered = false;
@@ -79,10 +250,11 @@ export class TodoOverlay {
     } else {
       this.uiCtx.setWidget(
         WIDGET_KEY,
-        (tui, factoryTheme) => {
+        (tui) => {
           this.tui = tui;
           return {
-            render: (width: number) => this.renderWidget(factoryTheme, width),
+            render: (width: number) =>
+              renderOverlay(this.currentState(), width),
             invalidate: () => {},
             dispose: () => {
               this.tui = undefined;
@@ -99,138 +271,10 @@ export class TodoOverlay {
     return this.registered;
   }
 
-  private renderWidget(theme: Theme, width: number): string[] {
-    const state = getRenderState();
-    const visible = visibleTasks();
-    if (visible.length === 0) return [];
-
-    const c = countsOf(state);
-    const showIds = visible.some((t) => (t.blockedBy?.length ?? 0) > 0);
-    const hasActive = c.pending + c.inProgress > 0;
-    const expanded = getExpanded(getForegroundSession());
-
-    const headingColor = hasActive ? "accent" : "dim";
-    const headingIcon = hasActive ? "●" : "○";
-    const heading = truncateToWidth(
-      theme.fg(
-        headingColor,
-        `${headingIcon} Todos (${c.completed}/${c.total})`,
-      ),
-      width,
-    );
-    const lines = [heading];
-
-    const { shown, hiddenCompleted, truncatedTail } = computeShownTasks(
-      visible,
-      expanded,
-      MAX_ROWS,
-    );
-
-    for (const task of shown) {
-      const isLastShown = shown.indexOf(task) === shown.length - 1;
-      const nothingHidden = hiddenCompleted + truncatedTail === 0;
-      const gutter = isLastShown && nothingHidden ? "└─" : "├─";
-      lines.push(
-        truncateToWidth(
-          `${theme.fg("dim", gutter)} ${formatOverlayRow(task, theme, showIds)}`,
-          width,
-        ),
-      );
-    }
-
-    const summary = formatOverflowSummary(
-      hiddenCompleted,
-      truncatedTail,
-      expanded,
-      theme,
-    );
-    if (summary !== null) {
-      lines.push(truncateToWidth(summary, width));
-    }
-
-    // Trailing spacer so the panel isn't glued to the editor box.
-    lines.push("");
-    return lines;
-  }
-
   dispose(): void {
     if (this.uiCtx) this.uiCtx.setWidget(WIDGET_KEY, undefined);
     this.registered = false;
     this.tui = undefined;
     this.uiCtx = undefined;
   }
-}
-
-function visibleTasks(): Task[] {
-  return getRenderState().tasks.filter((t) => t.status !== "deleted");
-}
-
-// ── Pure helpers (exported so unit tests can exercise them) ─────────────
-
-/**
- * Decide which tasks to render and how many are hidden.
- *
- * Collapsed (expanded === false): keep a fixed `maxRows` budget. Drop
- * completed rows first, then truncate the non-completed tail. One row
- * is reserved for the overflow summary when anything is hidden.
- *
- * Expanded (expanded === true): render every visible task, no cap. The
- * trade-off is explicit — the user opted in via `/todos expand`.
- */
-export function computeShownTasks(
-  visible: Task[],
-  expanded: boolean,
-  maxRows: number,
-): { shown: Task[]; hiddenCompleted: number; truncatedTail: number } {
-  if (expanded) {
-    return { shown: visible, hiddenCompleted: 0, truncatedTail: 0 };
-  }
-  const inner = maxRows - 1; // reserve overflow summary slot when needed
-  if (visible.length <= inner) {
-    return { shown: visible, hiddenCompleted: 0, truncatedTail: 0 };
-  }
-  const nonCompleted = visible.filter((t) => t.status !== "completed");
-  const completed = visible.filter((t) => t.status === "completed");
-  const room = inner - 1; // one row for the summary itself
-  if (nonCompleted.length <= room) {
-    const shown = [
-      ...nonCompleted,
-      ...completed.slice(0, room - nonCompleted.length),
-    ];
-    const hiddenCompleted =
-      completed.length - (shown.length - nonCompleted.length);
-    return { shown, hiddenCompleted, truncatedTail: 0 };
-  }
-  const shown = nonCompleted.slice(0, room);
-  const truncatedTail = nonCompleted.length - room;
-  const hiddenCompleted = completed.length;
-  return { shown, hiddenCompleted, truncatedTail };
-}
-
-/**
- * Build the overflow summary gutter line. Returns null when nothing is
- * hidden AND we're collapsed (no summary needed) — the caller is then
- * free to swap the last task's gutter from ├─ to └─.
- *
- * Always returns a string when expanded, so the user sees the collapse
- * hint even when nothing is hidden.
- */
-export function formatOverflowSummary(
-  hiddenCompleted: number,
-  truncatedTail: number,
-  expanded: boolean,
-  theme: { fg(color: string, text: string): string },
-): string | null {
-  const gutter = theme.fg("dim", "└─");
-  if (expanded) {
-    return `${gutter} ${theme.fg("dim", "/todos collapse")}`;
-  }
-  const totalHidden = hiddenCompleted + truncatedTail;
-  if (totalHidden === 0) return null;
-  const parts: string[] = [];
-  if (hiddenCompleted > 0) parts.push(`${hiddenCompleted} completed`);
-  if (truncatedTail > 0) parts.push(`${truncatedTail} pending`);
-  const summary = theme.fg("dim", `+${totalHidden} more (${parts.join(", ")})`);
-  const hint = theme.fg("dim", "/todos expand");
-  return `${gutter} ${summary} · ${hint}`;
 }
