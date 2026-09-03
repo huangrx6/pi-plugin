@@ -48,5 +48,5 @@
 
 ## 已知缺口（按此路径补）
 
-- mode-switcher / skill-inject 无类型检查基建 → 抄 quota-status 的 tsconfig + globals.d.ts 模式，CI 加对应 job。
-- CI actions 用 `@v4` tag 未钉 commit SHA（沙箱无 HTTPS 出网解不了权威 SHA；有网时钉死并删本行）。
+- ~~mode-switcher / skill-inject 无类型检查基建~~ — 已解决：两包已带 tsconfig + ambient shim + CI job。
+- ~~CI actions 用 `@v4` tag 未钉 commit SHA~~ — 已解决：ci.yml 全部 uses 已钉权威 SHA（checkout@11d5960…、setup-node@49933e…），workflow 级 `permissions: {}` 已加。升级 action 版本时重新从 api.github.com 解 SHA 并同步注释。

@@ -8,6 +8,11 @@
   // comments that previously lived in some READMEs (single source of truth:
   // here).
   //
+  // MD024 (no-duplicate-heading): siblings_only. CHANGELOG files repeat
+  // "### Files" / "### Tests" under EVERY release's `## <version>` parent
+  // — cross-parent repetition is the changelog idiom, not drift. Only
+  // same-parent duplicates remain errors.
+  //
   // MD060 (table-column-style): "padded" because every README in this repo
   // uses the spaced form ("| h1 | h2 |") rather than the default "compact"
   // form ("|h1|h2|").
@@ -18,6 +23,9 @@
   // line with the documented `#` negation syntax (see ci.yml):
   //   markdownlint-cli2 "**/*.md" "#**/.legacy/**" "#**/node_modules/**"
   "MD013": false,
+  "MD024": {
+    "siblings_only": true
+  },
   "MD060": {
     "style": "padded"
   }

@@ -1,5 +1,9 @@
 name: ci
 
+# Least privilege: CI only needs to check out; nothing is published
+# from here (zizmor excessive-permissions remediation).
+permissions: {}
+
 on:
   push:
     branches: [main]
@@ -11,10 +15,10 @@ jobs:
     name: pi-policy-engine (js)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
       - name: Syntax check (node --check over all extension + core files)
@@ -31,40 +35,55 @@ jobs:
     name: pi-quota-status (ts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
-      # pi-quota-status ships its own tsconfig + ambient globals.d.ts shim
-      # (the pi runtime packages aren't installed under node_modules here;
-      # the shim declares their module shape so static checks pass).
+      # v0.1.0: local-parity gates (same scripts CI runs exist locally —
+      # npm run check / npm test, lockfile committed).
+      - name: Install
+        working-directory: extensions/pi-quota-status
+        run: npm ci --no-audit --no-fund
       - name: Type check (tsc --noEmit)
-        run: npx --yes -p typescript tsc -p extensions/pi-quota-status
+        working-directory: extensions/pi-quota-status
+        run: npm run check
+      - name: Unit tests (format oracle)
+        working-directory: extensions/pi-quota-status
+        run: npm test
 
   pi-footer-composer:
     name: pi-footer-composer (ts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
-      # Same ambient-shim pattern as pi-quota-status (AGENTS.md known-gap note).
+      # Same local-parity pattern as pi-quota-status (v0.3.2); the job
+      # also runs the layout regression suite that pins the ANSI
+      # truncateToWidth infinite-loop fix.
+      - name: Install
+        working-directory: extensions/pi-footer-composer
+        run: npm ci --no-audit --no-fund
       - name: Type check (tsc --noEmit)
-        run: npx --yes -p typescript tsc -p extensions/pi-footer-composer
+        working-directory: extensions/pi-footer-composer
+        run: npm run check
+      - name: Unit tests (layout oracle)
+        working-directory: extensions/pi-footer-composer
+        run: npm test
 
   pi-todo:
     name: pi-todo (ts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
       - name: Type check (tsc --noEmit)
@@ -74,10 +93,10 @@ jobs:
     name: pi-notify (ts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
       - name: Install (tsx + @types/node devDeps)
@@ -94,10 +113,10 @@ jobs:
     name: pi-context-qos (ts, Node built-ins)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
       - name: Install
@@ -114,10 +133,10 @@ jobs:
     name: pi-skill-inject (ts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
       - name: Install
@@ -134,10 +153,10 @@ jobs:
     name: pi-mode-switcher (ts)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
       - name: Install
@@ -154,7 +173,7 @@ jobs:
     name: markdownlint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
       # `#` prefix is markdownlint-cli2's documented cross-platform negation.
@@ -164,10 +183,6 @@ jobs:
       - name: Run markdownlint-cli2
         run: npx --yes markdownlint-cli2 "**/*.md" "#**/.legacy/**" "#**/node_modules/**"
 
-# Known CI gaps (see AGENTS.md "测试与 CI" for the prescribed fix path):
-# - pi-mode-switcher / pi-skill-inject have no type-check infra (no tsconfig
-#   or ambient shim). To onboard: copy the pi-quota-status pattern (tsconfig
-#   + globals.d.ts) and add a matching job above.
-# - Actions are pinned by tag (@v4), not commit SHA: this sandbox cannot
-#   reach github.com over HTTPS to resolve authoritative SHAs. Pin them
-#   (actions/checkout, actions/setup-node) when network allows.
+# Actions are pinned to the authoritative v4 commit SHAs (resolved via
+# api.github.com; see AGENTS.md 已知缺口 — the pin-when-online note is
+# now fulfilled and removed).
