@@ -7,8 +7,17 @@
   "engines": {
     "node": ">=20"
   },
+  "scripts": {
+    "check": "tsc -p . --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": ">=20",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
   },
   "keywords": [
     "pi-package"
@@ -20,6 +29,12 @@
   },
   "files": [
     "index.ts",
+    "adapters.ts",
+    "constants.ts",
+    "format.ts",
+    "state.ts",
+    "types.ts",
+    "globals.d.ts",
     "README.md",
     "LICENSE"
   ]
