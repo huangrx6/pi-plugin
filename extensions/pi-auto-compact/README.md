@@ -6,13 +6,13 @@
 <p align="center">为 Pi 长对话提供可配置的压缩时机，以及压缩后的任务续跑。</p>
 
 <p align="center">
-  <img alt="Node.js 22.15+" src="https://img.shields.io/badge/node-%E2%89%A522.15-555?style=flat-square" />
+  <img alt="Node.js 22.19+" src="https://img.shields.io/badge/node-%E2%89%A522.19-555?style=flat-square" />
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
 ## 开始使用
 
-需要 Node.js 22.15+ 与 Pi。在本扩展目录执行：
+需要 Node.js 22.19+ 与 Pi。在本扩展目录执行：
 
 ```bash
 pi install "$PWD"

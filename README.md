@@ -23,7 +23,7 @@ pi install git:github.com/huangrx6/pi-plugin
 
 重启 Pi 或运行 `/reload`。整库安装会加载八个扩展；如果只需要其中一部分，使用下方按需安装方式。
 
-> 仓库声明 Node.js `>=22.15`；请同时满足已安装 Pi 宿主的运行要求。自动压缩生命周期在 Node.js 24 的真实 Pi SDK 上验证。
+> 仓库声明 Node.js `>=22.19`；请同时满足已安装 Pi 宿主的运行要求。自动压缩生命周期在 Node.js 24 的真实 Pi SDK 上验证。
 
 ## 扩展目录
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 - 2026-09-04
+
+- Align the declared Node.js floor with the installed Pi SDK used by runtime and lifecycle tests.
+
 ## 0.4.0 - 2026-09-04
 
 - Breaking: rename the package to `pi-auto-compact` and reduce its scope to configurable native compaction with automatic continuation.

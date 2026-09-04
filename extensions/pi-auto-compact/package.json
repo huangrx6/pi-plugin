@@ -1,11 +1,11 @@
 {
   "name": "pi-auto-compact",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Automatically compact Pi context at a configurable threshold and continue the interrupted task.",
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22.15"
+    "node": ">=22.19"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "*"

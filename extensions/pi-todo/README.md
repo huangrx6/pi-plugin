@@ -4,7 +4,7 @@
 <p align="center">把多步工作整理成可操作、可恢复的工作区任务清单。</p>
 
 <p align="center">
-  <img alt="Node.js 20+" src="https://img.shields.io/badge/node-%E2%89%A520-555?style=flat-square" />
+  <img alt="Node.js 22.19+" src="https://img.shields.io/badge/node-%E2%89%A522.19-555?style=flat-square" />
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
@@ -113,7 +113,7 @@ npm run check
 npm test
 ```
 
-包声明 Node.js 20 或更高版本，实际运行还需满足所用 Pi 版本的要求。`index.ts` 连接工具、命令和生命周期；状态机、依赖查询、持久存储和终端显示分别可测。运行时使用 Pi SDK 的代理目录 API。
+包声明 Node.js 22.19 或更高版本，与当前 Pi SDK 的运行要求一致。`index.ts` 连接工具、命令和生命周期；状态机、依赖查询、持久存储和终端显示分别可测。运行时使用 Pi SDK 的代理目录 API。
 
 测试覆盖任务流转、依赖、持久化冲突、交互选择与终端渲染，临时文件创建在系统临时目录。
 

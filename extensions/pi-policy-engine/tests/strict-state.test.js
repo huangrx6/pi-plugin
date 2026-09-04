@@ -378,7 +378,8 @@ test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", as
 // v0.24: stale strict-state files are pruned on session_start.
 test("pruneStrictStates removes only stale namespaced files", async () => {
   const { pruneStrictStates } = await import("../src/core/history-store.js");
-  const { utimesSync, writeFileSync } = await import("node:fs");
+  const { writeFileSync } = await import("node:fs");
+  const realFs = await import("node:fs/promises");
   const dir = mkdtempSync(join(tmpdir(), "pi-policy-prune-"));
   try {
     const mk = (name) => {
@@ -389,16 +390,30 @@ test("pruneStrictStates removes only stale namespaced files", async () => {
     const stale = mk("strict-state-deadbeefdeadbeef.json");
     const fresh = mk("strict-state-0123456789abcdef.json");
     const legacy = mk("strict-state.json");
+    const birthFresh = mk("strict-state-1111111111111111.json");
+    const mtimeFresh = mk("strict-state-2222222222222222.json");
     const untouched = mk("other.json");
-    const old = new Date(Date.now() - 20 * 24 * 3600 * 1000);
-    utimesSync(stale, old, old);
-    utimesSync(legacy, old, old);
+    const now = Date.now();
+    const old = now - 20 * 24 * 3600 * 1000;
+    const times = new Map([
+      [stale, { birthtimeMs: old, mtimeMs: old }],
+      [legacy, { birthtimeMs: old, mtimeMs: old }],
+      [birthFresh, { birthtimeMs: now, mtimeMs: old }],
+      [mtimeFresh, { birthtimeMs: old, mtimeMs: now }],
+    ]);
+    const controlledFs = {
+      readdir: realFs.readdir,
+      unlink: realFs.unlink,
+      stat: async (path) => times.get(String(path)) ?? realFs.stat(path),
+    };
 
-    const removed = await pruneStrictStates(join(dir, "history.jsonl"));
+    const removed = await pruneStrictStates(join(dir, "history.jsonl"), {}, controlledFs);
     assert.equal(removed, 2);
     assert.equal(existsSync(stale), false, "stale namespaced removed");
     assert.equal(existsSync(legacy), false, "stale legacy removed");
     assert.equal(existsSync(fresh), true, "fresh namespaced kept");
+    assert.equal(existsSync(birthFresh), true, "fresh creation time protects state");
+    assert.equal(existsSync(mtimeFresh), true, "fresh modification time protects state");
     assert.equal(existsSync(untouched), true, "non-strict-state kept");
 
     // Missing directory / empty path: best-effort, returns 0.

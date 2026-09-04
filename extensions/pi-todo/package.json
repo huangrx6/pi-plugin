@@ -1,11 +1,11 @@
 {
   "name": "pi-todo",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Workspace-scoped durable tasks for Pi: task-first /todos list, contextual actions, task history, and an optional compact editor status strip.",
   "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "*"

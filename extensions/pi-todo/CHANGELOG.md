@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2 - 2026-09-04
+
+- Align the declared Node.js floor with the installed Pi SDK and run CI on Node.js 22, where the required `node:fs` APIs are available.
+
 ## 0.7.1 - 2026-09-04
 
 - Store new workspace task state under `extensions-data/pi-todo/state` in the agent directory.
