@@ -31,17 +31,22 @@ type ModelLikeShape = {
   reasoning?: boolean;
   provider?: string;
   contextWindow?: number;
+  baseUrl?: string;
 } | null;
 
 declare module "@earendil-works/pi-coding-agent" {
   export interface ExtensionContext {
     model: ModelLikeShape;
+    hasUI: boolean;
     ui: {
       setStatus(key: string, text: string | undefined): void;
+      notify(message: string, type?: "info" | "warning" | "error"): void;
+      select(title: string, options: string[]): Promise<string | undefined>;
     };
   }
 
   export interface ExtensionAPI {
+    registerCommand(name: string, options: { description: string; handler: (args: string, ctx: ExtensionContext) => unknown }): void;
     // Explicit `any` (not implicit) on event/ctx — silences TS7006
     // without affecting runtime behavior.
     on(event: string, handler: (event: any, ctx: any) => unknown): void;

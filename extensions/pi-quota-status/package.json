@@ -1,7 +1,7 @@
 {
   "name": "pi-quota-status",
-  "version": "0.1.0",
-  "description": "Show AI subscription quota (OpenCode Go / Zhipu GLM / MiniMax Token Plan / Kimi Code / DeepSeek / OpenRouter) in the pi footer, auto-switching on model change.",
+  "version": "0.2.1",
+  "description": "Independent Pi quota panel and status summary for subscription windows, account balances, and API-key allowances.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -36,6 +36,11 @@
     "types.ts",
     "globals.d.ts",
     "README.md",
-    "LICENSE"
+    "CHANGELOG.md",
+    "LICENSE",
+    "monitor.ts",
+    "panel.ts",
+    "parse.ts",
+    "ui.ts"
   ]
 }

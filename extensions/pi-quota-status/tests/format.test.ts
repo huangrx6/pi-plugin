@@ -14,8 +14,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { C } from "../constants.ts";
-import { buildQuotaText, colorForPercent, formatBar, formatDuration } from "../format.ts";
+import {
+	buildQuotaText,
+	formatBar,
+	formatDuration,
+} from "../format.ts";
+import { displayWidth, sanitizeTerminalText, truncateToWidth } from "../ui.ts";
 import type { QuotaBar } from "../types.ts";
 
 describe("formatDuration", () => {
@@ -28,33 +32,20 @@ describe("formatDuration", () => {
 	});
 });
 
-describe("colorForPercent (consumed share: higher is worse)", () => {
-	it("green under 50, yellow 50–79, red >= 80", () => {
-		assert.equal(colorForPercent(0), C.green);
-		assert.equal(colorForPercent(49), C.green);
-		assert.equal(colorForPercent(50), C.yellow);
-		assert.equal(colorForPercent(79), C.yellow);
-		assert.equal(colorForPercent(80), C.red);
-		assert.equal(colorForPercent(100), C.red);
-	});
-});
-
 describe("formatBar", () => {
-	it("percentage bar: label + percent colored by consumed level, reset countdown dim", () => {
+	it("percentage bar: plain text lets the host theme own colors", () => {
 		const bar = formatBar({
 			kind: "percentage",
 			label: "GLM ",
 			percent: 42,
 			resetsInMs: 90 * 60_000,
 		} satisfies QuotaBar);
-		assert.ok(bar.startsWith(C.green), "under-consumed band is green");
-		assert.ok(bar.includes("GLM 42%"));
-		assert.ok(bar.includes(`${C.dim}(1h30m)${C.reset}`));
+		assert.equal(bar, "GLM 42% (1h30m)");
+		assert.doesNotMatch(bar, /\x1b/);
 	});
 
 	it("percentage bar: null percent renders dim --% placeholder, never 0%", () => {
 		const bar = formatBar({ kind: "percentage", label: "GLM ", percent: null });
-		assert.ok(bar.startsWith(C.dim));
 		assert.ok(bar.includes("--%"));
 		assert.ok(!bar.includes("0%"));
 	});
@@ -66,13 +57,38 @@ describe("formatBar", () => {
 			amount: 12.5,
 			currency: "$",
 		} satisfies QuotaBar);
-		assert.ok(bar.startsWith(C.dim));
 		assert.ok(bar.includes("$12.50"));
 	});
 
 	it("text bar: passthrough dim", () => {
-		const bar = formatBar({ kind: "text", label: "K ", text: "OK" } satisfies QuotaBar);
+		const bar = formatBar({
+			kind: "text",
+			label: "K ",
+			text: "OK",
+		} satisfies QuotaBar);
 		assert.ok(bar.includes("K OK"));
+	});
+
+	it("removes complete terminal controls before formatting external text", () => {
+		const bar = formatBar({
+			kind: "text",
+			label: "状态:\x1b[31m",
+			text: "坏\x1b]52;c;secret\x07正常",
+		});
+		assert.equal(bar, "状态: 坏 正常");
+	});
+});
+
+describe("terminal-safe width", () => {
+	it("counts Chinese and emoji columns and preserves grapheme clusters", () => {
+		assert.equal(displayWidth("额度A"), 5);
+		assert.equal(displayWidth("👩‍💻"), 2);
+		assert.equal(truncateToWidth("额度设置", 5), "额度…");
+		assert.equal(truncateToWidth("👩‍💻任务", 5), "👩‍💻任…");
+	});
+
+	it("removes bidi controls and collapses layout-breaking whitespace", () => {
+		assert.equal(sanitizeTerminalText("A\u202eB\n C"), "AB C");
 	});
 });
 

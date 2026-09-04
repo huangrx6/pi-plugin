@@ -1,406 +1,184 @@
-/**
- * Provider adapter registry.
- *
- * Each entry is a self-contained `{ display, providerNames, apiKeyEnvVar,
- * endpoint, fetch }` tuple. Adding a new subscription = add one entry.
- *
- * `subscriptionForProvider()` builds a reverse lookup (provider name →
- * subscription key) from this registry at module load, so there is no
- * separate PROVIDER_SUBSCRIPTION map to keep in sync.
- *
- * `as const satisfies Record<string, QuotaAdapter>` double-protects:
- * literal inference keeps narrow types (`display` is a string literal),
- * satisfies enforces shape (missing fields → type-check failure).
- */
-
+/** Explicit endpoints prevent credentials going to inferred hosts. */
 import { FETCH_TIMEOUT_MS } from "./constants.ts";
-import type { QuotaAdapter, QuotaBar } from "./types.ts";
-
-// ── Endpoints (separate const so adapters reference them by name without
-//    self-referential object literal) ─────────────────────────────────
-
+import { array, money, number, object, percent, percentBarFromLimitRemaining, resetIn } from "./parse.ts";
+import type { ModelLike, QuotaAdapter, QuotaBar } from "./types.ts";
+export { percentBarFromLimitRemaining } from "./parse.ts";
 export const ENDPOINTS = {
   opencode: "https://opencode.ai/zen/go/v1/usage",
   zhipu: "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
   minimax: "https://www.minimaxi.com/v1/token_plan/remains",
   deepseek: "https://api.deepseek.com/user/balance",
   kimi: "https://api.kimi.com/coding/v1/usages",
+  moonshot: "https://api.moonshot.cn/v1/users/me/balance",
+  siliconflow: "https://api.siliconflow.cn/v1/user/info",
   openrouter: "https://openrouter.ai/api/v1/key",
+  openrouterAccount: "https://openrouter.ai/api/v1/credits",
 } as const;
-
-// ── Shared JSON GET with Bearer auth + 15s timeout ─────────────────────
-
-export async function fetchJsonBearer<T>(
-  url: string,
-  apiKey: string,
-): Promise<T> {
-  const resp = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return (await resp.json()) as T;
-}
-
-/**
- * Build a percentage bar from Kimi-style `{limit, remaining, resetTime}`
- * fields. `limit` and `remaining` are strings (API quirk); we parse them
- * and compute used% = (limit - remaining) / limit * 100.
- *
- * Exported as a helper so any future percentage-window adapter with the
- * same shape can reuse it.
- */
-export function percentBarFromLimitRemaining(
-  detail: { limit: string; remaining: string; resetTime: string },
-  label: string,
-  now: number,
-): QuotaBar | null {
-  const limit = Number.parseFloat(detail.limit);
-  const remaining = Number.parseFloat(detail.remaining);
-  if (!Number.isFinite(limit) || !Number.isFinite(remaining) || limit <= 0) {
-    return null;
+export async function fetchJsonBearer(url: string, apiKey: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` }, signal: controller.signal, redirect: "error" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return object(await response.json());
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
-  const percent = Math.max(
-    0,
-    Math.min(100, ((limit - remaining) / limit) * 100),
-  );
-  const resetsInMs = new Date(detail.resetTime).getTime() - now;
-  return {
-    kind: "percentage",
-    label,
-    percent,
-    resetsInMs: Number.isFinite(resetsInMs) ? resetsInMs : undefined,
-  };
 }
-
-// ── Adapter registry ───────────────────────────────────────────────────
-
 export const ADAPTERS = {
-  // ── Percentage-window providers ──────────────────────────────────────
-
   opencode: {
-    display: "⚡OC",
-    providerNames: ["opencode", "opencode-go"],
-    apiKeyEnvVar: "OPENCODE_API_KEY",
-    endpoint: ENDPOINTS.opencode,
-    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
-      const json = await fetchJsonBearer<{
-        usage: {
-          rolling: { percent: number | null; resetsAt: string | null };
-          weekly: { percent: number | null; resetsAt: string | null };
-          monthly: { percent: number | null; resetsAt: string | null };
-        };
-      }>(ENDPOINTS.opencode, apiKey);
+    display: "⚡OC", title: "OpenCode Go", category: "套餐用量",
+    providerNames: ["opencode-go"], apiKeyEnvVar: "OPENCODE_API_KEY",
+    endpoint: ENDPOINTS.opencode, modelHosts: ["opencode.ai"], note: "Go 套餐已用比例；不适用于 Zen 按量计费。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.opencode, key, signal);
+      const usage = object(json.usage, "套餐用量");
       const now = Date.now();
-      const win = (
-        label: string,
-        w: { percent: number | null; resetsAt: string | null },
-      ): QuotaBar => ({
-        kind: "percentage",
-        label,
-        percent: w.percent,
-        resetsInMs: w.resetsAt
-          ? new Date(w.resetsAt).getTime() - now
-          : undefined,
+      return [["rolling", "5h:"], ["weekly", "周:"], ["monthly", "月:"]].map(([field, label]) => {
+        const win = object(usage[field], field);
+        return { kind: "percentage", label, percent: percent(win.percent), resetsInMs: resetIn(win.resetsAt, now) } as QuotaBar;
       });
-      return [
-        win("5h:", json.usage.rolling),
-        win("周:", json.usage.weekly),
-        win("月:", json.usage.monthly),
-      ];
     },
   },
-
   zhipu: {
-    display: "⚡GLM",
-    providerNames: ["zai-coding-cn"],
-    // Primary: pi-coding-agent's official env var for zai-coding-cn.
-    // Aliases: shorter name + zai (no -cn region) variant — users who
-    // set any of these get a working key without changing their config.
-    apiKeyEnvVar: "ZAI_CODING_CN_API_KEY",
-    apiKeyEnvVarAliases: ["ZAI_API_KEY"],
-    endpoint: ENDPOINTS.zhipu,
-    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
-      const json = await fetchJsonBearer<{
-        data: {
-          limits: {
-            type: string;
-            unit?: number | null;
-            percentage: number;
-            nextResetTime: number;
-          }[];
-        };
-      }>(ENDPOINTS.zhipu, apiKey);
-      const now = Date.now();
-      const limits = json.data?.limits ?? [];
-      const find = (unit: number) =>
-        limits.find((l) => l.type === "TOKENS_LIMIT" && l.unit === unit);
+    display: "⚡GLM", title: "GLM Coding Plan · 国内", category: "套餐用量",
+    providerNames: ["zai-coding-cn"], apiKeyEnvVar: "ZAI_CODING_CN_API_KEY", apiKeyEnvVarAliases: ["ZAI_API_KEY"],
+    endpoint: ENDPOINTS.zhipu, modelHosts: ["open.bigmodel.cn"], note: "仅国内 Coding Plan；已用比例，国际站未适配。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.zhipu, key, signal);
+      if (json.success === false || (json.code !== undefined && ![0, 200, "0", "200"].includes(json.code as number | string))) throw new Error("套餐查询失败");
+      const limits = array(object(json.data).limits, "套餐窗口").map(item => object(item));
       const bars: QuotaBar[] = [];
-      const fh = find(3);
-      const wk = find(6);
-      if (fh)
-        bars.push({
-          kind: "percentage",
-          label: "5h:",
-          // null percentage (fresh window / not yet billed) renders as
-          // a dim "--%" placeholder — NOT a misleading "0%".
-          percent: fh.percentage ?? null,
-          resetsInMs: fh.nextResetTime ? fh.nextResetTime - now : undefined,
-        });
-      if (wk)
-        bars.push({
-          kind: "percentage",
-          label: "周:",
-          percent: wk.percentage ?? null,
-          resetsInMs: wk.nextResetTime ? wk.nextResetTime - now : undefined,
-        });
+      for (const [unit, label] of [[3, "5h:"], [6, "周:"]] as const) {
+        const win = limits.find(item => item.type === "TOKENS_LIMIT" && item.unit === unit);
+        if (win) bars.push({ kind: "percentage", label, percent: percent(win.percentage), resetsInMs: resetIn(win.nextResetTime, Date.now()) });
+      }
+      if (!bars.length) throw new Error("响应中无已识别的套餐窗口");
       return bars;
     },
   },
-
   minimax: {
-    display: "⚡MiniMax",
-    // Common aliases: canonical lowercase, cc-switch's default name
-    // (older versions), and `minimax-cn` (cc-switch newer versions
-    // and hand-rolled provider setups). All resolve to the same sub.
-    providerNames: ["minimax", "cc-switch-mini-max", "minimax-cn"],
-    // Primary: pi-coding-agent's official env var for minimax-cn.
-    // Aliases: `MINIMAX_API_KEY` for users on the non-regional variant.
-    apiKeyEnvVar: "MINIMAX_CN_API_KEY",
-    apiKeyEnvVarAliases: ["MINIMAX_API_KEY"],
-    endpoint: ENDPOINTS.minimax,
-    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
-      const json = await fetchJsonBearer<{
-        model_remains?: Array<{
-          model_name?: string;
-          remains_time?: number;
-          weekly_remains_time?: number;
-          current_interval_remaining_percent?: number;
-          current_weekly_remaining_percent?: number;
-          end_time?: number;
-          weekly_end_time?: number;
-        }>;
-        base_resp?: { status_code?: number; status_msg?: string };
-      }>(ENDPOINTS.minimax, apiKey);
-      // MiniMax returns HTTP 200 even for bad creds; base_resp is the
-      // real success signal.
-      if (json.base_resp?.status_code !== 0) {
-        throw new Error(
-          json.base_resp?.status_msg ||
-            `API error (code ${json.base_resp?.status_code ?? "?"})`,
-        );
-      }
-      const buckets = json.model_remains ?? [];
-      // Prefer the shared "general" chat bucket; fall back to the first
-      // bucket so single-pool plans still render.
-      const bucket =
-        buckets.find((b) => b.model_name === "general") ?? buckets[0];
-      if (!bucket) throw new Error("响应中无 model_remains 数据");
-      const now = Date.now();
-      // Reset is published either as wall-clock epoch or as relative ms;
-      // use whichever is present; -1 → "reset" in formatDuration.
-      const resetMs = (
-        wall: number | undefined,
-        remaining: number | undefined,
-      ): number => {
-        if (typeof wall === "number") return wall - now;
-        if (typeof remaining === "number") return remaining;
-        return -1;
-      };
+    display: "⚡MiniMax", title: "MiniMax Token Plan · 国内", category: "套餐用量",
+    providerNames: ["minimax", "cc-switch-mini-max", "minimax-cn"], apiKeyEnvVar: "MINIMAX_CN_API_KEY", apiKeyEnvVarAliases: ["MINIMAX_API_KEY"],
+    endpoint: ENDPOINTS.minimax, modelHosts: ["api.minimaxi.com", "www.minimaxi.com"], note: "需要国内 Token Plan 专用 Key；显示已用比例。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.minimax, key, signal);
+      if (object(json.base_resp).status_code !== 0) throw new Error("Token Plan 查询失败，请确认专用 Key");
+      const buckets = array(json.model_remains, "套餐").map(item => object(item));
+      const bucket = buckets.find(item => item.model_name === "general") ?? (buckets.length === 1 ? buckets[0] : undefined);
+      if (!bucket) throw new Error("无法确定共享套餐窗口");
       const bars: QuotaBar[] = [];
-      if (typeof bucket.current_interval_remaining_percent === "number") {
-        // MiniMax reports REMAINING percent; invert so colorForPercent
-        // (calibrated to "higher = worse") stays correct.
-        bars.push({
-          kind: "percentage",
-          label: "5h:",
-          percent: Math.max(0, 100 - bucket.current_interval_remaining_percent),
-          resetsInMs: resetMs(bucket.end_time, bucket.remains_time),
-        });
+      for (const [field, label, wall, relative] of [
+        ["current_interval_remaining_percent", "5h:", "end_time", "remains_time"],
+        ["current_weekly_remaining_percent", "周:", "weekly_end_time", "weekly_remains_time"],
+      ]) {
+        if (!(field in bucket)) continue;
+        const remaining = percent(bucket[field]);
+        const relativeMs = number(bucket[relative], "重置时间");
+        bars.push({ kind: "percentage", label, percent: remaining === null ? null : 100 - remaining, resetsInMs: resetIn(bucket[wall], Date.now()) ?? (relativeMs !== null && relativeMs >= 0 ? relativeMs : undefined) });
       }
-      if (typeof bucket.current_weekly_remaining_percent === "number") {
-        bars.push({
-          kind: "percentage",
-          label: "周:",
-          percent: Math.max(0, 100 - bucket.current_weekly_remaining_percent),
-          resetsInMs: resetMs(
-            bucket.weekly_end_time,
-            bucket.weekly_remains_time,
-          ),
-        });
-      }
-      if (bars.length === 0) throw new Error("响应中无用量数据");
+      if (!bars.length) throw new Error("响应中无用量数据");
       return bars;
     },
   },
-
   kimi: {
-    display: "⚡Kimi",
-    // Kimi Code (会员订阅) uses a separate API key from the regular
-    // Moonshot Open Platform key — alias both provider names just in case.
-    providerNames: ["kimi", "moonshot", "kimi-code"],
-    apiKeyEnvVar: "KIMI_API_KEY",
-    endpoint: ENDPOINTS.kimi,
-    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
-      const json = await fetchJsonBearer<{
-        usage?: {
-          limit: string;
-          remaining: string;
-          resetTime: string;
-        };
-        limits?: Array<{
-          window?: { duration: number; timeUnit: string };
-          detail?: { limit: string; remaining: string; resetTime: string };
-        }>;
-      }>(ENDPOINTS.kimi, apiKey);
+    display: "⚡Kimi Code", title: "Kimi Code", category: "套餐用量",
+    providerNames: ["kimi", "kimi-code", "kimi-coding"], apiKeyEnvVar: "KIMI_API_KEY",
+    endpoint: ENDPOINTS.kimi, modelHosts: ["api.kimi.com"], note: "Kimi Code 专用 Key；总套餐窗口不推断为固定一周。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.kimi, key, signal);
       const bars: QuotaBar[] = [];
-      const now = Date.now();
-      // 5h rolling window: limits[] entry with 300-minute duration.
-      const fiveHour = json.limits?.find((l) => l.window?.duration === 300);
-      if (fiveHour?.detail) {
-        const bar = percentBarFromLimitRemaining(fiveHour.detail, "5h:", now);
-        if (bar) bars.push(bar);
+      for (const item of json.limits === undefined ? [] : array(json.limits, "套餐窗口")) {
+        const limit = object(item);
+        const win = object(limit.window);
+        if (win.duration === 300 && ["TIME_UNIT_MINUTE", "MINUTE", "MINUTES"].includes(String(win.timeUnit).toUpperCase()) && limit.detail) bars.push(percentBarFromLimitRemaining(limit.detail, "5h:", Date.now()));
       }
-      // `usage` is the wider overall quota (typically weekly on Kimi
-      // Code — reset is days away, not hours).
-      if (json.usage) {
-        const bar = percentBarFromLimitRemaining(json.usage, "周:", now);
-        if (bar) bars.push(bar);
-      }
-      if (bars.length === 0) throw new Error("响应中无用量数据");
+      if (json.usage) bars.push(percentBarFromLimitRemaining(json.usage, "套餐:", Date.now()));
+      if (!bars.length) throw new Error("响应中无已识别的套餐窗口");
       return bars;
     },
   },
-
-  // ── Balance / remaining-credit providers ─────────────────────────────
-
   deepseek: {
-    display: "⚡DeepSeek",
-    providerNames: ["deepseek", "deepseek-cn"],
-    apiKeyEnvVar: "DEEPSEEK_API_KEY",
-    endpoint: ENDPOINTS.deepseek,
-    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
-      const json = await fetchJsonBearer<{
-        is_available: boolean;
-        // Official field name (api-docs.deepseek.com/api/get-user-balance)
-        // is `balance_infos`, not `balance` — older drafts used `balance`.
-        balance_infos: Array<{
-          currency: string;
-          total_balance: string;
-          granted_balance?: string;
-          topped_up_balance?: string;
-        }>;
-        // Defensive fallback for a legacy/alternate shape in case the
-        // API drifts back to `balance` — costs one property access.
-        balance?: Array<{
-          currency: string;
-          total_balance: string;
-          granted_balance?: string;
-          topped_up_balance?: string;
-        }>;
-      }>(ENDPOINTS.deepseek, apiKey);
-      const entry = json.balance_infos?.[0] ?? json.balance?.[0];
-      if (!entry) throw new Error("响应中无余额数据");
-      const amount = Number.parseFloat(entry.total_balance);
-      if (!Number.isFinite(amount)) throw new Error("余额数据格式异常");
-      // DeepSeek's API returns ISO-style currency codes (CNY / USD).
-      // Map to display symbols; pass through unchanged if unknown.
-      const symbol =
-        entry.currency === "CNY" ? "¥" : entry.currency === "USD" ? "$" : "";
-      // If is_available is false, force amount to 0 so the bar still
-      // renders (the "无 Key" / API-error branches above already cover
-      // the case of no key at all).
-      return [
-        {
-          kind: "balance",
-          label: "余额:",
-          amount: json.is_available ? amount : 0,
-          currency: symbol,
-        },
-      ];
+    display: "⚡DeepSeek", title: "DeepSeek API", category: "账户余额",
+    providerNames: ["deepseek", "deepseek-cn"], apiKeyEnvVar: "DEEPSEEK_API_KEY",
+    endpoint: ENDPOINTS.deepseek, modelHosts: ["api.deepseek.com"], note: "按接口返回币种逐项显示余额；可调用状态与余额分别显示。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.deepseek, key, signal);
+      if (typeof json.is_available !== "boolean") throw new Error("账户状态数据格式异常");
+      const entries = array(json.balance_infos, "余额");
+      if (!entries.length) throw new Error("响应中无余额数据");
+      const bars = entries.map(item => {
+        const entry = object(item);
+        if (entry.currency !== "CNY" && entry.currency !== "USD") throw new Error("余额币种未知");
+        return money("余额:", entry.total_balance, entry.currency === "CNY" ? "¥" : "$");
+      });
+      if (!json.is_available) bars.push({ kind: "text", label: "状态:", text: "不可调用" });
+      return bars;
     },
   },
-
+  moonshot: {
+    display: "⚡Kimi API", title: "Kimi API · 国内", category: "账户余额",
+    providerNames: ["moonshot", "moonshot-cn", "kimi-api"], apiKeyEnvVar: "MOONSHOT_API_KEY",
+    endpoint: ENDPOINTS.moonshot, modelHosts: ["api.moonshot.cn"], note: "国内 API 可用余额（含现金与代金券）；与 Kimi Code 套餐分开。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.moonshot, key, signal);
+      if (json.code !== 0 || json.status !== true) throw new Error("API 余额查询失败");
+      return [money("可用:", object(json.data).available_balance, "¥")];
+    },
+  },
+  siliconflow: {
+    display: "⚡SiliconFlow", title: "SiliconFlow · 国内", category: "账户余额",
+    providerNames: ["siliconflow", "siliconflow-cn"], apiKeyEnvVar: "SILICONFLOW_API_KEY",
+    endpoint: ENDPOINTS.siliconflow, modelHosts: ["api.siliconflow.cn"], note: "国内账户 totalBalance；含赠送与充值余额，国际站未适配。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const json = await fetchJsonBearer(ENDPOINTS.siliconflow, key, signal);
+      if (json.code !== 20000 || json.status !== true) throw new Error("账户余额查询失败");
+      return [money("余额:", object(json.data).totalBalance, "¥")];
+    },
+  },
   openrouter: {
-    display: "⚡OR",
-    providerNames: ["openrouter"],
-    apiKeyEnvVar: "OPENROUTER_API_KEY",
-    endpoint: ENDPOINTS.openrouter,
-    async fetch(apiKey: string): Promise<readonly QuotaBar[]> {
-      const json = await fetchJsonBearer<{
-        data?: {
-          limit_remaining?: number | string | null;
-          label?: string | null;
-          is_free_tier?: boolean;
-        };
-      }>(ENDPOINTS.openrouter, apiKey);
-      const data = json.data;
-      if (
-        !data ||
-        data.limit_remaining === undefined ||
-        data.limit_remaining === null
-      ) {
-        throw new Error("响应中无限度数据");
-      }
-      const amount = Number.parseFloat(String(data.limit_remaining));
-      if (!Number.isFinite(amount)) throw new Error("额度数据格式异常");
-      // OpenRouter credits are USD-denominated; the API doesn't return a
-      // currency field, so we hard-code "$".
-      return [
-        {
-          kind: "balance",
-          label: data.is_free_tier ? "免费额度:" : "额度:",
-          amount,
-          currency: "$",
-        },
-      ];
+    display: "⚡OR", title: "OpenRouter · 当前 Key", category: "密钥额度",
+    providerNames: ["openrouter"], apiKeyEnvVar: "OPENROUTER_API_KEY",
+    endpoint: ENDPOINTS.openrouter, modelHosts: ["openrouter.ai"], note: "Key 的剩余消费上限，不代表账户余额；无限额不代表账户无限余额。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const data = object((await fetchJsonBearer(ENDPOINTS.openrouter, key, signal)).data);
+      if (data.limit === null && data.limit_remaining === null) return [{ kind: "text", label: "Key:", text: "未设上限" }];
+      return [money("Key剩余:", data.limit_remaining, "$")];
     },
   },
-} as const satisfies Record<string, QuotaAdapter>;
-
-/** Subscription keys are the keys of ADAPTERS. */
+  openrouterAccount: {
+    display: "⚡OR 账户", title: "OpenRouter · 管理 Key 所属账户", category: "账户余额",
+    providerNames: [], apiKeyEnvVar: "OPENROUTER_MANAGEMENT_KEY",
+    endpoint: ENDPOINTS.openrouterAccount, modelHosts: ["openrouter.ai"], note: "管理 Key 所属账户；无法自动确认与当前推理 Key 同属一账户。",
+    async fetch(key: string, signal?: AbortSignal) {
+      const data = object((await fetchJsonBearer(ENDPOINTS.openrouterAccount, key, signal)).data);
+      const credits = number(data.total_credits, "累计充值");
+      const usage = number(data.total_usage, "累计使用");
+      return [money("账户剩余:", credits === null || usage === null ? null : credits - usage, "$")];
+    },
+  },
+} satisfies Record<string, QuotaAdapter>;
 export type Subscription = keyof typeof ADAPTERS;
-
-/** Reverse map: pi provider name → subscription key. Built once at load. */
-export const PROVIDER_TO_SUB: ReadonlyMap<string, Subscription> = (() => {
-  const m = new Map<string, Subscription>();
-  for (const sub of Object.keys(ADAPTERS) as Subscription[]) {
-    for (const name of ADAPTERS[sub].providerNames) m.set(name, sub);
-  }
-  return m;
-})();
-
-export function subscriptionForProvider(
-  provider: string | undefined,
-): Subscription | null {
-  if (!provider) return null;
-  return PROVIDER_TO_SUB.get(provider) ?? null;
+export const PROVIDER_TO_SUB: ReadonlyMap<string, Subscription> = new Map(
+  (Object.keys(ADAPTERS) as Subscription[]).flatMap(id => ADAPTERS[id].providerNames.map(name => [name, id] as const)),
+);
+export function subscriptionForProvider(provider: string | undefined): Subscription | null {
+  return provider ? PROVIDER_TO_SUB.get(provider) ?? null : null;
 }
-
-/** All env-var names an adapter accepts for its API key, in lookup order
- *  (primary first, then aliases). Casts through `QuotaAdapter` so
- *  callers don't need to handle the inferred literal-type missing the
- *  optional `apiKeyEnvVarAliases` field. */
 export function adapterEnvVars(adapter: QuotaAdapter): readonly string[] {
-  const a = adapter as QuotaAdapter;
-  return [a.apiKeyEnvVar, ...(a.apiKeyEnvVarAliases ?? [])];
+  return [adapter.apiKeyEnvVar, ...(adapter.apiKeyEnvVarAliases ?? [])];
 }
-
-/**
- * Resolve the API key for an adapter by trying its primary env var
- * (matches pi-coding-agent's official convention) then its aliases
- * (backward-compat with users who set shorter / different names).
- *
- * Returns the first env var that's set and non-empty. Returns
- * undefined if none are configured — caller should surface a "no key"
- * error to the user.
- */
-export function resolveAdapterApiKey(
-  adapter: QuotaAdapter,
-): string | undefined {
-  for (const name of adapterEnvVars(adapter)) {
-    const value = process.env[name];
-    if (value && value.trim() !== "") return value;
-  }
-  return undefined;
+export function resolveAdapterApiKey(adapter: QuotaAdapter): string | undefined {
+  return adapterEnvVars(adapter).map(name => process.env[name]?.trim()).find(Boolean);
+}
+export function adapterMatchesModel(adapter: QuotaAdapter, model: ModelLike): boolean {
+  if (!model?.baseUrl) return true;
+  try {
+    const url = new URL(model.baseUrl);
+    return url.protocol === "https:" && adapter.modelHosts.includes(url.hostname);
+  } catch { return false; }
 }

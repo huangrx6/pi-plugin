@@ -1,192 +1,87 @@
-/**
- * pi-quota-status — AI subscription quota monitor
- *
- * Shows remaining usage for the current provider's subscription and keeps
- * it fresh. A PURE CONTRIBUTOR: it does not touch footer rendering — it
- * publishes its text via `ctx.ui.setStatus("quota", …)` and lets whatever
- * renders the footer (pi's built-in footer or a footer-rendering extension
- * the user installed) decide placement and style. ANSI colors in the
- * status text survive pi's status sanitization, so threshold coloring
- * still works.
- *
- * Pure event-driven (no setInterval → no stale-ctx crash).
- *
- * ## File map
- *
- *   - types.ts        — QuotaBar / QuotaData / QuotaAdapter types
- *   - constants.ts    — timeouts, ANSI color codes, status key
- *   - state.ts        — module-level mutable state (quota + refresh guards)
- *   - adapters.ts     — ENDPOINTS, fetchJsonBearer, ADAPTERS registry,
- *                       PROVIDER_TO_SUB reverse lookup
- *   - format.ts       — formatBar / buildQuotaText (status text rendering)
- *   - index.ts        — this file: extension entry, events, refresh logic
- *
- * ## Architecture
- *
- * Each provider is a self-contained entry in the `ADAPTERS` registry
- * (see adapters.ts): `{ display, providerNames, apiKeyEnvVar, endpoint, fetch }`.
- * Adding a new subscription = add one entry; nothing else changes.
- *
- * Adapter fetchers return `QuotaBar[]` (a discriminated union: `percentage`
- * / `balance` / `text`). `buildQuotaText()` renders the bars to one colored
- * line and this file publishes it as a status. Robustness notes:
- *  - Fetches are serialized by a request sequence guard: a stale in-flight
- *    response can never overwrite newer data (fast model switching).
- *  - On fetch failure, the last good data is kept for STALE_KEEP_MS so
- *    transient network errors don't blank the status.
- */
-
+/** Independent quota panel plus an optional native status summary. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-import {
-  ADAPTERS,
-  adapterEnvVars,
-  resolveAdapterApiKey,
-  subscriptionForProvider,
-} from "./adapters.ts";
-import {
-  STALE_KEEP_MS,
-  TREE_THROTTLE_MS,
-  TURN_THROTTLE_MS,
-  WIDGET_KEY,
-} from "./constants.ts";
+import { ADAPTERS, subscriptionForProvider } from "./adapters.ts";
+import { TREE_THROTTLE_MS, TURN_THROTTLE_MS, WIDGET_KEY } from "./constants.ts";
 import { buildQuotaText } from "./format.ts";
-import { state } from "./state.ts";
+import { createMonitor } from "./monitor.ts";
+import { quotaDiagnostics, quotaSummary } from "./panel.ts";
 import type { ModelLike } from "./types.ts";
-
-/** The ctx slice this extension touches: status publishing + the model. */
+export { describeFetchError } from "./monitor.ts";
 type StatusCtx = {
-  ui: { setStatus(k: string, t: string | undefined): void };
   model: ModelLike;
+  hasUI?: boolean;
+  mode?: "tui" | "rpc" | "json" | "print";
+  ui: {
+    setStatus(key: string, text: string | undefined): void;
+    notify(message: string, type?: "info" | "warning" | "error"): void;
+    select(title: string, options: string[]): Promise<string | undefined>;
+  };
 };
-
-// ---------------------------------------------------------------------------
-// Status publishing
-// ---------------------------------------------------------------------------
-
-/** Publish (or clear) the quota status line. null text → clear. */
-function publishStatus(ctx: StatusCtx): void {
-  try {
-    ctx.ui.setStatus(WIDGET_KEY, buildQuotaText() ?? undefined);
-  } catch {
-    // Stale ctx after session replacement / reload: the status widget
-    // belongs to the replaced session, so dropping the update is correct.
-    // An unhandled throw here kills the host process (e.g. `pi -p`).
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Quota refresh logic
-// ---------------------------------------------------------------------------
-
-async function refreshQuota(ctx: StatusCtx, model: ModelLike): Promise<void> {
-  const provider = model?.provider;
-  const sub = subscriptionForProvider(provider);
-  if (!sub) {
-    // Unknown/no provider: clear everything (no stale fallback wanted).
-    state.quotaData = null;
-    state.quotaFetchedAt = 0;
-    state.errorText = "";
-    publishStatus(ctx);
-    return;
-  }
-  const adapter = ADAPTERS[sub];
-  const apiKey = resolveAdapterApiKey(adapter);
-  if (!apiKey) {
-    const names = adapterEnvVars(adapter).join(" or ");
-    state.quotaData = null;
-    state.quotaFetchedAt = 0;
-    state.errorText = `⚠ ${adapter.display} 无 Key (${names})`;
-    publishStatus(ctx);
-    return;
-  }
-
-  const seq = ++state.fetchSeq;
-  try {
-    const bars = await adapter.fetch(apiKey);
-    if (seq !== state.fetchSeq) return; // a newer request superseded this one
-    state.quotaData = { provider: adapter.display, bars };
-    state.quotaFetchedAt = Date.now();
-    state.errorText = "";
-  } catch (e) {
-    if (seq !== state.fetchSeq) return;
-    // Keep last good data ONLY for the same provider on a transient
-    // failure. If the user just switched providers, the cached data
-    // belongs to the OLD provider — showing it would mislead (e.g.
-    // deepseek selected but ⚡MiniMax rendered). Provider switch =
-    // stale-keep disabled, error surfaced instead.
-    const sameProvider = state.quotaData?.provider === adapter.display;
-    const fresh =
-      sameProvider &&
-      state.quotaFetchedAt > 0 &&
-      Date.now() - state.quotaFetchedAt <= STALE_KEEP_MS;
-    if (!fresh) {
-      state.quotaData = null;
-      state.quotaFetchedAt = 0;
-      state.errorText = `⚠ ${adapter.display} ${describeFetchError(e)}`;
-    }
-    // Same-provider transient errors keep the last good data (marked
-    // stale by buildQuotaText once older than STALE_KEEP_MS).
-  }
-  publishStatus(ctx);
-}
-
-/**
- * Map a fetch failure to a short, user-readable cause. Raw transport
- * messages ("fetch failed", "signal timed out", "HTTP 502") are accurate
- * for logs but hostile in a status line that is otherwise
- * Chinese-annotated. Adapter-domain errors (响应中无用量数据 …) pass
- * through unchanged.
- */
-export function describeFetchError(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (e instanceof Error && e.name === "TimeoutError") return "请求超时";
-  if (/timeout|timed out|aborted/i.test(msg)) return "请求超时";
-  if (/^HTTP 401$/.test(msg) || /^HTTP 403$/.test(msg))
-    return `Key 无效或已过期 (${msg})`;
-  if (/^HTTP 429$/.test(msg)) return `请求过于频繁 (${msg})`;
-  if (/^HTTP 5\d\d$/.test(msg)) return `服务暂不可用 (${msg})`;
-  if (/fetch failed|ENOTFOUND|ECONNREFUSED|EAI_AGAIN|network/i.test(msg))
-    return "网络不可达";
-  return msg;
-}
-
-function throttledRefresh(thresholdMs: number, ctx: StatusCtx): void {
-  const now = Date.now();
-  if (now - state.lastRefreshAt < thresholdMs) return;
-  state.lastRefreshAt = now;
-  void refreshQuota(ctx, ctx.model);
-}
-
-// ---------------------------------------------------------------------------
-// Extension entry — event wiring
-// ---------------------------------------------------------------------------
-
 export default function (pi: ExtensionAPI): void {
-  pi.on("model_select", async (event, ctx) => {
-    state.lastRefreshAt = 0;
-    void refreshQuota(ctx, event.model);
-  });
-
-  pi.on("turn_end", async (_event, ctx) => {
-    throttledRefresh(TURN_THROTTLE_MS, ctx);
-  });
-
-  pi.on("session_tree", async (_event, ctx) => {
-    throttledRefresh(TREE_THROTTLE_MS, ctx);
-  });
-
-  pi.on("session_start", async (_event, ctx) => {
-    state.lastRefreshAt = 0;
-    void refreshQuota(ctx, ctx.model);
-  });
-
-  // Session is closing: clear cached state AND the published status so a
-  // fresh session does not show stale quota from a previous session.
-  pi.on("session_shutdown", async (_event, ctx) => {
-    state.quotaData = null;
-    state.quotaFetchedAt = 0;
-    state.errorText = "";
-    ctx.ui.setStatus(WIDGET_KEY, undefined);
+  const monitor = createMonitor();
+  const account = createMonitor();
+  let generation = 0;
+  function publish(ctx: StatusCtx): void {
+    if (ctx.hasUI === false) return;
+    try { ctx.ui.setStatus(WIDGET_KEY, buildQuotaText(monitor.state) ?? undefined); } catch { /* A replaced context owns no current UI. */ }
+  }
+  function refresh(ctx: StatusCtx, model = ctx.model): Promise<void> {
+    return monitor.refresh(model, () => publish(ctx));
+  }
+  function reset(ctx: StatusCtx) {
+    ++generation;
+    monitor.invalidate();
+    account.invalidate();
+    publish(ctx);
+  }
+  function throttled(ctx: StatusCtx, threshold: number) {
+    if (monitor.matches(ctx.model) && Date.now() - monitor.state.lastRefreshAt < threshold) return;
+    void refresh(ctx);
+  }
+  pi.on("model_select", (event, ctx) => { reset(ctx); void refresh(ctx, event.model); });
+  pi.on("session_start", (_event, ctx) => { reset(ctx); void refresh(ctx); });
+  pi.on("session_tree", (_event, ctx) => { reset(ctx); throttled(ctx, TREE_THROTTLE_MS); });
+  pi.on("turn_end", (_event, ctx) => throttled(ctx, TURN_THROTTLE_MS));
+  pi.on("session_shutdown", (_event, ctx) => reset(ctx));
+  pi.registerCommand("quota", {
+    description: "查看当前额度；refresh 刷新；sources 查看数据来源；account 查询 OpenRouter 管理账户余额",
+    handler: async (args, ctx: StatusCtx) => {
+      const action = args.trim().toLowerCase();
+      if (action && !["refresh", "sources", "account"].includes(action)) {
+        ctx.ui.notify("/quota 查看额度 · /quota refresh 刷新 · /quota sources 数据来源 · /quota account OpenRouter 账户余额", "info");
+        return;
+      }
+      const epoch = generation;
+      const target = action === "account" ? account : monitor;
+      const update = () => action === "account" ? account.refresh(ctx.model, () => {}, "openrouterAccount") : refresh(ctx);
+      if (action === "sources") {
+        const adapterId = subscriptionForProvider(ctx.model?.provider);
+        ctx.ui.notify(quotaDiagnostics(monitor.adapter ?? (adapterId ? ADAPTERS[adapterId] : undefined), ctx.model), "info");
+        return;
+      }
+      await update();
+      const isTui = (ctx.mode ?? "tui") === "tui" && ctx.hasUI !== false;
+      if (!isTui) {
+        ctx.ui.notify(quotaSummary(target.state, target.adapter, ctx.model), "info");
+        return;
+      }
+      while (epoch === generation) {
+        const options = [
+          "刷新",
+          ...(action !== "account" && ctx.model?.provider === "openrouter" ? ["查看账户余额（管理 Key）"] : []),
+          "数据来源与诊断",
+          "关闭",
+        ];
+        const selected = await ctx.ui.select(quotaSummary(target.state, target.adapter, ctx.model), options);
+        if (epoch !== generation || !selected || selected === "关闭") return;
+        if (selected === "查看账户余额（管理 Key）") {
+          await account.refresh(ctx.model, () => {}, "openrouterAccount");
+          if (epoch !== generation) return;
+          await ctx.ui.select(quotaSummary(account.state, account.adapter, ctx.model), ["返回"]);
+        } else if (selected === "数据来源与诊断") {
+          await ctx.ui.select(quotaDiagnostics(target.adapter, ctx.model), ["返回"]);
+        } else await update();
+      }
+    },
   });
 }
