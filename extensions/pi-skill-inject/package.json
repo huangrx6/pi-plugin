@@ -1,7 +1,7 @@
 {
   "name": "pi-skill-inject",
-  "version": "0.1.1",
-  "description": "Inline /skill loading for pi: type /skill-name in a prompt to inject that skill's content for the current turn.",
+  "version": "0.2.0",
+  "description": "Inline /skill loading for Pi with autocomplete, expandable activity records, and an independent loaded-skills view.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -21,6 +21,7 @@
   },
   "files": [
     "index.ts",
+    "display.ts",
     "globals.d.ts",
     "tsconfig.json",
     "tests/",

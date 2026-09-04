@@ -29,6 +29,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 
+import {
+  loadedSkillsText,
+  sanitizeInline,
+  truncateInline,
+} from "./display.ts";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -333,7 +339,7 @@ function scopeTag(scope: SkillInfo["scope"]): string {
 }
 
 function itemDescription(skill: SkillInfo): string | undefined {
-  const base = skill.description;
+  const base = truncateInline(skill.description, 96);
   const tag = `[${scopeTag(skill.scope)}]`;
   return base ? `${tag} ${base}` : tag;
 }
@@ -510,30 +516,45 @@ export default function (pi: ExtensionAPI): void {
   // TUI renderer for inline-skill messages.
   pi.registerMessageRenderer(
     INLINE_SKILL_MESSAGE_TYPE,
-    (message, { expanded }, theme) => {
+    (message, { expanded, outputPad }, theme) => {
       const details = message.details as
         | { names?: string[]; skills?: ParsedSkillBlock[] }
         | undefined;
-      const names = details?.names?.length ? details.names.join(", ") : "skill";
+      const skills = details?.skills ?? [];
+      const rawNames = details?.names?.length
+        ? details.names
+        : skills.map((skill) => skill.name);
+      const names = rawNames.length
+        ? truncateInline(rawNames.map(sanitizeInline).join(", "), 72)
+        : "skill";
       const label = theme.fg(
         "customMessageLabel",
-        "\x1b[1m[inline-skill]\x1b[22m",
+        "◆ 技能已加载",
       );
-      const container = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
-      if (details?.skills?.length) {
+      const container = new Box(outputPad, 1, (t) => theme.bg("customMessageBg", t));
+      container.addChild(
+        new Text(
+          `${label} ${theme.fg("customMessageText", names)} ${theme.fg("dim", `· ${skills.length || rawNames.length} 项`)}`,
+          0,
+          0,
+        ),
+      );
+      if (expanded && skills.length > 0) {
+        const sources = skills.map((skill) => {
+          // Expanded mode is the audit surface: sanitize untrusted text but
+          // preserve the full value and let Text wrap to the actual width.
+          const name = sanitizeInline(skill.name) || "skill";
+          const location = sanitizeInline(skill.location) || "来源未知";
+          return `  ${name}\n    ${location}`;
+        });
         container.addChild(
           new Text(
-            `${label} ${theme.fg("customMessageText", names)} ${theme.fg("dim", `(${details.skills.length} skills)`)}`,
+            `${sources.join("\n")}\n${theme.fg("dim", "已向当前轮次提供这些技能说明。")}`,
             0,
             0,
           ),
         );
-      } else {
-        container.addChild(
-          new Text(`${label} ${theme.fg("customMessageText", names)}`, 0, 0),
-        );
       }
-      void expanded;
       return container;
     },
   );
@@ -545,11 +566,7 @@ export default function (pi: ExtensionAPI): void {
       const names = [...restoreLoadedSkills(ctx)].sort((a, b) =>
         a.localeCompare(b),
       );
-      if (names.length === 0) {
-        ctx.ui.notify("No inline skills loaded yet", "info");
-        return;
-      }
-      ctx.ui.notify(`Inline skills loaded: ${names.join(", ")}`, "info");
+      ctx.ui.notify(loadedSkillsText(names), "info");
     },
   });
 
@@ -616,7 +633,7 @@ export default function (pi: ExtensionAPI): void {
         pendingSkills = [];
         pendingNames = [];
         ctx.ui.notify(
-          `inline-skills: failed to load skill: ${error instanceof Error ? error.message : String(error)}`,
+          `技能加载失败 · ${truncateInline(error instanceof Error ? error.message : String(error), 100)}`,
           "error",
         );
         return { action: "continue" };

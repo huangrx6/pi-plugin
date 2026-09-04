@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 - 2026-09-04
+
+- Replace the English inline marker with a compact themed “技能已加载” activity row; expanded mode now shows the complete sanitized skill names and source paths used for that turn, wrapped at the actual terminal width and aligned with Pi's output padding.
+- Make `/loaded-skills` a readable Chinese vertical list and keep its empty state concise.
+- Sanitize and display-width-truncate skill descriptions, paths and load errors before rendering them in terminal UI.
+
 ## 0.1.1 - 2026-08-27
 
 - Fix false-positive skill injection: the token regex ended with an OPTIONAL boundary lookahead `(?=[\s.,;!?"')\]}])?` — the trailing `?` made the whole lookahead a no-op, so `/review的`, `/api=v2`, and `/name中文` all matched their prefixes and injected skills the user never asked for. The boundary is now anchored: whitespace, punctuation, or end of input (`(?=[...]|$)`).
