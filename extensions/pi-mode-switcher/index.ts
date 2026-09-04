@@ -11,7 +11,7 @@
  * Zero third-party dependencies.
  *
  * `/mode` opens an interactive selector with Chinese descriptions.
- * Mode persists across sessions and shows in the footer status row.
+ * Mode persists across sessions and publishes an optional status summary.
  *
  * Robustness notes:
  *  - The footer status is re-set on session_start, session_tree AND turn_end:
@@ -25,6 +25,8 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+import { formatInline } from "./display.ts";
 
 // ---------------------------------------------------------------------------
 // Types & constants
@@ -42,21 +44,6 @@ const MODE_ZH: Record<Mode, string> = {
   ask: "编辑外部文件和使用互联网时始终询问",
   smart: "仅对检测到的风险操作请求批准",
   full: "不需要我批准任何请求",
-};
-
-// ANSI colors
-const C = {
-  dim: "\x1b[2m",
-  yellow: "\x1b[33m",
-  red: "\x1b[31m",
-  cyan: "\x1b[36m",
-  reset: "\x1b[0m",
-};
-
-const MODE_COLOR: Record<Mode, string> = {
-  ask: C.cyan,
-  smart: C.yellow,
-  full: C.red,
 };
 
 // Read-only tools (always pass in every mode).
@@ -237,15 +224,15 @@ function describeCall(
 ): string {
   if (toolName === "bash") {
     const cmd = typeof input.command === "string" ? input.command : "";
-    return `执行命令: ${cmd.slice(0, 120)}`;
+    return `执行命令 · ${formatInline(cmd, 108)}`;
   }
   const path = typeof input.path === "string" ? input.path : "";
-  if (path) return `${toolName} → ${path}`;
+  if (path) return `${formatInline(toolName, 24)} → ${formatInline(path, 92)}`;
   if (typeof input.url === "string")
-    return `${toolName} → ${input.url.slice(0, 100)}`;
+    return `${formatInline(toolName, 24)} → ${formatInline(input.url, 92)}`;
   if (typeof input.query === "string")
-    return `${toolName} → ${input.query.slice(0, 100)}`;
-  return toolName;
+    return `${formatInline(toolName, 24)} → ${formatInline(input.query, 92)}`;
+  return formatInline(toolName, 120);
 }
 
 // ---------------------------------------------------------------------------
@@ -299,7 +286,7 @@ async function checkPermission(
 }
 
 // ---------------------------------------------------------------------------
-// Footer status
+// Optional status summary
 // ---------------------------------------------------------------------------
 
 type UiCtx = {
@@ -323,9 +310,7 @@ function uiOf(ctx: unknown): UiCtx {
 }
 
 function buildModeText(): string {
-  const label = MODE_LABELS[currentMode];
-  const color = MODE_COLOR[currentMode];
-  return `${color}⚙ mode:${label}${C.reset}`;
+  return `⚙ 权限 ${currentMode}`;
 }
 
 function renderStatus(ctx: UiCtx): void {
@@ -340,7 +325,7 @@ export default function (pi: ExtensionAPI): void {
   function switchMode(mode: Mode, ctx: UiCtx): void {
     currentMode = mode;
     persistMode(currentMode);
-    ctx.ui.notify(`模式已切换: ${MODE_LABELS[currentMode]}`, "info");
+    ctx.ui.notify(`权限模式 · ${MODE_LABELS[currentMode]}`, "info");
     renderStatus(ctx);
   }
 
@@ -364,14 +349,11 @@ export default function (pi: ExtensionAPI): void {
       );
       const choice = await ctx.ui.select(
         name
-          ? `选择权限模式（当前: ${MODE_LABELS[currentMode]}，未识别 "${name.slice(0, 20)}"）`
+          ? `选择权限模式（当前：${MODE_LABELS[currentMode]}；未识别“${formatInline(name, 20)}”）`
           : `选择权限模式（当前: ${MODE_LABELS[currentMode]}）`,
         options,
       );
-      if (choice === undefined) {
-        ctx.ui.notify("已取消", "info");
-        return;
-      }
+      if (choice === undefined) return;
       // select() returns the chosen option text; extract the mode key prefix.
       const picked = String(choice)
         .split(/[\s—:]/)[0]
@@ -395,7 +377,7 @@ export default function (pi: ExtensionAPI): void {
     return undefined; // allow
   });
 
-  // ── Footer status refresh ──
+  // ── Status refresh ──
   // Multiple set points: pi clears extension statuses on session invalidate
   // (without reloading this module), so we re-set on every natural event.
   // setStatus is an O(1) map write — re-setting is free.

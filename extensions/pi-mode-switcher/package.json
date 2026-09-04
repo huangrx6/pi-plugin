@@ -1,7 +1,7 @@
 {
   "name": "pi-mode-switcher",
-  "version": "0.1.2",
-  "description": "Three-mode approval control for pi (ask / smart / full) via native tool_call interception + confirm dialogs. Zero dependencies.",
+  "version": "0.2.0",
+  "description": "Three-mode Pi approval control with native confirmation dialogs and a terminal-safe independent /mode interface.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -17,6 +17,7 @@
   },
   "files": [
     "index.ts",
+    "display.ts",
     "globals.d.ts",
     "tsconfig.json",
     "tests/",

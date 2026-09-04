@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 - 2026-09-04
+
+- Align the command with the terminal UI contract: cancelling `/mode` is silent, switch confirmations use a concise Chinese hierarchy, and the optional status is plain themed text instead of hard-coded ANSI colors.
+- Sanitize and display-width-truncate command, path, URL, query and unknown-mode text before it enters terminal confirmation or selection dialogs.
+- Add CJK width and terminal-control regression tests.
+
 ## 0.1.2 - 2026-08-27
 
 - Status icon ◈ → ⚙ (the diamond rendered visually smaller than the other footer icons; the gear matches the weight of ⚡/🔌).
