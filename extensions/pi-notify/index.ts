@@ -1,227 +1,266 @@
-/**
- * pi-notify — single-line OSC 777/9/99 terminal notifications for pi.
- *
- * Sends a one-line OSC notification when the agent settles (after every
- * queued follow-up has resolved, not after every low-level run — so users
- * don't get spammed during retry / compaction). The body is formatted with
- * Unicode characters only (no emoji) so it renders the same in monospace
- * fonts across macOS / Linux distros and SSH sessions.
- *
- * Supported terminals:
- *   - Ghostty / iTerm2          → OSC 9  (desktop notification banner)
- *   - WezTerm / rxvt-unicode    → OSC 777 (urxvt-style notify)
- *   - Kitty                     → OSC 99 (Kitty's notification protocol)
- *
- * Supported multiplexers (DCS passthrough so OSC survives):
- *   - tmux   (TMUX env)
- *   - zellij (ZELLIJ / ZELLIJ_SESSION_NAME env)
- *   - screen (STY env)
- *
- * Unsupported terminals (Apple Terminal, Alacritty, native win32 console
- * outside WSL) get a TUI notice recommending filing an issue, instead of
- * a silent no-op.
- *
- * Zero runtime dependencies: pi is type-only; OSC writes go straight to
- * process.stdout.
- */
-
+/** Terminal-only notifications after Pi's complete run has settled. */
+import { randomUUID } from "node:crypto";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { formatBody, freshStats, outcomeFor, type RunStats } from "./format.ts";
+import {
+  notificationBytes,
+  resolveTerminal,
+  singleLine,
+  type TerminalPlan,
+} from "./terminal.ts";
 
-// ── OSC primitives ─────────────────────────────────────────────────────
+export { formatBody, formatDuration } from "./format.ts";
 
-const ESC = "\x1b";
-const BEL = "\x07";
-const ST = `${ESC}\\`; // String Terminator (OSC 99 / DCS passthrough end)
-
-/** Wrap an OSC sequence for DCS passthrough inside tmux / zellij / screen.
- *  All inner ESC bytes are doubled so the multiplexer forwards the
- *  sequence verbatim to the host terminal. */
-export function wrapForMultiplexer(seq: string): string {
-  if (
-    !process.env.TMUX &&
-    !process.env.ZELLIJ &&
-    !process.env.ZELLIJ_SESSION_NAME &&
-    !process.env.STY
-  ) {
-    return seq;
-  }
-  const escaped = seq.split(ESC).join(`${ESC}${ESC}`);
-  return `${ESC}Ptmux;${escaped}${ST}`;
+export interface NotifyIO {
+  env(): NodeJS.ProcessEnv;
+  isTTY(): boolean;
+  write(value: string): void;
+  now(): number;
+  id(): string;
 }
 
-export function notifyOSC777(title: string, body: string): void {
-  const seq = `${ESC}]777;notify;${title};${body}${BEL}`;
-  process.stdout.write(wrapForMultiplexer(seq));
+const defaultIO: NotifyIO = {
+  env: () => process.env,
+  isTTY: () => process.stdout.isTTY === true,
+  write: (value) => {
+    process.stdout.write(value);
+  },
+  now: Date.now,
+  id: randomUUID,
+};
+
+function assistantReason(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const m = message as { role?: string; stopReason?: string };
+  return m.role === "assistant" && typeof m.stopReason === "string"
+    ? m.stopReason
+    : undefined;
 }
 
-export function notifyOSC9(message: string): void {
-  const seq = `${ESC}]9;${message}${BEL}`;
-  process.stdout.write(wrapForMultiplexer(seq));
-}
+export function registerNotify(
+  pi: ExtensionAPI,
+  io: NotifyIO = defaultIO,
+): void {
+  let stats: RunStats = freshStats(io.now());
+  let active = false;
+  let enabled = true;
+  let lastReason: string | undefined;
+  let lastResult = "尚无运行结果";
+  let lastDelivery = "尚未发送";
+  let warned = new Set<string>();
 
-export function notifyOSC99(title: string, body: string): void {
-  // Kitty OSC 99: two-part notification (id+title, then body payload)
-  const titleSeq = `${ESC}]99;i=1:d=0;${title}${ST}`;
-  const bodySeq = `${ESC}]99;i=1:p=body;${body}${ST}`;
-  process.stdout.write(wrapForMultiplexer(titleSeq));
-  process.stdout.write(wrapForMultiplexer(bodySeq));
-}
-
-type Sender = (title: string, body: string) => void;
-
-export function isUnsupportedTerminal(): boolean {
-  if (process.env.TERM_PROGRAM === "Apple_Terminal") return true;
-  const term = (process.env.TERM ?? "").toLowerCase();
-  if (term.includes("alacritty")) return true;
-  // Native win32 console: not supported. WSL + Windows Terminal falls through
-  // to OSC 777 via detectSender() (WT_SESSION is set there).
-  if (process.platform === "win32" && !process.env.WT_SESSION) return true;
-  return false;
-}
-
-export function detectSender(): Sender | null {
-  if (isUnsupportedTerminal()) return null;
-
-  if (process.env.KITTY_WINDOW_ID) return notifyOSC99;
-
-  const termProgram = process.env.TERM_PROGRAM ?? "";
-  if (
-    termProgram === "ghostty" ||
-    termProgram === "iTerm.app" ||
-    process.env.ITERM_SESSION_ID
-  ) {
-    return (title, body) => notifyOSC9(`${title}: ${body}`);
+  function terminalOnly(ctx: ExtensionContext): boolean {
+    // hasUI also includes RPC: mode and the actual output stream both matter.
+    return ctx.mode === "tui" && ctx.hasUI === true && io.isTTY();
   }
 
-  // Default: OSC 777 (WezTerm, rxvt-unicode, Windows Terminal under WSL).
-  return notifyOSC777;
-}
-
-// ── Formatting ─────────────────────────────────────────────────────────
-
-const MAX_BODY_CHARS = 240;
-
-export function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.round(ms / 1000));
-  if (total < 60) return `${total}s`;
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  if (m < 60) return `${m}m${s.toString().padStart(2, "0")}s`;
-  const h = Math.floor(m / 60);
-  return `${h}h${(m % 60).toString().padStart(2, "0")}m`;
-}
-
-interface RunStats {
-  turns: number;
-  toolCalls: number;
-  errors: number;
-  uniqueTools: Set<string>;
-  startedAt: number;
-}
-
-function freshStats(): RunStats {
-  return {
-    turns: 0,
-    toolCalls: 0,
-    errors: 0,
-    uniqueTools: new Set(),
-    startedAt: Date.now(),
-  };
-}
-
-export function formatBody(
-  stats: RunStats,
-  sessionName: string | null,
-): string {
-  const icon = stats.errors > 0 ? "\u2717" : "\u2713"; // ✗ / ✓
-  const parts: string[] = [`${icon} Pi`];
-
-  if (stats.turns === 1) parts.push("1 turn");
-  else if (stats.turns > 1) parts.push(`${stats.turns} turns`);
-
-  if (stats.toolCalls > 0) {
-    const unique = stats.uniqueTools.size;
-    const callWord = stats.toolCalls === 1 ? "tool" : "tools";
-    parts.push(`${stats.toolCalls} ${callWord} (${unique} unique)`);
+  function diagnostics(ctx: ExtensionContext, plan: TerminalPlan): string {
+    return [
+      `通知 · ${enabled && plan.protocol !== "off" ? "已开启" : "已关闭"}`,
+      `终端：${plan.terminal}  ·  转发：${plan.detectedTransport}`,
+      `协议：${plan.protocol ?? "未识别"}  ·  发送路径：${plan.transport ?? "不可用"}`,
+      `输出：${terminalOnly(ctx) ? "交互终端" : `${ctx.mode ?? "未知模式"}，不写入终端控制序列`}`,
+      `最近运行：${lastResult}`,
+      `最近发送：${lastDelivery}`,
+      ...plan.notes,
+    ].join("\n");
   }
 
-  if (stats.errors > 0) {
-    parts.push(`${stats.errors} ${stats.errors === 1 ? "error" : "errors"}`);
+  function summary(ctx: ExtensionContext, plan: TerminalPlan): string {
+    const configured = enabled && plan.protocol !== "off";
+    const readiness = !configured
+      ? "已关闭"
+      : plan.blocked
+        ? "需要配置"
+        : terminalOnly(ctx)
+          ? "可以发送"
+          : "当前模式不发送";
+    return [
+      `通知 / ${configured ? "已开启" : "已关闭"}`,
+      `${singleLine(plan.terminal, 48)} · ${readiness}`,
+      "",
+      `最近运行  ${singleLine(lastResult, 64)}`,
+      `最近发送  ${singleLine(lastDelivery, 64)}`,
+    ].join("\n");
   }
 
-  parts.push(formatDuration(Date.now() - stats.startedAt));
-
-  let body = parts.join(" \u00B7 "); // · separator
-
-  if (sessionName && sessionName.trim().length > 0) {
-    const suffix = ` \u00B7 ${sessionName.trim()}`;
-    if (body.length + suffix.length <= MAX_BODY_CHARS) {
-      body += suffix;
-    } else {
-      const room = Math.max(0, MAX_BODY_CHARS - body.length - 4); // 4 = " · …"
-      if (room > 0) {
-        body += ` \u00B7 ${sessionName.trim().slice(0, room)}\u2026`;
+  function send(ctx: ExtensionContext, body: string, explicit = false): void {
+    if (!terminalOnly(ctx)) {
+      if (explicit && ctx.hasUI)
+        ctx.ui.notify(
+          "通知仅在 Pi 交互终端中发送；当前输出已保持不变。",
+          "info",
+        );
+      return;
+    }
+    const plan = resolveTerminal(io.env());
+    if (!enabled || plan.protocol === "off") {
+      if (explicit)
+        ctx.ui.notify(
+          "通知已关闭。用 /notify on 开启本会话；PI_NOTIFY_PROTOCOL=off 需在启动环境中修改。",
+          "info",
+        );
+      return;
+    }
+    if (plan.blocked) {
+      lastDelivery = "未发送：终端或转发路径需要配置";
+      const detail = diagnostics(ctx, plan);
+      const warningKey = JSON.stringify([
+        plan.terminal,
+        plan.detectedTransport,
+        plan.protocol,
+        plan.transport,
+        plan.notes,
+      ]);
+      if (explicit || !warned.has(warningKey)) {
+        ctx.ui.notify(
+          `${detail}\n用 /notify status 查看诊断；可显式设置 PI_NOTIFY_PROTOCOL=bell 降为终端响铃。`,
+          "warning",
+        );
+        warned.add(warningKey);
+      }
+      return;
+    }
+    try {
+      for (const bytes of notificationBytes(plan, "Pi", body, io.id()))
+        io.write(bytes);
+      lastDelivery = `已写入 ${plan.protocol}，桌面是否展示由终端和系统决定`;
+      if (explicit)
+        ctx.ui.notify(
+          `${lastDelivery}。请查看系统通知；此处无法确认送达。`,
+          "info",
+        );
+    } catch {
+      lastDelivery = "写入终端失败";
+      if (explicit || !warned.has(lastDelivery)) {
+        ctx.ui.notify("通知写入终端失败；可用 /notify status 查看诊断。", "warning");
+        warned.add(lastDelivery);
       }
     }
   }
 
-  if (body.length > MAX_BODY_CHARS) {
-    body = body.slice(0, MAX_BODY_CHARS - 1) + "\u2026";
-  }
-
-  return body;
-}
-
-// ── Extension factory ──────────────────────────────────────────────────
-
-const TITLE = "Pi";
-const UNSUPPORTED_MSG =
-  "OSC notifications unsupported in this terminal. " +
-  "Please file an issue at https://github.com/huangrx6/pi-plugin/issues";
-
-export default function (pi: ExtensionAPI): void {
-  let stats = freshStats();
-
-  function sendNotification(ctx: ExtensionContext, body: string): void {
-    const sender = detectSender();
-    if (!sender) {
-      ctx.ui.notify(UNSUPPORTED_MSG, "info");
-      return;
-    }
-    sender(TITLE, body);
-  }
-
+  pi.on("session_start", () => {
+    active = false;
+    enabled = true;
+    lastReason = undefined;
+    lastResult = "尚无运行结果";
+    lastDelivery = "尚未发送";
+    warned = new Set();
+  });
+  pi.on("session_shutdown", () => {
+    active = false;
+  });
   pi.on("agent_start", () => {
-    stats = freshStats();
+    // Retries and queued continuations emit agent_start again before settling.
+    if (!active) stats = freshStats(io.now());
+    active = true;
+    lastReason = undefined;
   });
-
-  pi.on("turn_end", () => {
+  pi.on("turn_end", (event) => {
+    if (!active) return;
     stats.turns++;
+    lastReason =
+      assistantReason((event as { message?: unknown }).message) ?? lastReason;
   });
-
   pi.on("tool_execution_end", (event) => {
+    if (!active) return;
     const e = event as { toolName?: string; isError?: boolean };
-    if (typeof e.toolName === "string") {
-      stats.toolCalls++;
-      stats.uniqueTools.add(e.toolName);
-      if (e.isError) stats.errors++;
-    }
+    if (typeof e.toolName !== "string") return;
+    stats.toolCalls++;
+    stats.uniqueTools.add(e.toolName);
+    if (e.isError) stats.errors++;
   });
-
+  pi.on("agent_end", (event) => {
+    if (!active) return;
+    const messages = (event as { messages?: unknown[] }).messages ?? [];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const reason = assistantReason(messages[i]);
+      if (reason !== undefined) {
+        lastReason = reason;
+        break;
+      }
+    }
+    // Record only. This event also fires during retry and compaction.
+  });
   pi.on("agent_settled", (_event, ctx) => {
-    const sessionName = ctx.sessionManager?.getSessionName?.() ?? null;
-    sendNotification(ctx, formatBody(stats, sessionName));
+    if (!active || ctx.hasPendingMessages() || !ctx.isIdle()) return;
+    active = false;
+    const outcome = outcomeFor(lastReason);
+    const body = formatBody(
+      stats,
+      ctx.sessionManager?.getSessionName?.() ?? null,
+      outcome,
+      io.now(),
+    );
+    lastResult = `${body}${stats.errors > 0 ? `（过程中 ${stats.errors} 次工具错误）` : ""}`;
+    // An abort can be a user cancellation or manual compaction. Neither is a
+    // successful completion; keep it visible in diagnostics without a banner.
+    if (outcome !== "cancelled") send(ctx, body);
   });
 
   pi.registerCommand("notify", {
-    description:
-      "Send a one-shot OSC terminal notification (Ghostty / iTerm2 / WezTerm / Kitty).",
-    handler: (args, ctx) => {
-      const msg = args.trim() || "Waiting for your input";
-      sendNotification(ctx, `\u270D Pi \u00B7 ${msg}`);
+    description: "查看通知状态、发送测试通知、进入终端诊断或切换本会话通知。",
+    handler: async (args, ctx) => {
+      const value = args.trim();
+      if (!value) {
+        if (!ctx.hasUI) return;
+        const plan = resolveTerminal(io.env());
+        if (ctx.mode !== "tui") {
+          ctx.ui.notify(summary(ctx, plan), "info");
+          return;
+        }
+        const choice = await ctx.ui.select(
+          summary(ctx, plan),
+          [
+            "发送测试通知",
+            enabled ? "关闭本会话通知" : "开启本会话通知",
+            "查看终端诊断",
+            "返回",
+          ],
+        );
+        if (choice === "发送测试通知")
+          send(ctx, "测试通知 · Waiting for your input", true);
+        if (choice === "关闭本会话通知" || choice === "开启本会话通知") {
+          enabled = choice === "开启本会话通知";
+          ctx.ui.notify(
+            enabled ? "本会话通知已开启。" : "本会话通知已关闭。",
+            "info",
+          );
+        }
+        if (choice === "查看终端诊断")
+          await ctx.ui.select(diagnostics(ctx, plan), ["返回"]);
+        return;
+      }
+      if (value === "status" || value === "help") {
+        if (ctx.hasUI)
+          ctx.ui.notify(
+            `${diagnostics(ctx, resolveTerminal(io.env()))}\n/notify test [内容] · /notify on · /notify off`,
+            "info",
+          );
+      } else if (value === "on" || value === "off") {
+        enabled = value === "on";
+        if (ctx.hasUI)
+          ctx.ui.notify(
+            enabled ? "本会话通知已开启。" : "本会话通知已关闭。",
+            "info",
+          );
+      } else {
+        // Preserve /notify <message>; the explicit test spelling is discoverable.
+        const message =
+          value === "test"
+            ? "Waiting for your input"
+            : value.startsWith("test ")
+              ? value.slice(5).trim()
+              : value;
+        send(ctx, `测试通知 · ${message}`, true);
+      }
     },
   });
+}
+
+export default function (pi: ExtensionAPI): void {
+  registerNotify(pi);
 }

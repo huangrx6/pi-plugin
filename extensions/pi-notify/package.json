@@ -1,14 +1,14 @@
 {
   "name": "pi-notify",
-  "version": "0.1.0",
-  "description": "Single-line OSC 777/9/99 terminal notifications when the pi agent settles, formatted with Unicode (no emoji) so it renders the same across fonts and locales.",
+  "version": "0.2.1",
+  "description": "Independent terminal notification diagnostics and settled-run notifications with explicit OSC protocols and multiplexer routing.",
   "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "*"
+    "@earendil-works/pi-coding-agent": ">=0.84.3"
   },
   "devDependencies": {
     "@types/node": ">=20",
@@ -33,6 +33,8 @@
   },
   "files": [
     "index.ts",
+    "format.ts",
+    "terminal.ts",
     "tsconfig.json",
     "globals.d.ts",
     "README.md",

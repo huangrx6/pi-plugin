@@ -1,644 +1,482 @@
-/**
- * Unit tests for pi-notify.
- *
- * Covers:
- *   - formatBody (singular/plural, errors, session, truncation)
- *   - formatDuration (s / m / h)
- *   - wrapForMultiplexer (tmux / zellij / screen / plain)
- *   - OSC sequence bytes (777 / 9 / 99, with and without multiplexer)
- *   - detectSender (terminal detection + unsupported branch)
- *   - Extension factory (registration surface + agent_settled emits OSC)
- *
- * Pure stdout capture via a saved/restored stub. No real terminal
- * notifications are emitted during the test run.
- */
-
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import factory, {
-	formatBody,
-	formatDuration,
-	detectSender,
-	isUnsupportedTerminal,
-	notifyOSC777,
-	notifyOSC99,
-	notifyOSC9,
-	wrapForMultiplexer,
-} from "./index.ts";
+import { describe, it } from "node:test";
 import type {
-	ExtensionAPI,
-	ExtensionContext,
+  ExtensionAPI,
+  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { registerNotify, type NotifyIO } from "./index.ts";
+import {
+  formatBody,
+  formatDuration,
+  freshStats,
+  outcomeFor,
+} from "./format.ts";
+import {
+  displayWidth,
+  notificationBytes,
+  resolveTerminal,
+  sanitizeTerminalText,
+  singleLine,
+  wrapForTransport,
+} from "./terminal.ts";
+const ESC = "\x1b",
+  BEL = "\x07",
+  ST = `${ESC}\\`;
 
-// ── stdout capture ─────────────────────────────────────────────────────
-
-const ESC = "\x1b";
-const BEL = "\x07";
-const ST = `${ESC}\\`;
-
-interface StdoutCapture {
-	chunks: string[];
-	restore(): void;
-}
-
-function captureStdout(): StdoutCapture {
-	const chunks: string[] = [];
-	const original = process.stdout.write.bind(process.stdout);
-	process.stdout.write = ((chunk: string | Uint8Array): boolean => {
-		chunks.push(
-			typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
-		);
-		return true;
-	}) as typeof process.stdout.write;
-	return {
-		chunks,
-		restore() {
-			process.stdout.write = original;
-		},
-	};
-}
-
-// ── env save / restore ─────────────────────────────────────────────────
-
-const ENV_KEYS = [
-	"TMUX",
-	"ZELLIJ",
-	"ZELLIJ_SESSION_NAME",
-	"STY",
-	"KITTY_WINDOW_ID",
-	"TERM_PROGRAM",
-	"ITERM_SESSION_ID",
-	"WT_SESSION",
-	"TERM",
-] as const;
-type EnvKey = (typeof ENV_KEYS)[number];
-
-let savedEnv: Partial<Record<EnvKey, string | undefined>> = {};
-
-function clearEnv(): void {
-	for (const k of ENV_KEYS) delete process.env[k];
-}
-
-function setEnv(patch: Partial<Record<EnvKey, string>>): void {
-	for (const [k, v] of Object.entries(patch)) {
-		if (v === undefined) delete process.env[k as EnvKey];
-		else process.env[k as EnvKey] = v;
-	}
-}
-
-beforeEach(() => {
-	savedEnv = {};
-	for (const k of ENV_KEYS) savedEnv[k] = process.env[k];
-	clearEnv();
+describe("protocol and transport", () => {
+  const terminals = [
+    [{ TERM_PROGRAM: "ghostty" }, "osc9"],
+    [{ TERM_PROGRAM: "iTerm.app" }, "osc9"],
+    [{ TERM_PROGRAM: "WezTerm" }, "osc777"],
+    [{ KITTY_WINDOW_ID: "1" }, "osc99"],
+  ] as const;
+  const multiplexers = [
+    [{}, "direct"],
+    [{ TMUX: "socket" }, "tmux"],
+    [{ STY: "session" }, "screen"],
+    [{ ZELLIJ: "0" }, "zellij"],
+  ] as const;
+  for (const [terminal, preferred] of terminals)
+    for (const [env, transport] of multiplexers) {
+      it(`${JSON.stringify(terminal)} through ${transport}`, () => {
+        const plan = resolveTerminal({ ...terminal, ...env });
+        const protocol =
+          transport === "zellij" ||
+          (transport === "screen" && preferred === "osc99")
+            ? "osc9"
+            : preferred;
+        assert.equal(plan.protocol, protocol);
+        assert.equal(plan.transport, transport);
+        assert.equal(plan.blocked, false);
+        const chunks = notificationBytes(plan, "Pi", "hello", "id");
+        assert.equal(chunks.length, protocol === "osc99" ? 2 : 1);
+        assert.ok(
+          chunks[0].startsWith(
+            transport === "tmux"
+              ? `${ESC}Ptmux;${ESC}${ESC}]`
+              : transport === "screen"
+                ? `${ESC}P${ESC}]`
+                : `${ESC}]`,
+          ),
+        );
+      });
+    }
+  for (const env of [
+    {},
+    { TERM: "xterm-256color" },
+    { TERM_PROGRAM: "Apple_Terminal" },
+    { TERM: "alacritty" },
+    { WT_SESSION: "wsl" },
+    { TERM: "rxvt-unicode" },
+  ]) {
+    it(`does not invent support for ${JSON.stringify(env)}`, () => {
+      const plan = resolveTerminal(env);
+      assert.equal(plan.blocked, true);
+      assert.deepEqual(notificationBytes(plan, "Pi", "hello", "id"), []);
+    });
+  }
+  it("recognizes identity fallbacks", () => {
+    for (const [env, expected] of [
+      [{ TERM: "xterm-ghostty" }, "osc9"],
+      [{ ITERM_SESSION_ID: "x" }, "osc9"],
+      [{ WEZTERM_PANE: "0" }, "osc777"],
+      [{ TERM: "xterm-kitty" }, "osc99"],
+    ] as const)
+      assert.equal(resolveTerminal(env).protocol, expected);
+  });
+  it("does not guess nested multiplexer order or ambiguous screen TERM", () => {
+    for (const env of [
+      { TMUX: "1", ZELLIJ: "1" },
+      { TMUX: "1", STY: "1" },
+      { ZELLIJ: "1", STY: "1" },
+      { TERM: "screen-256color" },
+    ])
+      assert.equal(
+        resolveTerminal({ TERM_PROGRAM: "ghostty", ...env }).blocked,
+        true,
+      );
+  });
+  it("supports explicit protocol and path while retaining detection diagnostics", () => {
+    const plan = resolveTerminal({
+      PI_NOTIFY_PROTOCOL: "osc9",
+      PI_NOTIFY_TRANSPORT: "tmux",
+      TMUX: "1",
+      STY: "1",
+    });
+    assert.equal(plan.blocked, false);
+    assert.equal(plan.transport, "tmux");
+    assert.equal(plan.detectedTransport, "tmux + screen");
+    assert.match(plan.notes.join(" "), /allow-passthrough/);
+  });
+  it("rejects invalid overrides", () => {
+    for (const env of [
+      { PI_NOTIFY_PROTOCOL: "bad" },
+      { PI_NOTIFY_TRANSPORT: "bad" },
+    ])
+      assert.equal(
+        resolveTerminal({ TERM_PROGRAM: "ghostty", ...env }).blocked,
+        true,
+      );
+  });
+  it("uses native Zellij forwarding when host identity is hidden", () => {
+    const plan = resolveTerminal({ ZELLIJ_SESSION_NAME: "session" });
+    assert.deepEqual(notificationBytes(plan, "Pi", "hello", "id"), [
+      `${ESC}]9;Pi: hello${BEL}`,
+    ]);
+    assert.match(plan.notes.join(" "), /host_notification_protocol/);
+  });
+  it("supports explicit bell and off for unknown terminals", () => {
+    assert.deepEqual(
+      notificationBytes(
+        resolveTerminal({ PI_NOTIFY_PROTOCOL: "bell", TMUX: "1", STY: "1" }),
+        "Pi",
+        "hello",
+        "id",
+      ),
+      [BEL],
+    );
+    assert.deepEqual(
+      notificationBytes(
+        resolveTerminal({ PI_NOTIFY_PROTOCOL: "off" }),
+        "Pi",
+        "hello",
+        "id",
+      ),
+      [],
+    );
+  });
+  it("does not embed Kitty ST in screen DCS", () => {
+    assert.equal(
+      resolveTerminal({
+        KITTY_WINDOW_ID: "1",
+        STY: "1",
+        PI_NOTIFY_PROTOCOL: "osc99",
+      }).blocked,
+      true,
+    );
+    assert.throws(
+      () => wrapForTransport(`${ESC}]99;;body${ST}`, "screen"),
+      /inner ST/,
+    );
+  });
+  it("encodes screen and tmux wrappers byte for byte", () => {
+    assert.deepEqual(
+      notificationBytes(
+        resolveTerminal({ TERM_PROGRAM: "WezTerm", STY: "1" }),
+        "Pi",
+        "hello",
+        "id",
+      ),
+      [`${ESC}P${ESC}]777;notify;Pi;hello${BEL}${ST}`],
+    );
+    assert.deepEqual(
+      notificationBytes(
+        resolveTerminal({ KITTY_WINDOW_ID: "1", TMUX: "1" }),
+        "Pi",
+        "hello",
+        "run-1",
+      ),
+      [
+        `${ESC}Ptmux;${ESC}${ESC}]99;i=run-1:d=0;Pi${ESC}${ESC}\\${ST}`,
+        `${ESC}Ptmux;${ESC}${ESC}]99;i=run-1:p=body;hello${ESC}${ESC}\\${ST}`,
+      ],
+    );
+  });
+  it("sanitizes payload controls, delimiters and unicode truncation", () => {
+    assert.deepEqual(
+      notificationBytes(
+        resolveTerminal({ TERM_PROGRAM: "WezTerm" }),
+        "Pi;evil",
+        `a${BEL}${ESC}]52;c;bad\n\u009cb`,
+        "id",
+      ),
+      [`${ESC}]777;notify;Pi:evil;a b${BEL}`],
+    );
+    assert.ok(displayWidth(singleLine("𠮷".repeat(300))) <= 240);
+    assert.equal(singleLine("a\n\r\tb"), "a b");
+    assert.equal(singleLine("a\u009bb"), "a");
+    assert.equal(singleLine("👩‍💻".repeat(130)), `${"👩‍💻".repeat(119)}…`);
+    assert.equal(sanitizeTerminalText("A\u202eB\x1b[31mC"), "AB C");
+  });
 });
 
-afterEach(() => {
-	clearEnv();
-	for (const k of ENV_KEYS) {
-		const v = savedEnv[k];
-		if (v === undefined) delete process.env[k];
-		else process.env[k] = v;
-	}
-});
-
-// ── formatDuration ─────────────────────────────────────────────────────
-
-describe("formatDuration", () => {
-	it("clamps negative to 0s", () => {
-		assert.equal(formatDuration(-5000), "0s");
-	});
-
-	it("formats seconds under a minute", () => {
-		assert.equal(formatDuration(0), "0s");
-		assert.equal(formatDuration(42_000), "42s");
-		assert.equal(formatDuration(59_499), "59s"); // rounds down to 59
-	});
-
-	it("formats minutes with zero-padded seconds", () => {
-		assert.equal(formatDuration(60_000), "1m00s");
-		assert.equal(formatDuration(84_000), "1m24s");
-		assert.equal(formatDuration(599_000), "9m59s");
-	});
-
-	it("formats hours with zero-padded minutes", () => {
-		assert.equal(formatDuration(3_600_000), "1h00m");
-		assert.equal(formatDuration(4_320_000), "1h12m");
-	});
-});
-
-// ── formatBody ─────────────────────────────────────────────────────────
-
-function freshStats(
-	overrides: Partial<{
-		turns: number;
-		toolCalls: number;
-		errors: number;
-		uniqueTools: Set<string>;
-	}> = {},
+function harness(
+  options: {
+    env?: NodeJS.ProcessEnv;
+    mode?: ExtensionContext["mode"];
+    hasUI?: boolean;
+    tty?: boolean;
+    writeError?: boolean;
+  } = {},
 ) {
-	return {
-		turns: overrides.turns ?? 0,
-		toolCalls: overrides.toolCalls ?? 0,
-		errors: overrides.errors ?? 0,
-		uniqueTools: overrides.uniqueTools ?? new Set<string>(),
-		startedAt: Date.now() - 84_000, // pretend we started 1m24s ago
-	};
+  const handlers = new Map<
+    string,
+    (event: unknown, ctx: ExtensionContext) => unknown
+  >();
+  let command: (args: string, ctx: ExtensionContext) => unknown;
+  const chunks: string[] = [],
+    notices: string[] = [],
+    menus: Array<{ title: string; options: string[] }> = [];
+  let selection: string | undefined,
+    pending = false,
+    idle = true,
+    time = 1_000,
+    id = 0;
+  const io: NotifyIO = {
+    env: () => options.env ?? { TERM_PROGRAM: "ghostty" },
+    isTTY: () => options.tty ?? true,
+    now: () => time,
+    id: () => `test-${++id}`,
+    write: (value) => {
+      if (options.writeError) throw new Error("write failed");
+      chunks.push(value);
+    },
+  };
+  const ctx: ExtensionContext = {
+    mode: options.mode ?? "tui",
+    hasUI: options.hasUI ?? true,
+    isIdle: () => idle,
+    hasPendingMessages: () => pending,
+    ui: {
+      notify: (message) => {
+        notices.push(message);
+      },
+      select: async (title, choices) => {
+        menus.push({ title, options: choices });
+        return selection;
+      },
+    },
+    sessionManager: { getSessionName: () => "test-session" },
+  };
+  registerNotify(
+    {
+      on: (name, handler) => {
+        handlers.set(name, handler);
+      },
+      registerCommand: (name, definition) => {
+        assert.equal(name, "notify");
+        command = definition.handler;
+      },
+    } as ExtensionAPI,
+    io,
+  );
+  const fire = (name: string, event: unknown = {}) =>
+    handlers.get(name)?.(event, ctx);
+  const finish = (reason = "stop") => {
+    const message = { role: "assistant", stopReason: reason };
+    fire("turn_end", { message });
+    fire("agent_end", { messages: [message] });
+    fire("agent_settled");
+  };
+  return {
+    chunks,
+    notices,
+    menus,
+    fire,
+    finish,
+    command: async (args = "") => {
+      await command(args, ctx);
+    },
+    select: (value: string) => {
+      selection = value;
+    },
+    pending: (value: boolean) => {
+      pending = value;
+    },
+    idle: (value: boolean) => {
+      idle = value;
+    },
+    advance: (ms: number) => {
+      time += ms;
+    },
+  };
 }
 
-describe("formatBody", () => {
-	it("renders a minimal run with just a duration", () => {
-		const body = formatBody(freshStats({ turns: 1 }), null);
-		assert.equal(body, "\u2713 Pi \u00B7 1 turn \u00B7 1m24s");
-	});
-
-	it("uses singular 'tool' for one call", () => {
-		const body = formatBody(
-			freshStats({ turns: 1, toolCalls: 1, uniqueTools: new Set(["bash"]) }),
-			null,
-		);
-		assert.equal(
-			body,
-			"\u2713 Pi \u00B7 1 turn \u00B7 1 tool (1 unique) \u00B7 1m24s",
-		);
-	});
-
-	it("uses plural 'turns' and 'tools' for multiples, with unique count", () => {
-		const body = formatBody(
-			freshStats({
-				turns: 3,
-				toolCalls: 5,
-				uniqueTools: new Set(["bash", "read", "edit"]),
-			}),
-			null,
-		);
-		assert.equal(
-			body,
-			"\u2713 Pi \u00B7 3 turns \u00B7 5 tools (3 unique) \u00B7 1m24s",
-		);
-	});
-
-	it("switches to ✗ icon and includes error count when errors > 0", () => {
-		const body = formatBody(
-			freshStats({
-				turns: 3,
-				toolCalls: 5,
-				errors: 2,
-				uniqueTools: new Set(["bash", "read", "edit"]),
-			}),
-			null,
-		);
-		assert.equal(
-			body,
-			"\u2717 Pi \u00B7 3 turns \u00B7 5 tools (3 unique) \u00B7 2 errors \u00B7 1m24s",
-		);
-	});
-
-	it("uses singular 'error' for a single error", () => {
-		const body = formatBody(
-			freshStats({
-				turns: 1,
-				toolCalls: 2,
-				errors: 1,
-				uniqueTools: new Set(["bash"]),
-			}),
-			null,
-		);
-		assert.equal(
-			body,
-			"\u2717 Pi \u00B7 1 turn \u00B7 2 tools (1 unique) \u00B7 1 error \u00B7 1m24s",
-		);
-	});
-
-	it("appends session name with the · separator", () => {
-		const body = formatBody(freshStats({ turns: 1 }), "debug-session");
-		assert.equal(
-			body,
-			"\u2713 Pi \u00B7 1 turn \u00B7 1m24s \u00B7 debug-session",
-		);
-	});
-
-	it("ignores empty / whitespace-only session names", () => {
-		const body = formatBody(freshStats({ turns: 1 }), "   ");
-		assert.equal(body, "\u2713 Pi \u00B7 1 turn \u00B7 1m24s");
-	});
-
-	it("truncates a too-long session name with an ellipsis", () => {
-		const longName = "x".repeat(300);
-		const body = formatBody(freshStats({ turns: 1 }), longName);
-		assert.ok(body.length <= 240, `body length ${body.length} exceeds 240`);
-		assert.ok(
-			body.endsWith("\u2026"),
-			"body must end with an ellipsis when truncated",
-		);
-	});
-
-	it("caps the entire body at 240 characters", () => {
-		const longName = "x".repeat(500);
-		const body = formatBody(
-			freshStats({
-				turns: 50,
-				toolCalls: 999,
-				errors: 50,
-				uniqueTools: new Set(["a", "b", "c", "d", "e"]),
-			}),
-			longName,
-		);
-		assert.ok(body.length <= 240, `body length ${body.length} exceeds 240`);
-	});
+describe("settlement and standalone command", () => {
+  it("notifies once after retry and does not turn recovered errors into final failure", async () => {
+    const h = harness();
+    h.fire("agent_start");
+    h.fire("tool_execution_end", { toolName: "bash", isError: true });
+    h.fire("agent_end", {
+      messages: [{ role: "assistant", stopReason: "error" }],
+    });
+    assert.deepEqual(h.chunks, []);
+    h.fire("agent_start");
+    h.fire("tool_execution_end", { toolName: "bash" });
+    h.advance(2000);
+    h.finish();
+    h.fire("agent_settled");
+    assert.equal(h.chunks.length, 1);
+    assert.match(h.chunks[0], /✓ Pi · 已结束.*2 tools.*2s/);
+    await h.command("status");
+    assert.match(h.notices.at(-1)!, /过程中 1 次工具错误/);
+  });
+  it("reports final model failure without tool errors", () => {
+    const h = harness();
+    h.fire("agent_start");
+    h.finish("error");
+    assert.match(h.chunks[0], /✗ Pi · 运行失败/);
+  });
+  it("keeps aborted runs quiet and distinct in diagnostics", async () => {
+    const h = harness();
+    h.fire("agent_start");
+    h.finish("aborted");
+    assert.deepEqual(h.chunks, []);
+    await h.command("status");
+    assert.match(h.notices[0], /已中断/);
+  });
+  for (const reason of ["length", "toolUse", undefined])
+    it(`does not label ${String(reason)} successful`, () => {
+      const h = harness();
+      h.fire("agent_start");
+      h.fire("agent_end", {
+        messages: [{ role: "assistant", stopReason: reason }],
+      });
+      h.fire("agent_settled");
+      assert.match(h.chunks[0], /已停止，请检查结果/);
+    });
+  it("waits for queued continuation and streaming", () => {
+    const h = harness();
+    h.fire("agent_start");
+    h.pending(true);
+    h.finish();
+    assert.equal(h.chunks.length, 0);
+    h.fire("agent_start");
+    h.pending(false);
+    h.idle(false);
+    h.finish();
+    assert.equal(h.chunks.length, 0);
+    h.idle(true);
+    h.fire("agent_settled");
+    assert.equal(h.chunks.length, 1);
+    assert.match(h.chunks[0], /2 turns/);
+  });
+  it("resets counters per settled run and invalidates replaced sessions", () => {
+    const h = harness();
+    h.fire("agent_start");
+    h.finish();
+    h.fire("agent_start");
+    h.finish();
+    assert.match(h.chunks[1], /1 turn/);
+    for (const event of ["session_start", "session_shutdown"]) {
+      h.fire("agent_start");
+      h.fire(event);
+      h.fire("agent_settled");
+    }
+    assert.equal(h.chunks.length, 2);
+  });
+  for (const options of [
+    { mode: "rpc" as const },
+    { mode: "json" as const, hasUI: false },
+    { mode: "print" as const, hasUI: false },
+    { hasUI: false },
+    { tty: false },
+  ])
+    it(`never writes control bytes for ${JSON.stringify(options)}`, async () => {
+      const h = harness(options);
+      h.fire("agent_start");
+      h.finish();
+      await h.command("test");
+      assert.deepEqual(h.chunks, []);
+    });
+  it("warns once per unknown-terminal configuration without OSC", () => {
+    const h = harness({ env: {} });
+    h.fire("agent_start");
+    h.finish();
+    h.fire("agent_start");
+    h.advance(3000);
+    h.finish();
+    assert.deepEqual(h.chunks, []);
+    assert.equal(h.notices.length, 1);
+    assert.match(h.notices[0], /PI_NOTIFY_PROTOCOL/);
+  });
+  it("opens the daily summary without sending and needs no footer APIs", async () => {
+    const h = harness();
+    await h.command();
+    assert.deepEqual(h.chunks, []);
+    assert.match(h.menus[0].title, /通知 \/ 已开启/);
+    assert.match(h.menus[0].title, /Ghostty · 可以发送/);
+    assert.doesNotMatch(h.menus[0].title, /协议：osc9/);
+    assert.deepEqual(h.menus[0].options, [
+      "发送测试通知",
+      "关闭本会话通知",
+      "查看终端诊断",
+      "返回",
+    ]);
+  });
+  it("keeps terminal details behind a secondary action", async () => {
+    const h = harness();
+    h.select("查看终端诊断");
+    await h.command();
+    assert.equal(h.menus.length, 2);
+    assert.match(h.menus[1].title, /终端：Ghostty.*转发：direct/);
+    assert.match(h.menus[1].title, /协议：osc9/);
+  });
+  it("returns a non-interactive summary in RPC mode", async () => {
+    const h = harness({ mode: "rpc" });
+    await h.command();
+    assert.equal(h.menus.length, 0);
+    assert.match(h.notices[0], /当前模式不发送/);
+    assert.doesNotMatch(h.notices[0], /协议：/);
+  });
+  it("supports menu testing and legacy message, without claiming delivery", async () => {
+    const h = harness();
+    h.select("发送测试通知");
+    await h.command();
+    await h.command("custom message");
+    assert.equal(h.chunks.length, 2);
+    assert.match(h.chunks[1], /custom message/);
+    assert.match(h.notices[0], /无法确认送达/);
+  });
+  it("supports mute/unmute, while environment off stays authoritative", async () => {
+    const h = harness();
+    await h.command("off");
+    h.fire("agent_start");
+    h.finish();
+    assert.equal(h.chunks.length, 0);
+    await h.command("on");
+    await h.command("test hello");
+    assert.match(h.chunks[0], /hello/);
+    const off = harness({
+      env: { TERM_PROGRAM: "ghostty", PI_NOTIFY_PROTOCOL: "off" },
+    });
+    await off.command("on");
+    await off.command("test");
+    assert.equal(off.chunks.length, 0);
+  });
+  it("uses unique Kitty notification IDs", async () => {
+    const h = harness({ env: { KITTY_WINDOW_ID: "1" } });
+    await h.command("test");
+    await h.command("test");
+    assert.match(h.chunks[0], /i=test-1:d=0/);
+    assert.match(h.chunks[2], /i=test-2:d=0/);
+  });
+  it("isolates notification write errors from the agent run", () => {
+    const h = harness({ writeError: true });
+    h.fire("agent_start");
+    assert.doesNotThrow(() => h.finish());
+    assert.match(h.notices[0], /写入终端失败/);
+  });
 });
 
-// ── wrapForMultiplexer ─────────────────────────────────────────────────
-
-describe("wrapForMultiplexer", () => {
-	it("returns the sequence unchanged when no multiplexer env is set", () => {
-		const seq = `${ESC}]9;hello${BEL}`;
-		assert.equal(wrapForMultiplexer(seq), seq);
-	});
-
-	it("wraps with DCS passthrough when TMUX is set", () => {
-		setEnv({ TMUX: "/tmp/tmux-1000/default,12345,0" });
-		const seq = `${ESC}]9;hello${BEL}`;
-		const wrapped = wrapForMultiplexer(seq);
-		// Every inner ESC byte is doubled; the leading ESC of the OSC sequence
-		// is part of the payload and therefore doubled too.
-		assert.equal(wrapped, `${ESC}Ptmux;${ESC}${ESC}]9;hello${BEL}${ST}`);
-	});
-
-	it("wraps with DCS passthrough when ZELLIJ is set", () => {
-		setEnv({ ZELLIJ: "1" });
-		const seq = `${ESC}]9;hello${BEL}`;
-		assert.ok(wrapForMultiplexer(seq).startsWith(`${ESC}Ptmux;`));
-	});
-
-	it("wraps with DCS passthrough when ZELLIJ_SESSION_NAME is set", () => {
-		setEnv({ ZELLIJ_SESSION_NAME: "my-session" });
-		const seq = `${ESC}]9;hello${BEL}`;
-		assert.ok(wrapForMultiplexer(seq).startsWith(`${ESC}Ptmux;`));
-	});
-
-	it("wraps with DCS passthrough when STY (GNU screen) is set", () => {
-		setEnv({ STY: "12345.pts-0.host" });
-		const seq = `${ESC}]9;hello${BEL}`;
-		assert.ok(wrapForMultiplexer(seq).startsWith(`${ESC}Ptmux;`));
-	});
-
-	it("doubles every inner ESC byte inside the DCS payload", () => {
-		setEnv({ TMUX: "1" });
-		// OSC 99 ends with `ESC \` — both bytes need to be doubled.
-		const seq = `${ESC}]99;i=1:d=0;Pi${ST}`;
-		const wrapped = wrapForMultiplexer(seq);
-		// ESC before `]99` doubled, ESC before `\` doubled, then DCS terminator added.
-		assert.equal(
-			wrapped,
-			`${ESC}Ptmux;${ESC}${ESC}]99;i=1:d=0;Pi${ESC}${ESC}\\${ST}`,
-		);
-	});
-});
-
-// ── OSC writers ────────────────────────────────────────────────────────
-
-describe("OSC writers", () => {
-	it("notifyOSC777 writes the urxvt sequence verbatim", () => {
-		const cap = captureStdout();
-		try {
-			notifyOSC777("Pi", "hello");
-			assert.deepEqual(cap.chunks, [`${ESC}]777;notify;Pi;hello${BEL}`]);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("notifyOSC9 writes a single OSC 9 sequence", () => {
-		const cap = captureStdout();
-		try {
-			notifyOSC9("Pi: hello");
-			assert.deepEqual(cap.chunks, [`${ESC}]9;Pi: hello${BEL}`]);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("notifyOSC99 writes the two-part Kitty sequence", () => {
-		const cap = captureStdout();
-		try {
-			notifyOSC99("Pi", "hello");
-			assert.deepEqual(cap.chunks, [
-				`${ESC}]99;i=1:d=0;Pi${ST}`,
-				`${ESC}]99;i=1:p=body;hello${ST}`,
-			]);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("wraps writes in DCS when TMUX is set", () => {
-		const cap = captureStdout();
-		setEnv({ TMUX: "1" });
-		try {
-			notifyOSC777("Pi", "hello");
-			assert.equal(cap.chunks.length, 1);
-			assert.ok(cap.chunks[0]?.startsWith(`${ESC}Ptmux;`));
-			assert.ok(cap.chunks[0]?.endsWith(ST));
-		} finally {
-			cap.restore();
-		}
-	});
-});
-
-// ── isUnsupportedTerminal ──────────────────────────────────────────────
-
-describe("isUnsupportedTerminal", () => {
-	it("rejects Apple Terminal", () => {
-		setEnv({ TERM_PROGRAM: "Apple_Terminal" });
-		assert.equal(isUnsupportedTerminal(), true);
-	});
-
-	it("rejects Alacritty regardless of TERM_PROGRAM", () => {
-		setEnv({ TERM: "alacritty" });
-		assert.equal(isUnsupportedTerminal(), true);
-	});
-
-	it("rejects native win32 console when WT_SESSION is absent", () => {
-		Object.defineProperty(process, "platform", {
-			value: "win32",
-			configurable: true,
-		});
-		try {
-			assert.equal(isUnsupportedTerminal(), true);
-		} finally {
-			Object.defineProperty(process, "platform", {
-				value: "darwin",
-				configurable: true,
-			});
-		}
-	});
-
-	it("allows win32 console when WT_SESSION is set (WSL / Windows Terminal)", () => {
-		Object.defineProperty(process, "platform", {
-			value: "win32",
-			configurable: true,
-		});
-		setEnv({ WT_SESSION: "{abc-def}" });
-		try {
-			assert.equal(isUnsupportedTerminal(), false);
-		} finally {
-			Object.defineProperty(process, "platform", {
-				value: "darwin",
-				configurable: true,
-			});
-		}
-	});
-
-	it("accepts a plain Linux environment", () => {
-		Object.defineProperty(process, "platform", {
-			value: "linux",
-			configurable: true,
-		});
-		setEnv({ TERM_PROGRAM: "ghostty" });
-		assert.equal(isUnsupportedTerminal(), false);
-		Object.defineProperty(process, "platform", {
-			value: "darwin",
-			configurable: true,
-		});
-	});
-});
-
-// ── detectSender ───────────────────────────────────────────────────────
-
-describe("detectSender", () => {
-	it("returns null on Apple Terminal", () => {
-		setEnv({ TERM_PROGRAM: "Apple_Terminal" });
-		assert.equal(detectSender(), null);
-	});
-
-	it("returns null on Alacritty", () => {
-		setEnv({ TERM: "alacritty" });
-		assert.equal(detectSender(), null);
-	});
-
-	it("returns the OSC 99 sender inside Kitty", () => {
-		setEnv({ KITTY_WINDOW_ID: "1" });
-		const sender = detectSender();
-		assert.ok(sender);
-		const cap = captureStdout();
-		try {
-			sender!("Pi", "hello");
-		} finally {
-			cap.restore();
-		}
-		// OSC 99 ends with ST, not BEL.
-		assert.ok(cap.chunks[0]?.includes(`${ESC}]99;i=1:d=0;Pi`));
-	});
-
-	it("returns the OSC 9 sender inside Ghostty", () => {
-		setEnv({ TERM_PROGRAM: "ghostty" });
-		const sender = detectSender();
-		assert.ok(sender);
-		const cap = captureStdout();
-		try {
-			sender!("Pi", "hello");
-		} finally {
-			cap.restore();
-		}
-		assert.deepEqual(cap.chunks, [`${ESC}]9;Pi: hello${BEL}`]);
-	});
-
-	it("returns the OSC 9 sender inside iTerm.app", () => {
-		setEnv({ TERM_PROGRAM: "iTerm.app" });
-		const sender = detectSender();
-		assert.ok(sender);
-		const cap = captureStdout();
-		try {
-			sender!("Pi", "hello");
-		} finally {
-			cap.restore();
-		}
-		assert.deepEqual(cap.chunks, [`${ESC}]9;Pi: hello${BEL}`]);
-	});
-
-	it("returns the OSC 9 sender when ITERM_SESSION_ID is set (overrides TERM_PROGRAM)", () => {
-		setEnv({ ITERM_SESSION_ID: "w0t0p1:ABC" });
-		const sender = detectSender();
-		assert.ok(sender);
-	});
-
-	it("falls back to OSC 777 on WezTerm / rxvt-unicode / plain Linux", () => {
-		setEnv({ TERM_PROGRAM: "WezTerm" });
-		const sender = detectSender();
-		assert.ok(sender);
-		const cap = captureStdout();
-		try {
-			sender!("Pi", "hello");
-		} finally {
-			cap.restore();
-		}
-		assert.deepEqual(cap.chunks, [`${ESC}]777;notify;Pi;hello${BEL}`]);
-	});
-});
-
-// ── Extension factory ─────────────────────────────────────────────────
-
-interface Registration {
-	handlers: Map<string, (event: unknown, ctx: ExtensionContext) => unknown>;
-	commands: Map<
-		string,
-		{
-			description: string;
-			handler: (args: string, ctx: ExtensionContext) => unknown;
-		}
-	>;
-	notices: Array<{ message: string; level: string | undefined }>;
-}
-
-function setupFactory(): { reg: Registration; ctx: ExtensionContext } {
-	const reg: Registration = {
-		handlers: new Map(),
-		commands: new Map(),
-		notices: [],
-	};
-
-	const api = {
-		on(
-			event: string,
-			handler: (event: unknown, ctx: ExtensionContext) => unknown,
-		) {
-			reg.handlers.set(event, handler);
-		},
-		registerCommand(
-			name: string,
-			def: {
-				description: string;
-				handler: (args: string, ctx: ExtensionContext) => unknown;
-			},
-		) {
-			reg.commands.set(name, def);
-		},
-	} as unknown as ExtensionAPI;
-
-	factory(api);
-
-	const ctx: ExtensionContext = {
-		ui: {
-			notify(message, level) {
-				reg.notices.push({ message, level });
-			},
-		},
-		sessionManager: {
-			getSessionName: () => "test-session",
-		},
-	};
-
-	return { reg, ctx };
-}
-
-describe("extension factory", () => {
-	it("registers the expected lifecycle handlers", () => {
-		const { reg } = setupFactory();
-		assert.ok(reg.handlers.has("agent_start"));
-		assert.ok(reg.handlers.has("turn_end"));
-		assert.ok(reg.handlers.has("tool_execution_end"));
-		assert.ok(reg.handlers.has("agent_settled"));
-	});
-
-	it("registers exactly one command named 'notify'", () => {
-		const { reg } = setupFactory();
-		assert.equal(reg.commands.size, 1);
-		assert.ok(reg.commands.has("notify"));
-		assert.match(reg.commands.get("notify")?.description ?? "", /OSC/i);
-	});
-
-	it("emits an OSC notification on agent_settled", () => {
-		setEnv({ TERM_PROGRAM: "ghostty" });
-		const cap = captureStdout();
-		const { reg, ctx } = setupFactory();
-		try {
-			// Drive the lifecycle: agent_start → turn_end → tool calls → agent_settled.
-			reg.handlers.get("agent_start")?.({}, ctx);
-			reg.handlers.get("turn_end")?.({}, ctx);
-			reg.handlers.get("tool_execution_end")?.({ toolName: "bash" }, ctx);
-			reg.handlers.get("tool_execution_end")?.({ toolName: "bash" }, ctx);
-			reg.handlers.get("tool_execution_end")?.({ toolName: "read" }, ctx);
-			reg.handlers.get("tool_execution_end")?.(
-				{ toolName: "edit", isError: true },
-				ctx,
-			);
-			reg.handlers.get("agent_settled")?.({}, ctx);
-
-			assert.equal(cap.chunks.length, 1);
-			const out = cap.chunks[0] ?? "";
-			assert.ok(
-				out.startsWith(`${ESC}]9;`),
-				`expected OSC 9 prefix, got ${JSON.stringify(out)}`,
-			);
-			// Ghostty's OSC 9 path: "Pi: <body>" — body must include the stats and session.
-			assert.match(
-				out,
-				/\u2717 Pi \u00B7 1 turn \u00B7 4 tools \(3 unique\) \u00B7 1 error \u00B7 /,
-			);
-			assert.match(out, /\u00B7 test-session\x07/);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("falls back to a TUI notice when the terminal is unsupported", () => {
-		setEnv({ TERM_PROGRAM: "Apple_Terminal" });
-		const cap = captureStdout();
-		const { reg, ctx } = setupFactory();
-		try {
-			reg.handlers.get("agent_start")?.({}, ctx);
-			reg.handlers.get("agent_settled")?.({}, ctx);
-			assert.deepEqual(cap.chunks, []);
-			assert.equal(reg.notices.length, 1);
-			assert.match(reg.notices[0]?.message ?? "", /OSC notifications unsupported/);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("/notify command defaults to 'Waiting for your input' when called with no args", () => {
-		setEnv({ TERM_PROGRAM: "ghostty" });
-		const cap = captureStdout();
-		const { reg, ctx } = setupFactory();
-		try {
-			reg.commands.get("notify")?.handler("", ctx);
-			assert.match(cap.chunks[0] ?? "", /Waiting for your input/);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("/notify command uses the supplied argument", () => {
-		setEnv({ TERM_PROGRAM: "ghostty" });
-		const cap = captureStdout();
-		const { reg, ctx } = setupFactory();
-		try {
-			reg.commands.get("notify")?.handler("  custom message  ", ctx);
-			assert.match(cap.chunks[0] ?? "", /custom message/);
-		} finally {
-			cap.restore();
-		}
-	});
-
-	it("resets stats on agent_start so a second settled emits fresh numbers", () => {
-		setEnv({ TERM_PROGRAM: "ghostty" });
-		const cap = captureStdout();
-		const { reg, ctx } = setupFactory();
-		try {
-			// First run.
-			reg.handlers.get("agent_start")?.({}, ctx);
-			reg.handlers.get("turn_end")?.({}, ctx);
-			reg.handlers.get("turn_end")?.({}, ctx);
-			reg.handlers.get("agent_settled")?.({}, ctx);
-			cap.chunks.length = 0;
-
-			// Second run.
-			reg.handlers.get("agent_start")?.({}, ctx);
-			reg.handlers.get("turn_end")?.({}, ctx);
-			reg.handlers.get("agent_settled")?.({}, ctx);
-			assert.match(cap.chunks[0] ?? "", /\u2713 Pi \u00B7 1 turn \u00B7 /);
-		} finally {
-			cap.restore();
-		}
-	});
+describe("format", () => {
+  it("formats duration boundaries", () => {
+    for (const [ms, expected] of [
+      [-1000, "0s"],
+      [42000, "42s"],
+      [84000, "1m24s"],
+      [4320000, "1h12m"],
+    ] as const)
+      assert.equal(formatDuration(ms), expected);
+  });
+  it("uses final reason and caps long names by terminal display width", () => {
+    assert.equal(outcomeFor("error"), "failed");
+    assert.equal(outcomeFor("aborted"), "cancelled");
+    const stats = freshStats(0);
+    stats.errors = 3;
+    assert.match(formatBody(stats, null, "completed", 1000), /^✓ Pi · 已结束/);
+    const body = formatBody(stats, "𠮷".repeat(300), "completed", 1000);
+    assert.ok(displayWidth(body) <= 240);
+    assert.ok(body.endsWith("…"));
+  });
 });
