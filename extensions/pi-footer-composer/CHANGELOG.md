@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0 - 2026-09-04
+
+- Default to a three-row compact view: environment, model with quota, then context and configuration status. Full resource and integration detail remains available with `/footer full`.
+- Add `/footer compact|full|native`; native mode immediately restores Pi's built-in footer, and cancelling the selector stays silent.
+- Strip CSI, OSC, DCS and control bytes from paths, model metadata and published statuses before applying the current terminal theme.
+- Keep labels within the available width on extremely narrow terminals, including emoji presentation sequences in display-width measurement.
+- Add interaction coverage for compact/full/native switching and terminal-control sanitization; publish from an explicit package file allowlist.
+
 ## 0.3.2 - 2026-09-04
 
 ### Fix: `truncateToWidth` infinite loop on ANSI-colored wide cells

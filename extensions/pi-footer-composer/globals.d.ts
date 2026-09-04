@@ -47,6 +47,11 @@ declare module "@earendil-works/pi-coding-agent" {
           },
         ) => unknown,
       ): void;
+      setFooter(
+        renderer: undefined,
+      ): void;
+      select(title: string, options: string[]): Promise<string | undefined>;
+      notify(message: string, level?: string): void;
     };
     getContextUsage?: () =>
       | { tokens: number | null; contextWindow: number; percent: number | null }
@@ -55,6 +60,13 @@ declare module "@earendil-works/pi-coding-agent" {
 
   export interface ExtensionAPI {
     on(event: string, handler: (event: any, ctx: any) => unknown): void;
+    registerCommand(
+      name: string,
+      definition: {
+        description: string;
+        handler: (args: string, ctx: any) => Promise<void> | void;
+      },
+    ): void;
   }
 
   // Default export type for the extension entry (index.ts).

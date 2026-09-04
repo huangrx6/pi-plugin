@@ -1,9 +1,8 @@
 /**
- * pi-footer-composer — five labelled rows, single responsibility.
+ * pi-footer-composer — optional compact/full labelled footer.
  *
- * The ONLY footer owner in a setup: calls ctx.ui.setFooter() once and
- * renders the whole footer as a single column. Five content rows,
- * each prefixed with a dim category label glued to the first cell:
+ * Compact mode renders three everyday rows; full mode renders five
+ * diagnostic rows. Every row is prefixed with a dim category label:
  *
  *   1. 环境   cwd / branch / session name (one dim cell each)
  *   2. 模型   (provider) id + thinking level
@@ -42,14 +41,14 @@
  * usage. Anything else falls through to the config row as "misc"
  * so it is never silently dropped.
  *
- * This also means installing another setFooter-calling extension will
- * conflict (pi replaces rather than composes footers); this extension
- * documents itself as the designated footer renderer.
+ * Pi replaces rather than composes custom footers. `/footer native`
+ * restores the built-in footer immediately when this renderer is not
+ * useful for the current process.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { renderTable, makeCell } from "./layout.ts";
+import { renderTable, makeCell, sanitizeTerminalText } from "./layout.ts";
 import type { Cell } from "./layout.ts";
 
 type Theme = {
@@ -93,6 +92,8 @@ type LooseUsage = {
  * editing both this array and the `renderTable` call below.
  */
 const ROW_LABELS = ["环境：", "模型：", "资源：", "集成：", "配置："] as const;
+const COMPACT_ROW_LABELS = ["环境：", "模型：", "状态："] as const;
+type FooterMode = "compact" | "full" | "native";
 
 // ── formatters (shared shape with the footer conventions) ──────────────
 
@@ -109,7 +110,7 @@ function sanitize(text: string): string {
   // each sub-line its own row); normalize every other kind of
   // whitespace and drop empty lines so a status can never inject
   // blank rows or trailing spaces into the footer.
-  return text
+  return sanitizeTerminalText(text)
     .replace(/\r\n?/g, "\n")
     .replace(/[^\S\n]+/g, " ")
     .split("\n")
@@ -130,12 +131,14 @@ function formatCwd(cwd: string): string {
 
 function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
   const cells: Cell[] = [
-    makeCell(theme.fg("dim", formatCwd(ctx.sessionManager.getCwd()))),
+    makeCell(theme.fg("dim", sanitize(formatCwd(ctx.sessionManager.getCwd())))),
   ];
   const branch = footerData.getGitBranch();
-  if (branch) cells.push(makeCell(theme.fg("dim", `(${branch})`)));
+  if (branch)
+    cells.push(makeCell(theme.fg("dim", `(${sanitize(branch)})`)));
   const sessionName = ctx.sessionManager.getSessionName();
-  if (sessionName) cells.push(makeCell(theme.fg("dim", `• ${sessionName}`)));
+  if (sessionName)
+    cells.push(makeCell(theme.fg("dim", `• ${sanitize(sessionName)}`)));
   return cells;
 }
 
@@ -223,13 +226,15 @@ function modelCells(
   providerCount: number,
 ): Cell[] {
   const name = model?.id || "no-model";
-  let text = name;
+  let text = sanitize(name);
   if (model?.reasoning) {
     const level = thinkingLevel || "off";
-    text = level === "off" ? `${name} (thinking off)` : `${name} (${level})`;
+    text = level === "off"
+      ? `${sanitize(name)} (thinking off)`
+      : `${sanitize(name)} (${sanitize(level)})`;
   }
   if (providerCount > 1 && model?.provider)
-    text = `(${model.provider}) ${text}`;
+    text = `(${sanitize(model.provider)}) ${text}`;
   return [makeCell(theme.fg("dim", text))];
 }
 
@@ -266,7 +271,10 @@ function sectionOf(key: string): Section {
  * row. Empty cells are dropped so a cleared status never wastes a
  * separator.
  */
-function statusGroups(footerData: FooterData): Record<Section, Cell[]> {
+function statusGroups(
+  footerData: FooterData,
+  theme: Theme,
+): Record<Section, Cell[]> {
   const groups: Record<Section, Cell[]> = {
     quota: [],
     usage: [],
@@ -279,7 +287,8 @@ function statusGroups(footerData: FooterData): Record<Section, Cell[]> {
     ([a], [b]) => a.localeCompare(b),
   );
   for (const [key, text] of entries) {
-    const cell = makeCell(sanitize(text));
+    const clean = sanitize(text);
+    const cell = makeCell(clean ? theme.fg("dim", clean) : "");
     if (cell.w === 0) continue;
     groups[sectionOf(key)].push(cell);
   }
@@ -293,8 +302,32 @@ type FooterTheme = {
   fg(color: string, text: string): string;
   bold(t: string): string;
 };
+type FooterRenderer = (
+  tui: FooterTui,
+  theme: FooterTheme,
+  footerData: FooterData,
+) => {
+  render(width: number): string[];
+  invalidate(): void;
+  dispose(): void;
+};
+type FooterCtx = Ctx & {
+  model?: {
+    id?: string;
+    provider?: string;
+    reasoning?: boolean;
+    contextWindow?: number;
+  } | null;
+  thinkingLevel?: string;
+  ui: {
+    setFooter(renderer: FooterRenderer | undefined): void;
+    select(title: string, options: string[]): Promise<string | undefined>;
+    notify(message: string, level?: string): void;
+  };
+};
 
 export default function (pi: ExtensionAPI): void {
+  let footerMode: FooterMode = "compact";
   let activeCtx: Ctx | null = null;
   let activeModel: {
     id?: string;
@@ -305,12 +338,15 @@ export default function (pi: ExtensionAPI): void {
   let activeThinking: string | undefined;
   let requestRender: (() => void) | null = null;
 
-  pi.on("session_start", async (_event, ctx) => {
-    // Re-mount on every session_start: pi clears the custom footer on
-    // session invalidate without firing session_shutdown.
-    activeCtx = ctx as Ctx;
-    activeModel = (ctx as { model?: typeof activeModel }).model ?? null;
-    activeThinking = (ctx as { thinkingLevel?: string }).thinkingLevel;
+  const mountFooter = (ctx: FooterCtx): void => {
+    activeCtx = ctx;
+    activeModel = ctx.model ?? null;
+    activeThinking = ctx.thinkingLevel;
+    requestRender = null;
+    if (footerMode === "native") {
+      ctx.ui.setFooter(undefined);
+      return;
+    }
     ctx.ui.setFooter(
       (tui: FooterTui, theme: FooterTheme, footerData: FooterData) => {
         requestRender = () => tui.requestRender();
@@ -319,7 +355,32 @@ export default function (pi: ExtensionAPI): void {
         );
         return {
           render: (width: number) => {
-            const sections = statusGroups(footerData);
+            const sections = statusGroups(footerData, theme);
+            if (footerMode === "compact") {
+              return renderTable(
+                [
+                  envCells(activeCtx as Ctx, footerData, theme),
+                  [
+                    ...modelCells(
+                      theme,
+                      activeModel,
+                      activeThinking,
+                      footerData.getAvailableProviderCount(),
+                    ),
+                    ...sections.quota,
+                  ],
+                  [
+                    ...contextCell(activeCtx as Ctx, theme, activeModel),
+                    ...sections.context,
+                    ...sections.config,
+                    ...sections.misc,
+                  ],
+                ],
+                width,
+                theme,
+                COMPACT_ROW_LABELS,
+              );
+            }
             return renderTable(
               [
                 // row 1: 环境 — cwd · branch · session
@@ -358,6 +419,47 @@ export default function (pi: ExtensionAPI): void {
         };
       },
     );
+  };
+
+  const switchFooter = (mode: FooterMode, ctx: FooterCtx): void => {
+    footerMode = mode;
+    mountFooter(ctx);
+    const label = mode === "compact" ? "紧凑" : mode === "full" ? "完整" : "Pi 原生";
+    ctx.ui.notify(`Footer · ${label}`, "info");
+  };
+
+  pi.registerCommand("footer", {
+    description: "切换紧凑、完整或 Pi 原生 Footer",
+    handler: async (args: string, rawCtx: FooterCtx) => {
+      const ctx = rawCtx as FooterCtx;
+      const value = String(args ?? "").trim().toLowerCase();
+      if (value === "compact" || value === "full" || value === "native") {
+        switchFooter(value, ctx);
+        return;
+      }
+      if (value) {
+        ctx.ui.notify("用法: /footer compact|full|native", "error");
+        return;
+      }
+      const choices = [
+        "紧凑 · 环境、模型、上下文与配置",
+        "完整 · 展开资源、集成与全部状态",
+        "Pi 原生 · 停用自定义 Footer",
+      ];
+      const choice = await ctx.ui.select(
+        `Footer（当前：${footerMode === "compact" ? "紧凑" : footerMode === "full" ? "完整" : "Pi 原生"}）`,
+        choices,
+      );
+      if (choice === choices[0]) switchFooter("compact", ctx);
+      if (choice === choices[1]) switchFooter("full", ctx);
+      if (choice === choices[2]) switchFooter("native", ctx);
+    },
+  });
+
+  pi.on("session_start", async (_event, ctx) => {
+    // Re-mount on every session_start: pi clears the custom footer on
+    // session invalidate without firing session_shutdown.
+    mountFooter(ctx as FooterCtx);
   });
 
   pi.on("model_select", async (event, ctx) => {

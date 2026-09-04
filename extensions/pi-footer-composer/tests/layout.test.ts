@@ -11,7 +11,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { makeCell, truncateToWidth, visibleWidth } from "../layout.ts";
+import {
+	makeCell,
+	renderTable,
+	sanitizeTerminalText,
+	truncateToWidth,
+	visibleWidth,
+} from "../layout.ts";
 
 describe("visibleWidth", () => {
 	it("plain ASCII counts 1 per char", () => {
@@ -25,6 +31,11 @@ describe("visibleWidth", () => {
 	it("CJK counts as wide (2 columns)", () => {
 		assert.equal(visibleWidth("环境"), 4);
 		assert.equal(visibleWidth("a环b"), 4);
+	});
+
+	it("emoji presentation sequences count as two columns", () => {
+		assert.equal(visibleWidth("©️"), 2);
+		assert.equal(visibleWidth("1️⃣"), 2);
 	});
 });
 
@@ -61,5 +72,25 @@ describe("makeCell", () => {
 	it("wraps text into a cell with no extra padding at zero level", () => {
 		const cell = makeCell("hello");
 		assert.ok(cell.text.includes("hello"));
+	});
+});
+
+describe("sanitizeTerminalText", () => {
+	it("removes CSI, OSC and control bytes while preserving content", () => {
+		const unsafe = "ok\u001b[31m red\u001b[0m\u001b]9;notify\u0007\u0000 done";
+		assert.equal(sanitizeTerminalText(unsafe), "ok red done");
+	});
+
+	it("drops an unterminated OSC payload instead of showing its tail", () => {
+		assert.equal(sanitizeTerminalText("safe\u001b]9;unfinished"), "safe");
+	});
+});
+
+describe("renderTable", () => {
+	it("never renders a row wider than an extremely narrow terminal", () => {
+		const theme = { fg: (_color: string, text: string) => text };
+		const lines = renderTable([[makeCell("content")]], 3, theme, ["环境："]);
+		assert.equal(lines.length, 1);
+		assert.ok(visibleWidth(lines[0]) <= 3);
 	});
 });
