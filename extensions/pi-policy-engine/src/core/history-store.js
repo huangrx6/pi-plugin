@@ -25,7 +25,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-const DEFAULT_RELATIVE_HOME = ".pi/agent/policy-engine/history.jsonl";
+import { defaultHistoryFilePath } from "./paths.js";
 
 /**
  * Expand a leading `~` to the user's home directory; resolve to absolute.
@@ -38,8 +38,8 @@ export function resolveHistoryPath(input, cwd = process.cwd()) {
   return resolve(cwd, p);
 }
 
-export function defaultHistoryPath(cwd = process.cwd()) {
-  return resolve(cwd, homedir(), DEFAULT_RELATIVE_HOME);
+export function defaultHistoryPath() {
+  return defaultHistoryFilePath();
 }
 
 /**

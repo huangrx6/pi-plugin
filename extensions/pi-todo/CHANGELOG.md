@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 - 2026-09-04
+
+- Store new workspace task state under `extensions-data/pi-todo/state` in the agent directory.
+- Continue using existing legacy state until offline migration; prefer the new directory when present and preserve explicit storage overrides.
+
 ## 0.7.0 - 2026-09-04
 
 - `/todos` 默认直接展示当前任务，选中后根据状态开始、完成、编辑或查看详情；新增任务不再要求手写工具调用。

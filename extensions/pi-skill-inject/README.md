@@ -1,95 +1,84 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<p align="center">
-  <img src="../../assets/icons/skill-inject.svg" alt="pi-skill-inject" width="48" />
-</p>
+<h1 align="center">pi-skill-inject</h1>
 
-# pi-skill-inject
-
-<p align="center"><strong>在提示词中直接引用技能，内容随本轮一起发送。</strong></p>
+<p align="center">在提示词正文中引用技能，让说明随当前轮次一起送达模型。</p>
 
 <p align="center">
-  <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+  <img alt="Node.js 20+" src="https://img.shields.io/badge/node-%E2%89%A520-555?style=flat-square" />
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
-在输入里写下 `/skill-name`，对应技能的 `SKILL.md` 会被加载并随同一轮发送给模型——没有额外往返，也不需要模型先去 `read` 文件。加载完成后，对话中出现一条紧凑的 `◆ 技能已加载` 活动记录，展开可查看本轮实际使用的技能名称与来源路径。
+输入 `/<skill-name>`，从 Pi 已发现的技能中选择并加载 `SKILL.md`。用户原文保持不变，技能正文作为单独消息送给模型；对话中的加载记录可展开查看名称与来源。
 
-## 入口与操作
+## 快速开始
 
-| 入口 | 行为 |
-| --- | --- |
-| 提示词中的 `/<skill-name>` | 解析并注入该技能内容，同轮生效 |
-| `<Tab>`（在 `/` 或任意前缀后） | 从可用技能列表自动补全 |
-| `/loaded-skills` | 以中文竖列查看当前分支已加载的技能；空态保持简洁 |
-
-## 工作方式
-
-扩展监听公开事件 `input` 与 `before_agent_start`：扫描提示词中的 `/<name>` 标记，解析为技能路径，把面向用户的文本替换为技能内容。模型在第一轮就拿到完整指令。
-
-- **零侵入** — 只使用公开事件，不做原型修改；Pi 导入为类型导入
-- **标记边界严格** — 正则锚定 `[a-z0-9][a-z0-9-]*` 且要求空白、标点或输入结尾；URL、路径和 `skill:name` 命令不会被误判
-- **按分支去重** — 本轮注入过、或模型已 `read` 过其 `SKILL.md` 的技能都会写入分支墓碑，重载或恢复会话后不再重复注入
-- **frontmatter 安全** — 只识别行首 `---` 作为分隔符，描述内的 `---` 不会破坏解析
-- **终端安全** — 技能描述、路径与加载错误先清理控制序列、再按显示宽度截断后才进入界面
-
-### 标记规则
-
-| 输入 | 结果 |
-| --- | --- |
-| 提示词正文中的 `/skill-name` | 注入技能 `skill-name` |
-| `/SKILL-NAME` | 先精确匹配；无精确项时大小写不敏感回退 |
-| `/skill:name` | 视为 Pi 命令，不注入 |
-| `https://example.com/foo` | 边界规则排除，不当作标记 |
-| 行首的 `/model` | 原样传递，不拦截 |
-
-## 使用示例
-
-```text
-用 /tdd 的方式做，完成后 /review 一遍
-```
-
-两个技能同时加载进本轮提示词，模型立即按其指令工作。对话中出现：
-
-```text
-◆ 技能已加载 · 2 个（展开查看名称与路径）
-```
-
-## 安装
+在本扩展包目录中执行，单独安装此扩展：
 
 ```bash
-pi install git:github.com/huangrx6/pi-plugin
+pi install "$PWD"
 ```
 
-重启 Pi 或执行 `/reload`。零运行时依赖、零配置。单会话试用：`pi -e <repo>/extensions/pi-skill-inject`。
+重启 Pi 或执行 `/reload`。在提示词正文输入 `/skill` 浏览技能候选，选中后继续描述任务。
+
+例如，已安装名为 `tdd` 和 `review` 的技能时：
+
+```text
+用 /tdd 的方式实现这个功能，完成后用 /review 检查。
+```
+
+两个尚未加载的技能会随当前轮次发送。示例名称需要替换成你实际安装的技能。
+
+## 日常操作
+
+| 入口 | 用途 |
+| --- | --- |
+| 正文中的 `/<skill-name>` | 加载匹配的技能 |
+| 输入 `/skill` 或技能名称前缀 | 浏览或筛选候选，使用 Pi 原生补全操作选择 |
+| 正文中的 `/skill:<片段>` | 按名称片段筛选候选；选中后插入 `/<skill-name>` |
+| `/loaded-skills` | 查看当前会话分支已加载的技能名称 |
+| 展开“技能已加载”记录 | 查看该次注入的技能名称和完整来源路径 |
+
+候选描述中的 `[u]`、`[p]`、`[t]` 分别表示用户、项目和临时作用域。每次最多展示 30 个候选；提示词开头优先保留 Pi 原生命令候选。
+
+## 加载过程
+
+1. 从 Pi 的技能命令元数据发现技能，不自行扫描新的技能目录。
+2. 解析提示词中的标记，先精确匹配名称，再尝试大小写不敏感匹配。
+3. 读取尚未加载的 `SKILL.md`，移除 YAML frontmatter，并注明相对引用的基准目录。
+4. 保留用户输入，在模型开始本轮工作前追加技能消息。
+
+正文缓存在内存中，加载记录随 Pi 会话保存，无需单独的配置文件或数据目录。修改或新增技能后，执行 `/reload` 刷新发现结果和内容缓存。
+
+### 标记与命令边界
+
+| 输入 | 处理 |
+| --- | --- |
+| `请用 /review 检查` | `review` 存在时加载 |
+| `请用 /REVIEW 检查` | 精确匹配优先，其次忽略大小写 |
+| `https://example.com/review` | 不按技能标记处理 |
+| `/skill:review` | 不作为内联标记解析，保留 Pi 命令语义 |
+| 以已注册的非技能命令开头 | 整条输入交还 Pi，不做内联加载 |
+
+内联标记支持以字母或数字开头、包含字母、数字和连字符的技能名；标记后必须有有效边界。未匹配到技能的文字原样保留。
+
+## 分支记录与边界
+
+- 同一分支已经内联加载的技能不会重复注入。模型通过 `read` 成功读取已发现技能的文件，也会记为已加载。
+- `/loaded-skills` 从当前分支的记录重建列表，支持恢复会话、回退和分支切换；“已加载”表示有加载记录，不代表模型已经遵循或执行全部说明。
+- 展开活动记录显示名称和来源路径，不展开整个技能正文；动态界面文本会清理终端控制序列。
+- 任一待加载文件读取失败时，本次待注入列表取消，并显示错误；用户输入继续处理。
+- 技能指令作为模型上下文提供，不改变工具权限，也不验证任务结果。
 
 ## 开发
 
+在本包目录运行：
+
 ```bash
-cd extensions/pi-skill-inject
-npm install        # 仅 devDependencies（tsc / tsx）
-npm run check      # tsc --noEmit
-npm test           # 标记边界与加载解析回归
+npm ci
+npm run check
+npm test
 ```
 
-编辑 `index.ts` 后用 `/reload` 生效。
+`index.ts` 负责发现、补全、注入与分支恢复；`display.ts` 负责终端文本和已加载列表。测试覆盖标记边界、加载去重及活动记录展示。
 
-<details>
-<summary>文件结构</summary>
-
-```text
-pi-skill-inject/
-├── index.ts          # 发现、注入、渲染与命令接线
-├── display.ts        # 终端安全文本与已加载列表格式化
-├── tests/            # 标记边界 / 解析回归
-├── globals.d.ts      # Pi 运行时类型 ambient shim
-├── tsconfig.json
-├── package.json
-├── README.md
-└── LICENSE
-```
-
-</details>
-
-## License
-
-MIT © huangrx6
+[更新记录](CHANGELOG.md) · [MIT 许可证](LICENSE)

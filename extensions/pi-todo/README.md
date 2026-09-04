@@ -1,139 +1,122 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<p align="center">
-  <img src="../../assets/icons/todo.svg" alt="pi-todo" width="48" />
-</p>
+<h1 align="center">pi-todo</h1>
 
-# pi-todo
-
-<p align="center"><strong>工作区级持久任务清单：模型工具、用户命令与编辑器状态条。</strong></p>
+<p align="center">把多步工作整理成可操作、可恢复的工作区任务清单。</p>
 
 <p align="center">
-  <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+  <img alt="Node.js 20+" src="https://img.shields.io/badge/node-%E2%89%A520-555?style=flat-square" />
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
-一个模型可调用的 `todo` 工具、一个面向用户的 `/todos` 命令、一条编辑器上方的状态条。状态由按工作区存储的**持久信封**持有——`/reload` 与内置压缩都不会丢清单：工作区是身份，会话不是。
+模型通过 `todo` 工具维护任务，你通过 `/todos` 查看和操作。清单按工作区持久保存，切换会话、重新加载扩展或压缩对话后仍可继续使用。
 
-零运行时依赖；Pi 导入为类型导入；工具参数 schema 是手写 JSON Schema。
+## 快速开始
 
-## 入口与操作
-
-`/todos` 无参数直接列出进行中、可开始与被阻塞的任务。方向键选择，回车打开该状态适用的操作：进行中任务可完成，可开始任务可开始，被阻塞任务可查看原因，所有活跃任务均可改名。「新增」直接输入任务名称。「历史」收纳已完成与已归档任务，选中后可重开、归档或恢复；「总览」保留完整分组摘要。取消任何列表都静默返回，不产生消息，也不写数据。
-
-```text
-RUNNING
-▶ #11 修正令牌校验
-
-READY
-◆ #20 补充集成测试
-◆ #21 更新文档
-  +15 more ready
-
-BLOCKED
-○ #50 等待 #21 完成
-
-✓ 6 completed · /todos completed
-```
-
-| 直接命令 | 行为 |
-| --- | --- |
-| `/todos next` | 现在可以开始哪些任务（完整 READY 列表） |
-| `/todos start / finish / reopen <id>` | 状态流转 |
-| `/todos archive <id>… / archive completed` | 归档（批量或全部已完成） |
-| `/todos restore <id>… / restore archived` | 恢复 |
-| `/todos ready / blocked / completed / archived` | 分组全量列表 |
-| `/todos all` | 含归档的完整历史状态 |
-| `/todos <id>` | 详情：标准行 + 说明 + 阻塞原因 + 完成后解锁 |
-| `/todos here` | 工作流恢复：当前任务 + 完成后会解锁什么 |
-| `/todos commands` | 完整兼容命令目录 |
-
-模型侧工具：`create / update / delete / list / clear`，状态机 `pending → in_progress → completed → deleted`（`deleted` 为终态，ID 永不复用）。
-
-## 编辑器状态条
-
-默认紧凑视图最多两行，使用终端主题颜色，优先保留任务名称；窄窗口按中文、组合字符与 emoji 的实际显示宽度换行或截断，任务文本中的终端控制序列先被清除。没有活跃任务时自动隐藏。
-
-```text
-▶ #11 修正令牌校验 · 1/3 已完成 · /todos
-> 补充要求…
-```
-
-`/todos display compact|full|hidden` 调整本次会话的显示方式。状态条只是展示——隐藏它不影响任何操作，`/todos` 始终是独立入口。列表、详情与工具结果的着色全部走主题 token（▶ accent / ◆ 默认 / ○ muted / ✓ success），无主题路径与纯文本逐字节一致。
-
-## 语义保证
-
-| 保证 | 含义 |
-| --- | --- |
-| **原子变更** | 变更类命令全有或全无：任一目标不满足前置条件，则不修改任何目标 |
-| **ID 永不复用** | `clear` 清空列表但 `nextId` 只增不减；对话中过期的 `#N` 引用永远是死引用 |
-| **墓碑不可变** | 对已删除任务的任何 `update` 都被拒绝 |
-| **依赖健康** | 悬空 `blockedBy`、已删除依赖、自阻塞、循环依赖全部拒绝并给出具体错误 |
-| **无操作检测** | 字段完全相同的重复 `update` 返回「无变化」，防止模型重试循环 |
-| **一个命令一个快照** | 每条命令恰好一次持久加载 + 一次提交；提交冲突返回明确的 `cas-conflict` 错误而不是透明重试 |
-| **终端安全** | 模型可控字符串在渲染前清除 CSI / OSC / 换行 / 双向控制 |
-| **工作区身份** | 状态以 `canonical realpath(cwd)` 的 SHA-256 为键；同工作区换会话清单不变，`/reload` 静默恢复状态条 |
-
-变更影响下游就绪状态时，响应会附带 `Now ready` 或 `Re-blocked` 段落。`archive` 与 `all` / `archived`、`restore` 与 `all` / `completed` 的组合被策略性拒绝，错误信息解释原因并给出正确选择器。
-
-## 持久化
-
-```text
-<agentDir>/pi-todo/<sha256(workspace:v1:canonical_realpath)>
-{ schemaVersion: 1, revision: 17, state: { tasks: [...], nextId: 1000 } }
-```
-
-`revision` 单调递增，作为 CAS 期望版本；提交失败时已格式化的成功文本一并丢弃。会话分支不再承担状态职责——冷启动只做一次静默的持久加载来点亮状态条，失败也不影响 Pi 启动。
-
-## 安装
+在本扩展包目录中执行，单独安装此扩展：
 
 ```bash
-pi install git:github.com/huangrx6/pi-plugin
+pi install "$PWD"
 ```
 
-重启 Pi 或执行 `/reload`。
+重启 Pi 或执行 `/reload`，然后告诉模型：
 
-## 已知限制
-
-- 分区行预算固定（2 / 3 / 2），尚未按终端宽度自适应——Pi 的命令 / UI 契约暂不暴露终端宽度
-- 状态以 canonical realpath 为键：重命名或移动工作区目录会得到全新清单（位置即身份，设计使然）
-- 工具名 `todo` 是持久化键：同时安装另一个注册同名工具的扩展会冲突，二选一
-- `activeForm` 只进模型提示，不进 CLI 视图；`description` 仅在 `/todos <id>` 存在时渲染
-
-## 开发
-
-```bash
-cd extensions/pi-todo
-npm run check      # tsc --noEmit
-npm test           # glob 全部 *.test.ts（含渲染 / 交互回归）
+```text
+把这次工作拆成任务，按顺序执行，每完成一项就更新状态。
 ```
 
-测试使用 `os.tmpdir()` + `mkdtemp` 存放临时文件。
+输入 `/todos` 查看任务。也可以直接从列表中的「新增」创建第一项。
+
+## 实际体验
+
+**先看到任务。** `/todos` 按进行中、可开始、被阻塞的顺序列出当前工作。选择任务后只展示适用操作，无需先记住命令。
+
+| 任务状态 | 可执行的操作 |
+| --- | --- |
+| 进行中 | 标记完成、查看详情、修改名称 |
+| 可开始 | 开始任务、查看详情、修改名称 |
+| 被阻塞 | 查看说明与依赖、修改名称 |
+| 已完成 | 重新打开、归档、查看详情 |
+| 已归档 | 恢复到列表、查看详情 |
+
+**历史在次级入口。** 已完成与已归档任务收进「历史」，「总览」提供分组摘要。取消选择不修改任务，也不额外发送消息。
+
+**进度轻量展示。** 编辑器上方默认最多显示两行，优先保留当前任务和完成进度；没有活跃任务时隐藏。显示使用当前终端主题，中文、组合字符与 emoji 按显示宽度处理，任务文本中的终端控制序列会先被清理。
+
+状态条可以隐藏，所有主要操作仍可从 `/todos` 完成。
+
+## 日常命令
+
+任务列表覆盖日常操作；直接命令适合已经知道任务编号的情况。
+
+| 命令 | 用途 |
+| --- | --- |
+| `/todos` | 打开任务列表，新增或选择任务操作 |
+| `/todos 12` | 查看 #12 的说明、阻塞原因和后续任务 |
+| `/todos next` | 查看全部可开始任务 |
+| `/todos here` | 恢复工作视角：当前任务与完成后会解锁的工作 |
+| `/todos start 12` | 开始 #12；完成使用 `finish`，重开使用 `reopen` |
+| `/todos display compact` | 紧凑状态条；也支持 `full` 和 `hidden`，仅本次会话生效 |
+| `/todos commands` | 打开完整命令目录 |
 
 <details>
-<summary>文件结构（按层）</summary>
+<summary>分组查询与批量整理</summary>
 
-```text
-pi-todo/
-├── index.ts                    # 工具 + /todos + 生命周期接线
-├── types.ts                    # 领域类型 + JSON Schema
-├── reducer.ts                  # 纯状态机
-├── 格式层    format.ts · graph-format.ts · overview-format.ts ·
-│            task-detail-format.ts · current-task-format.ts ·
-│            direct-unlock-format.ts · mutation-format.ts ·
-│            workflow-format.ts · selector-policy-notice.ts
-├── 语法层    parse-todos-command.ts · mutation-command.ts ·
-│            graph-command.ts · workflow-command.ts
-├── 查询层    graph-query.ts · graph.ts · projection.ts · read-model.ts
-├── 持久层    persistence-contract.ts · persistence-error.ts ·
-│            persistence-codec.ts · persistence-migration.ts ·
-│            durable-store.ts · file-durable-store.ts · workspace-scope.ts
-├── 回放层    replay-context.ts · replay-engine.ts · replay-capture.ts
-├── 展示层    overlay.ts · overlay-snapshot-cache.ts · runtime-persistence.ts
-└── 测试      test-harness.ts + 30 个 *.test.ts
-```
+| 命令 | 用途 |
+| --- | --- |
+| `/todos ready` | 可开始任务 |
+| `/todos blocked` | 被依赖阻塞的任务 |
+| `/todos completed` | 已完成、未归档任务 |
+| `/todos archived` | 已归档任务 |
+| `/todos all` | 完整任务状态，包含归档记录 |
+| `/todos archive 12 13` | 批量归档已完成任务 |
+| `/todos archive completed` | 归档全部已完成任务 |
+| `/todos restore 12 13` | 恢复指定归档任务 |
+| `/todos restore archived` | 恢复全部归档任务 |
+
+归档只改变可见性。恢复已归档任务后，它仍是已完成状态；若要再次执行，再选择「重新打开」。
 
 </details>
 
-## License
+## 模型与任务规则
+
+模型侧 `todo` 工具支持创建、查询、编辑、状态流转、依赖关系、归档和恢复，也提供删除与清空操作。扩展要求模型在多步工作中维护任务，并在实际进展发生变化时更新；这是模型指令，任务状态本身不证明工作已验证完成。
+
+任务从待办进入进行中，再进入已完成；已完成任务可以重开。依赖未满足时，待办任务显示为被阻塞。完成任务或重新打开任务后，结果会说明新就绪或重新受阻的下游工作。
+
+| 规则 | 实际含义 |
+| --- | --- |
+| 批量变更原子提交 | 任一目标不满足条件，整次变更都不提交 |
+| 依赖校验 | 拒绝缺失、已删除、自身及循环依赖 |
+| 编号持续递增 | 清空列表后也不复用旧编号，避免旧引用指向新任务 |
+| 删除为终态 | 删除的任务保留墓碑，不能再编辑或恢复；归档可恢复 |
+| 冲突明确返回 | 并发提交冲突返回 `cas-conflict`，不以自动重试覆盖其他写入 |
+
+## 存储与边界
+
+默认数据保存在 `~/.pi/agent/extensions-data/pi-todo/state/` 下的 JSON 文件中；如果宿主设置了 `PI_CODING_AGENT_DIR`，则跟随对应目录。每次提交保存版本号、任务状态和下一个编号。
+
+旧版数据目录是 agent 目录下的 `pi-todo/`。如果旧目录存在而新 `state/` 尚未建立，会继续读写旧目录，避免升级后任务消失；离线迁移后自动使用新位置。两个目录同时存在时以新位置为准，不自动合并。任务数据需要保留，本扩展没有需要单独落盘的配置或缓存。
+
+工作区身份来自当前工作目录的真实路径。相同目录中的不同会话共享清单；移动目录，或在不同子目录启动 Pi，会得到不同清单。扩展不会向上寻找 Git 根目录来合并任务，也不使用对话分支恢复旧状态。
+
+`/todos` 面向交互模式；模型工具仍是独立的任务操作接口。当前任务选择器使用固定行宽预算，完整视图也有固定分组行数预算；需要查看全部项目时使用分组命令。`activeForm` 用于模型提示，任务说明在详情中展示。
+
+本包注册工具名 `todo`。若其他已安装代码也注册同名工具，需要解决名称冲突后使用。
+
+## 开发与文档
+
+在本包目录运行：
+
+```bash
+npm ci
+npm run check
+npm test
+```
+
+包声明 Node.js 20 或更高版本，实际运行还需满足所用 Pi 版本的要求。`index.ts` 连接工具、命令和生命周期；状态机、依赖查询、持久存储和终端显示分别可测。运行时使用 Pi SDK 的代理目录 API。
+
+测试覆盖任务流转、依赖、持久化冲突、交互选择与终端渲染，临时文件创建在系统临时目录。
+
+[更新记录](CHANGELOG.md)
 
 MIT © huangrx6

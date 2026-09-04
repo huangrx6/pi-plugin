@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.25.1
+# Design — pi-policy-engine v0.25.2
 
 ## 1. Design goal
 
@@ -337,8 +337,10 @@ Differences list. Uses `compareDecisions` / `formatDiff`.
 
 ### `/policy history [N]` / `/policy history clear-disk`
 
+Global configuration lives at `<agent-dir>/extensions-data/pi-policy-engine/config.json`; `PI_CODING_AGENT_DIR` selects the agent directory, defaulting to `~/.pi/agent`. The old `policy-engine.json` remains a read fallback only when the new file is absent. Default history and strict-plan files share `state/`; an existing legacy `policy-engine/` directory remains in use until the new state directory exists. Configuration and state fallbacks are independent. Runtime path resolution never moves files, and an explicit global `historyFile` overrides the default.
+
 In-memory routing history (default 5, cap 50). When `historyFile` is
-configured (default `~/.pi/agent/policy-engine/history.jsonl`), entries are
+configured (default `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`), entries are
 also persisted and reloaded at `session_start`. See `src/core/history-store.js`.
 
 ### `/policy config`

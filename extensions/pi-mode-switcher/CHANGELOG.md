@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - 2026-09-04
+
+- Move persisted mode to `extensions-data/pi-mode-switcher/config.json` under the agent directory and respect `PI_CODING_AGENT_DIR`.
+- Read the legacy config only when the new config is absent; create parent directories on save.
+
 ## 0.2.0 - 2026-09-04
 
 - Align the command with the terminal UI contract: cancelling `/mode` is silent, switch confirmations use a concise Chinese hierarchy, and the optional status is plain themed text instead of hard-coded ANSI colors.

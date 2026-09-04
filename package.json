@@ -1,7 +1,7 @@
 {
   "name": "huangrx6-pi-plugin",
   "version": "0.1.0",
-  "description": "Monorepo of independent pi extensions, including context QoS, skills, modes, status, policy, footer, todo, and notifications.",
+  "description": "Independent Pi extensions for automatic compaction, skills, approval modes, usage status, policies, tasks, notifications, and terminal layout.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -21,12 +21,14 @@
       "./extensions/pi-footer-composer",
       "./extensions/pi-todo",
       "./extensions/pi-notify",
-      "./extensions/pi-context-qos"
+      "./extensions/pi-auto-compact"
     ]
   },
   "files": [
     "extensions/",
     "bin/",
+    "docs/",
+    "AGENTS.md",
     "README.md",
     "LICENSE"
   ]

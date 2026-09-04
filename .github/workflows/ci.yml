@@ -113,8 +113,8 @@ jobs:
         working-directory: extensions/pi-notify
         run: npm test
 
-  pi-context-qos:
-    name: pi-context-qos (ts, Node built-ins)
+  pi-auto-compact:
+    name: pi-auto-compact (ts, native lifecycle)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -124,13 +124,13 @@ jobs:
         with:
           node-version: "24"
       - name: Install
-        working-directory: extensions/pi-context-qos
+        working-directory: extensions/pi-auto-compact
         run: npm ci --no-audit --no-fund
       - name: Type check
-        working-directory: extensions/pi-context-qos
+        working-directory: extensions/pi-auto-compact
         run: npm run check
       - name: Self test + extension smoke
-        working-directory: extensions/pi-context-qos
+        working-directory: extensions/pi-auto-compact
         run: npm test
 
   pi-skill-inject:

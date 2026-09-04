@@ -82,7 +82,7 @@ const MENU_ROWS: readonly MenuRow[] = [
 	{ name: "archived", desc: "已归档的任务列表" },
 ];
 
-/** Level-1 picker rows: "name — desc" (context-qos panel pattern). */
+/** Level-1 picker rows: "name — desc". */
 export function menuRows(): string[] {
 	return MENU_ROWS.map((r) => `${r.name} — ${r.desc}`);
 }

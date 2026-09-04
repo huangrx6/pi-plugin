@@ -6,7 +6,7 @@
   "projectPolicyMaxBytes": 24000,
   "policyMaxBytes": 24000,
   "maxDomains": 2,
-  "historyFile": "~/.pi/agent/policy-engine/history.jsonl",
+  "historyFile": "~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl",
   "historyMaxEntries": 500,
   "includePolicies": [],
   "excludePolicies": [],

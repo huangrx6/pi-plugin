@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { globalConfigPath, defaultHistoryFilePath } from "./paths.js";
 
 function safeJson(path, fallback = {}) {
   try {
@@ -26,7 +26,7 @@ function safeJson(path, fallback = {}) {
  * GLOBAL layer was still silently swallowed by safeJson. Same treatment.
  */
 export function globalConfigFile() {
-  const path = join(homedir(), ".pi", "agent", "policy-engine.json");
+  const path = globalConfigPath();
   if (!existsSync(path)) return null;
   let error = null;
   try {
@@ -220,10 +220,8 @@ export function loadEffectiveConfig({
   raw = false,
 }) {
   const defaults = safeJson(join(packageRoot, "config", "defaults.json"), {});
-  const globalConfig = safeJson(
-    join(homedir(), ".pi", "agent", "policy-engine.json"),
-    {},
-  );
+  defaults.historyFile = defaultHistoryFilePath();
+  const globalConfig = safeJson(globalConfigPath(), {});
   // Project layers are sanitized BEFORE merging — the trust boundary is
   // structural, not advisory (see PRIVILEGED_KEYS).
   const projectLayers = projectConfigFiles(cwd).map((f) =>

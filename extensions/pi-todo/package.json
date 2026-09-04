@@ -1,6 +1,6 @@
 {
   "name": "pi-todo",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Workspace-scoped durable tasks for Pi: task-first /todos list, contextual actions, task history, and an optional compact editor status strip.",
   "license": "MIT",
   "type": "module",

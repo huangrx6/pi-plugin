@@ -1,86 +1,81 @@
 <!-- markdownlint-disable MD033 MD041 -->
-<p align="center">
-  <img src="../../assets/icons/mode-switcher.svg" alt="pi-mode-switcher" width="48" />
-</p>
+<h1 align="center">pi-mode-switcher</h1>
 
-# pi-mode-switcher
-
-<p align="center"><strong>每次工具调用前的权限门：ask / smart / full。</strong></p>
+<p align="center">在工具执行前切换确认策略：ask、smart、full。</p>
 
 <p align="center">
-  <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
+  <img alt="Node.js 20+" src="https://img.shields.io/badge/node-%E2%89%A520-555?style=flat-square" />
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
-拦截 Pi 的 `tool_call` 事件，在工具运行前决定放行、确认或阻止。这是整条工具调用链上唯一的权限层；任务流路由、提示注入与会话管理不在其范围内。
+通过 Pi 原生确认框控制工具调用。日常使用默认的 `smart`，需要逐项检查时切换到 `ask`；当前模式会保存，下一次启动继续使用。
 
-## 模式
+## 快速开始
 
-| 模式 | 命令 | 行为 | 适用 |
-| --- | --- | --- | --- |
-| Ask | `/mode ask` | 所有写入 / 网络 / 未知工具都弹确认框 | 想看到每一步 |
-| Smart（默认） | `/mode smart` | 仅危险操作（`rm -rf`、`sudo`、`git push --force`…）弹确认，其余放行 | 日常开发 |
-| Full | `/mode full` | 零对话框，全部放行 | 高信任 / 自动化 |
-
-无参数执行 `/mode` 打开原生选择器：当前模式排在首位，取消静默返回。
-
-## 行为矩阵
-
-| 工具调用 | ask | smart | full |
-| --- | --- | --- | --- |
-| `read` / `ls` / `grep` / `find` | 放行 | 放行 | 放行 |
-| 只读 bash（`ls`、`cat`、`git status`） | 放行 | 放行 | 放行 |
-| 文件写入（`write` / `edit` / `apply_patch`） | 确认 | 放行 | 放行 |
-| 网络（`curl` / `wget` / `fetch_content` / `web_search`） | 确认 | 放行 | 放行 |
-| MCP 工具 / 未知工具 | 确认 | 放行 | 放行 |
-| 写入 bash（`git push`、`rm`、`tee`、`mkdir`） | 确认 | 放行 | 放行 |
-| 危险 bash（`rm -rf`、`sudo`、`mkfs`、`git push --force`） | 确认 | 确认 | 放行 |
-
-## 复合命令安全
-
-v0.1.1 修复过一个真实漏洞：`echo hi && rm -rf /x` 曾被整句判定为只读、在 ask 与 smart 模式下都直接放行。现在命令按 `&&` / `||` / `;` / `|` / 换行，以及 `$( )` 与反引号替换体拆段，**逐段独立分析**——任何无法证明只读的段落都会让整条命令按写入处理；管道进解释器（`curl … | sh`）按远程代码执行标记为危险。
-
-bash 判定是保守的正则启发式，不是 AST 解析；无法判定的情形一律落到更安全的一侧（写入）。
-
-## 状态与持久化
-
-- 模式写入 `~/.pi/agent/mode-switcher.json`，重启后恢复
-- 可选状态是主题化的纯文本（如 `⚙ 权限 smart`），仅作摘要——查看与切换始终可以通过 `/mode` 独立完成
-- 确认框文本先清理控制序列、再按显示宽度截断：命令、路径、URL 与查询不能注入控制字符，也不会截断半个中文字符
-
-## 安装
+在本扩展包目录中执行，单独安装此扩展：
 
 ```bash
-pi install git:github.com/huangrx6/pi-plugin
+pi install "$PWD"
 ```
 
-重启 Pi 或执行 `/reload`。零依赖、零配置。
+重启 Pi 或执行 `/reload`。输入 `/mode` 打开模式选择器，或用 `/mode ask` 直接切换。
+
+## 选择确认策略
+
+| 命令 | 行为 |
+| --- | --- |
+| `/mode ask` | 已知只读工具直接通过；命中写入判定的 Bash 和其他工具请求确认 |
+| `/mode smart` | 默认模式；仅对命中高风险判定的 Bash 请求确认 |
+| `/mode full` | 本扩展不请求确认，所有工具直接通过 |
+| `/mode` | 查看当前模式并选择；取消保留原模式 |
+
+确认框显示本次操作的命令、路径、URL 或查询摘要。拒绝后阻止该次工具执行，并把原因交给模型，不直接终止整个任务。
+
+## 实际行为
+
+| 调用类型 | ask | smart | full |
+| --- | --- | --- | --- |
+| `read`、`ls`、`grep`、`find`、`glob` | 通过 | 通过 | 通过 |
+| `write`、`edit`、`apply_patch` | 确认 | 通过 | 通过 |
+| 网络工具、MCP 工具、未知工具 | 确认 | 通过 | 通过 |
+| Bash：`ls`、`cat`、`git status` | 通过 | 通过 | 通过 |
+| Bash：`mkdir`、普通 `rm`、`git push` | 确认 | 通过 | 通过 |
+| Bash：`rm -rf`、`git reset --hard`、`git push --force` | 确认 | 确认 | 通过 |
+
+表格描述典型输入；具体 Bash 判定由命令文本决定。
+
+### Bash 识别的范围
+
+单条 Bash 命令使用**写入黑名单**：检查文件变更、重定向、部分 Git 操作、安装命令和常见网络命令。没有命中规则的单条命令可能直接通过，例如 `python3 script.py`，即使脚本内部会写文件。
+
+复合命令按 `&&`、`||`、`;`、管道、换行、命令替换拆段。`ask` 对其中无法匹配只读规则的片段请求确认；`smart` 仍只检查高风险规则。管道连接到解释器会触发风险确认。
+
+这是一组文本启发式，不解析完整 Shell 语法，也不检查脚本内容。它无法保证识别所有危险命令；`ask` 不代表所有写入必经批准，`smart` 不代表通过的操作已经安全验证。操作系统权限和沙箱隔离需要在运行环境中设置。
+
+## 状态与配置
+
+模式保存到 `~/.pi/agent/extensions-data/pi-mode-switcher/config.json`。设置 `PI_CODING_AGENT_DIR` 时，目录跟随宿主配置：
+
+```json
+{
+  "mode": "smart"
+}
+```
+
+新配置不存在时，兼容读取 agent 目录下的旧 `mode-switcher.json`；切换模式会创建新目录并写入新配置。新配置已经存在时始终以它为准，不回退到旧权限选择。文件不存在、内容无效或读取失败时使用 `smart`。切换通过 `/mode` 完成；写入配置失败不会中断当前会话，但下次启动可能无法恢复本次选择。
+
+界面发布简短的权限状态。查看与切换始终可通过 `/mode` 完成。确认框中的动态内容先清理控制序列，再按显示宽度裁切，避免长命令和路径撑开界面。
 
 ## 开发
 
+在本包目录运行：
+
 ```bash
-cd extensions/pi-mode-switcher
-npm run check      # tsc --noEmit
-npm test           # 复合命令风险 + CJK 宽度 + 控制序列回归
+npm ci
+npm run check
+npm test
 ```
 
-<details>
-<summary>文件结构</summary>
+`index.ts` 负责命令、权限判定和配置持久化；`display.ts` 负责确认框文本。测试覆盖复合命令、删除目标、宽度裁切及模式交互。
 
-```text
-pi-mode-switcher/
-├── index.ts          # tool_call 处理 + checkPermission + bash 启发式
-├── display.ts        # 对话框文本净化与显示宽度截断
-├── tests/            # 复合命令 / 显示 / 交互测试
-├── globals.d.ts      # Pi 运行时类型 ambient shim
-├── tsconfig.json
-├── package.json
-├── README.md
-└── LICENSE
-```
-
-</details>
-
-## License
-
-MIT © huangrx6
+[更新记录](CHANGELOG.md) · [MIT 许可证](LICENSE)

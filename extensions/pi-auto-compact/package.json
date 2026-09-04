@@ -1,0 +1,41 @@
+{
+  "name": "pi-auto-compact",
+  "version": "0.4.0",
+  "description": "Automatically compact Pi context at a configurable threshold and continue the interrupted task.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.15"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "auto-compact",
+    "context-management"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc -p . --noEmit && tsc -p tsconfig.runtime.json --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "files": [
+    "*.ts",
+    "tsconfig*.json",
+    "README.md",
+    "DESIGN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ]
+}

@@ -375,7 +375,7 @@ test("history-store: resolveHistoryPath", () => {
     resolveHistoryPath("rel.jsonl", "/tmp"),
     require("node:path").resolve("/tmp", "rel.jsonl"),
   );
-  assert.match(defaultHistoryPath(), /policy-engine\/history\.jsonl$/);
+  assert.match(defaultHistoryPath(), /policy-engine\/(?:state\/)?history\.jsonl$/);
 });
 
 test("history-store: round-trip via in-memory fs mock", async () => {

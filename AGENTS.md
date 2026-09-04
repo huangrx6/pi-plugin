@@ -1,6 +1,6 @@
 # AGENTS.md — huangrx6/pi-plugin 仓库规约
 
-个人 pi 扩展 monorepo。八个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-context-qos`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
+个人 pi 扩展 monorepo。八个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-auto-compact`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
 
 ## 扩展独立性（最高优先级约定）
 
@@ -21,6 +21,13 @@
   - >400 行 → 平铺多模块（quota-status 的 `adapters/format/render/state/types.ts`）
   - 带数据目录（policies/config/profiles）→ `extensions/<pkg>/index.js` 装配 + `src/core/` 纯逻辑（policy-engine）
 - `src/core/` 里的模块**不得 import pi 任何东西**——纯函数，独立可测。
+
+## 用户文件布局
+
+- 全局扩展配置与数据放在 `<agent-dir>/extensions-data/<完整包名>/`；`<agent-dir>` 跟随 `PI_CODING_AGENT_DIR`，默认 `~/.pi/agent`。
+- 用户配置为 `config.json`，跨会话任务和执行状态放 `state/`；按实际需要创建，不预建空目录或缓存层。
+- 自动压缩只使用配置，依托宿主会话保存记录，不另建归档数据库。迁移遗留数据保留在 `extensions-data/.backups/`，新运行时不读取它。
+- 各扩展独立解析自己的路径，不建立共享运行时依赖。
 
 ## Manifest 铁律（本次审查修的四个坑，全部成文化）
 

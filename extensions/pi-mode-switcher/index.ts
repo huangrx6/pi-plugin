@@ -23,7 +23,9 @@
  *    `rm /`, `rm /*`, and wildcard deletes are still caught.
  */
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { formatInline } from "./display.ts";
@@ -53,11 +55,27 @@ const READ_TOOLS = new Set(["read", "ls", "grep", "find", "glob"]);
 // Persistence
 // ---------------------------------------------------------------------------
 
-const CONFIG_PATH = `${process.env.HOME ?? process.env.USERPROFILE}/.pi/agent/mode-switcher.json`;
+function defaultAgentDir(): string {
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  if (!configured) return join(homedir(), ".pi", "agent");
+  if (configured === "~") return homedir();
+  return configured.startsWith("~/")
+    ? join(homedir(), configured.slice(2))
+    : configured;
+}
 
-function loadPersistedMode(): Mode {
+export function modeConfigPaths(agentDir = defaultAgentDir()) {
+  return {
+    current: join(agentDir, "extensions-data", "pi-mode-switcher", "config.json"),
+    legacy: join(agentDir, "mode-switcher.json"),
+  };
+}
+
+export function loadPersistedMode(agentDir = defaultAgentDir()): Mode {
+  const paths = modeConfigPaths(agentDir);
   try {
-    const parsed = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
+    const path = existsSync(paths.current) ? paths.current : paths.legacy;
+    const parsed = JSON.parse(readFileSync(path, "utf-8"));
     return parsed.mode === "ask" ||
       parsed.mode === "smart" ||
       parsed.mode === "full"
@@ -68,9 +86,11 @@ function loadPersistedMode(): Mode {
   }
 }
 
-function persistMode(mode: Mode): void {
+export function persistMode(mode: Mode, agentDir = defaultAgentDir()): void {
   try {
-    writeFileSync(CONFIG_PATH, JSON.stringify({ mode }, null, 2), "utf-8");
+    const path = modeConfigPaths(agentDir).current;
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${JSON.stringify({ mode }, null, 2)}\n`, "utf-8");
   } catch {
     // non-fatal
   }

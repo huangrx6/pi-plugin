@@ -97,12 +97,23 @@ if [[ ! -d "$SOURCE/.git" ]]; then
 fi
 
 mkdir -p "$TARGET"
+for ext in "${SELECTED[@]}"; do
+  if [[ ! -d "$SOURCE/extensions/$ext" ]]; then
+    echo "仓库副本中缺少 $ext，请先在 $SOURCE 执行 git pull --ff-only，再重新运行安装器。" >&2
+    exit 1
+  fi
+done
 echo ""
 echo "安装 ${#SELECTED[@]} 个 extension 到 ${TARGET}："
 for ext in "${SELECTED[@]}"; do
   src="$SOURCE/extensions/$ext"
   dst="$TARGET/$ext"
   ln -sfn "$src" "$dst"
+  # Remove only the obsolete link created by this installer after the rename.
+  if [[ "$ext" == "pi-auto-compact" && -L "$TARGET/pi-context-qos" ]] &&
+     [[ "$(readlink "$TARGET/pi-context-qos")" == "$SOURCE/extensions/pi-context-qos" ]]; then
+    rm "$TARGET/pi-context-qos"
+  fi
   echo "  🔗 $dst → $src"
 done
 
