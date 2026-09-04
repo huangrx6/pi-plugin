@@ -212,11 +212,6 @@ export function emptyTaskNotice(kind: MenuTaskKind): string {
 	}
 }
 
-/** Notice shown when the user cancels a picker (Esc). */
-export function cancelledNotice(): string {
-	return "已取消";
-}
-
 /** Headless fallback: the catalog as a plain text table. */
 export function fallbackMenuText(): string {
 	return [

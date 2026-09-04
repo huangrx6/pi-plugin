@@ -21,6 +21,7 @@ import { readFile } from "node:fs/promises";
 import { describe, it } from "node:test";
 
 import { formatTaskDetailRich } from "./task-detail-format.ts";
+import { visibleWidth } from "./format.ts";
 import { queryWhyTask } from "./graph-query.ts";
 import { formatWhyTask } from "./graph-format.ts";
 import type { Task, TaskState } from "./types.ts";
@@ -200,6 +201,19 @@ describe("task-detail-format: Task.description (LOCK 28)", () => {
   const lines = formatTaskDetailRich(state, 17, 80);
   const frozen = formatWhyTask(queryWhyTask(state, 17), 80);
   assert.deepEqual(lines, frozen);
+ });
+
+ it("sanitizes and wraps unspaced CJK and emoji descriptions to terminal width", () => {
+  const state: TaskState = {
+   tasks: [mk(17, "安全详情", "pending", {
+    description: "第一段\x1b]9;fake\x07这是没有空格的中文描述🙂用于验证窄终端",
+   })],
+   nextId: 100,
+  };
+  const lines = formatTaskDetailRich(state, 17, 12);
+  const descriptionStart = lines.indexOf("") + 1;
+  assert.ok(lines.slice(descriptionStart).every(line => visibleWidth(line) <= 12));
+  assert.doesNotMatch(lines.join("\n"), /fake|\x1b/);
  });
 });
 

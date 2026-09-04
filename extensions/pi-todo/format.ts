@@ -26,18 +26,69 @@ import type {
  * neighbouring output reads.
  */
 export function sanitizeTerminalText(value: string): string {
-   return value
-      .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g, "")
-      .replace(
-         /(?:\u001b\]|\u009d)[^\u0007\u009c\u001b]*(?:\u0007|\u009c|\u001b\\)?/g,
-         "",
-      )
-      .replace(/\u001b./g, "")
-      .replace(/[\u2028\u2029]/g, " ")
-      .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) =>
-         c === "\n" || c === "\r" || c === "\t" ? " " : "",
-      )
-      .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "");
+   let result = "";
+   for (let i = 0; i < value.length; i += 1) {
+      const code = value.charCodeAt(i);
+
+      // CSI: consume through its final byte. An incomplete sequence owns
+      // the remainder, which must not become visible terminal text.
+      if (code === 0x9b || (code === 0x1b && value.charCodeAt(i + 1) === 0x5b)) {
+         i += code === 0x1b ? 2 : 1;
+         while (i < value.length && !isEscapeFinal(value.charCodeAt(i))) i += 1;
+         continue;
+      }
+
+      // OSC, DCS, SOS, PM and APC control strings. They end at BEL (OSC)
+      // or ST; an unterminated string is discarded through end-of-input.
+      const next = value.charCodeAt(i + 1);
+      const stringKind = code === 0x1b && [0x5d, 0x50, 0x58, 0x5e, 0x5f].includes(next)
+         ? next
+         : [0x9d, 0x90, 0x98, 0x9e, 0x9f].includes(code)
+           ? code
+           : undefined;
+      if (stringKind !== undefined) {
+         const osc = stringKind === 0x5d || stringKind === 0x9d;
+         i += code === 0x1b ? 2 : 1;
+         while (i < value.length) {
+            const current = value.charCodeAt(i);
+            if ((osc && current === 0x07) || current === 0x9c) break;
+            if (current === 0x1b && value.charCodeAt(i + 1) === 0x5c) {
+               i += 1;
+               break;
+            }
+            i += 1;
+         }
+         continue;
+      }
+
+      // Other ESC sequences may contain intermediate bytes before a final
+      // byte (for example charset selection). Consume the complete unit.
+      if (code === 0x1b) {
+         i += 1;
+         while (i < value.length && value.charCodeAt(i) >= 0x20 && value.charCodeAt(i) <= 0x2f) i += 1;
+         continue;
+      }
+
+      if (code === 0x2028 || code === 0x2029 || code === 0x0a || code === 0x0d || code === 0x09) {
+         result += " ";
+      } else if (
+         (code >= 0x00 && code <= 0x1f) ||
+         (code >= 0x7f && code <= 0x9f) ||
+         code === 0x200e ||
+         code === 0x200f ||
+         (code >= 0x202a && code <= 0x202e) ||
+         (code >= 0x2066 && code <= 0x2069)
+      ) {
+         continue;
+      } else {
+         result += value[i];
+      }
+   }
+   return result;
+}
+
+function isEscapeFinal(code: number): boolean {
+   return code >= 0x40 && code <= 0x7e;
 }
 
 /** `[status] #id subject (activeForm) ⛓ #deps` — the list content line. */
@@ -306,6 +357,13 @@ const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 function charWidth(segment: string): number {
    if (/^\p{Mark}+$/u.test(segment)) return 0;
+   if (
+      /\p{Extended_Pictographic}/u.test(segment) ||
+      /\p{Regional_Indicator}/u.test(segment) ||
+      segment.includes("\ufe0f") ||
+      segment.includes("\u20e3")
+   )
+      return 2;
    const code = segment.codePointAt(0) ?? 0;
    if (
       (code >= 0x1f000 && code <= 0x1ffff) ||
@@ -342,18 +400,21 @@ export function truncateToWidth(
    let result = "";
    let used = 0;
    let cursor = 0;
-   const single = new RegExp(ANSI.source);
+   const single = new RegExp(ANSI.source, "g");
+   let sawAnsi = false;
    let m: RegExpExecArray | null;
    while ((m = single.exec(text)) !== null) {
       for (const { segment } of segmenter.segment(
          text.slice(cursor, m.index),
       )) {
          const w = charWidth(segment);
-         if (used + w > target) return result + suffix + "\x1b[0m";
+         if (used + w > target)
+            return result + suffix + (sawAnsi ? "\x1b[0m" : "");
          result += segment;
          used += w;
       }
       result += m[0];
+      sawAnsi = true;
       cursor = m.index + m[0].length;
    }
    for (const { segment } of segmenter.segment(text.slice(cursor))) {
@@ -362,7 +423,7 @@ export function truncateToWidth(
       result += segment;
       used += w;
    }
-   return result + suffix + "\x1b[0m";
+   return result + suffix + (sawAnsi ? "\x1b[0m" : "");
 }
 
 // ── B2 presentation primitives ─────────────────────────────────────────────────
@@ -470,7 +531,11 @@ export function planTaskRowParts(
    const prefixWidth = displayWidth(prefix);
    if (prefixWidth >= width) {
       // Prefix itself doesn't fit — truncate it (rare; only in extreme widths).
-      return { prefix: truncateToWidth(prefix, width, "…"), subject: "", depsSuffix: "" };
+      return {
+         prefix: truncateToWidth(prefix, width, "…"),
+         subject: "",
+         depsSuffix: "",
+      };
    }
 
    const subjectSpace = width - prefixWidth - 1;

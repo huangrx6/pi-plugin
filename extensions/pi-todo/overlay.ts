@@ -27,7 +27,7 @@
  * session-local state is no longer a production read source.
  */
 
-import { formatTaskRow, formatTaskRowStyled } from "./format.ts";
+import { formatTaskRow, formatTaskRowStyled, truncateToWidth, visibleWidth } from "./format.ts";
 import { projectActiveView } from "./projection.ts";
 import { buildDependencyPresentation } from "./read-model.ts";
 import type { ScopeKey } from "./persistence-contract.ts";
@@ -242,9 +242,7 @@ function renderSection(
       dependencies: depsMap.get(t.id),
     };
     lines.push(
-      theme
-        ? formatTaskRowStyled(t, ctx, theme)
-        : formatTaskRow(t, ctx),
+      theme ? formatTaskRowStyled(t, ctx, theme) : formatTaskRow(t, ctx),
     );
   }
   if (tasks.length > budget) {
@@ -254,6 +252,20 @@ function renderSection(
   return lines;
 }
 
+/** Default editor strip: current task and progress, at most two short lines. */
+export function renderCompactOverlay(state: TaskState, width: number, theme?: OverlayTheme): string[] {
+  const view = projectActiveView(state);
+  if (!view.counts.active || width < 1) return [];
+  const task = view.running[0] ?? view.ready[0] ?? view.blocked[0];
+  if (!task) return [];
+  const role = view.running.length ? "running" : view.ready.length ? "ready" : "blocked";
+  const progress = `${view.counts.completedVisible}/${view.counts.active + view.counts.completedVisible} 已完成 · /todos`;
+  const row = formatTaskRow(task, { role, width });
+  const combined = `${row} · ${progress}`;
+  const lines = visibleWidth(combined) <= width ? [combined] : [row, truncateToWidth(progress, width)];
+  return theme ? lines.map((line, index) => theme.fg(index === 0 ? "accent" : "dim", line)) : lines;
+}
+
 // ── Widget class (registration lifecycle only) ────────────────────────────
 
 export class TodoOverlay {
@@ -261,11 +273,23 @@ export class TodoOverlay {
   private registered = false;
   private tui: { requestRender(force?: boolean): void } | undefined;
   private theme: OverlayTheme | undefined;
+  private mode: "compact" | "full" | "hidden" = "compact";
 
   constructor(
     private readonly cache: OverlaySnapshotCache,
     private readonly scopeGetter: () => ScopeKey | undefined,
   ) {}
+
+  setMode(mode: "compact" | "full" | "hidden"): void {
+    this.mode = mode;
+    this.update();
+  }
+
+  private render(width: number): string[] {
+    if (this.mode === "hidden") return [];
+    return this.mode === "full" ? renderOverlay(this.currentState(), width, this.theme)
+      : renderCompactOverlay(this.currentState(), width, this.theme);
+  }
 
   setUICtx(ctx: UICtx): void {
     // Identity compare: repeat session_start on the same ctx is a no-op;
@@ -291,8 +315,7 @@ export class TodoOverlay {
 
   update(): void {
     if (!this.uiCtx) return;
-    const state = this.currentState();
-    const lines = renderOverlay(state, 80);
+    const lines = this.render(80);
     if (lines.length === 0) {
       if (this.registered) {
         this.uiCtx.setWidget(WIDGET_KEY, undefined);
@@ -311,7 +334,7 @@ export class TodoOverlay {
           this.theme = theme;
           return {
             render: (width: number) =>
-              renderOverlay(this.currentState(), width, this.theme),
+              this.render(width),
             invalidate: () => {},
             dispose: () => {
               this.tui = undefined;

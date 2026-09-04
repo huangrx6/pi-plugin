@@ -130,31 +130,43 @@ describe("formatTaskRowStyled", () => {
 		assert.ok(line.includes(" 工作 "));
 		assert.ok(line.includes("← #3"));
 		// Stripped content equals the plain rendering.
-		assert.equal(stripAnsi(line), formatTaskRow(
-			buildTestTask({ id: 12, subject: "工作", blockedBy: [3] }),
-			{ role: "running", width: 64, dependencies: [{ id: 3, kind: "waiting" }] },
-		));
+		assert.equal(
+			stripAnsi(line),
+			formatTaskRow(buildTestTask({ id: 12, subject: "工作", blockedBy: [3] }), {
+				role: "running",
+				width: 64,
+				dependencies: [{ id: 3, kind: "waiting" }],
+			}),
+		);
 	});
 
 	it("role → color mapping (ready text, blocked muted, completed dim, archived dim)", () => {
-		const cases: Array<[typeof ROLE_CASES[number], string, string]> = [
+		const cases: Array<[(typeof ROLE_CASES)[number], string, string]> = [
 			["ready", "◆ #1", "text"],
 			["blocked", "○ #1", "muted"],
 			["completed", "✓ #1", "dim"],
 			["archived", "· #1", "dim"],
 		];
 		for (const [role, prefix, color] of cases) {
-			const line = formatTaskRowStyled(buildTestTask({ id: 1 }), {
-				role,
-				width: 40,
-			}, fakeTheme);
+			const line = formatTaskRowStyled(
+				buildTestTask({ id: 1 }),
+				{
+					role,
+					width: 40,
+				},
+				fakeTheme,
+			);
 			assert.ok(line.startsWith(wrap(color, prefix)), `${role}: ${line}`);
 		}
 	});
 
 	it("width <= 0 → empty string", () => {
 		assert.equal(
-			formatTaskRowStyled(buildTestTask({ id: 1 }), { role: "ready", width: 0 }, fakeTheme),
+			formatTaskRowStyled(
+				buildTestTask({ id: 1 }),
+				{ role: "ready", width: 0 },
+				fakeTheme,
+			),
 			"",
 		);
 	});
@@ -235,10 +247,7 @@ describe("todo tool TUI renderers (v0.6)", () => {
 			args: unknown,
 			theme: unknown,
 		) => { render(w: number): string[] };
-		const comp = theme(
-			{ action: "create", subject: "写文档" },
-			fakeTheme,
-		);
+		const comp = theme({ action: "create", subject: "写文档" }, fakeTheme);
 		const line = comp.render(80)[0]!;
 		assert.ok(line.startsWith(wrap("dim", "todo ")));
 		assert.ok(line.includes(wrap("muted", "create")));

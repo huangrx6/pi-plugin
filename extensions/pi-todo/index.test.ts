@@ -2121,12 +2121,12 @@ describe("P4-C1: cold-start bootstrap", () => {
 			commandRegistry.ctx,
 		);
 
-		// Widget must show both #17 (in_progress) and #18 (pending)
+		// Compact widget shows the current task and total progress
 		// WITHOUT any /todos command being invoked.
 		const rendered = widgetCalls[widgetCalls.length - 1]?.rendered?.[0] ?? [];
 		const out = rendered.join("\n");
 		assert.match(out, /▶ #17/);
-		assert.match(out, /◆ #18/);
+		assert.match(out, /0\/2 已完成/);
 	});
 
 	// 5. /todos ready after bootstrap performs its OWN durable load — does
@@ -2757,21 +2757,21 @@ describe("v1.1: /todos command panel", () => {
 		await handler(args, commandRegistry.ctx);
 	}
 
-	it("no-args opens the panel with the catalog (title + key rows)", async () => {
+	it("commands opens the compatibility catalog (title + key rows)", async () => {
 		const calls: Array<{ title: string; options: string[] }> = [];
 		commandRegistry.setSelect(async (title, options) => {
 			calls.push({ title, options });
 			return undefined;
 		});
 		notices.length = 0;
-		await runTodos("");
+		await runTodos("commands");
 		assert.equal(calls.length, 1, "exactly one level-1 picker");
 		assert.equal(calls[0]!.title, MENU_TITLE);
 		const rows = calls[0]!.options.join("\n");
 		assert.match(rows, /^here — /m);
 		assert.match(rows, /^finish — /m);
 		assert.match(rows, /^总览 — /m);
-		assert.equal(notices[0]?.message, "已取消");
+		assert.equal(notices.length, 0, "cancelling the compatibility panel is silent");
 	});
 
 	it("总览 row renders the default bounded overview", async () => {
@@ -2781,7 +2781,7 @@ describe("v1.1: /todos command panel", () => {
 		]);
 		stubSelectOverview();
 		notices.length = 0;
-		await runTodos("");
+		await runTodos("commands");
 		const out = notices[0]?.message ?? "";
 		assert.match(out, /▶ #17/);
 		assert.match(out, /◆ #18/);
@@ -2802,7 +2802,7 @@ describe("v1.1: /todos command panel", () => {
 			return pick;
 		});
 		notices.length = 0;
-		await runTodos("");
+		await runTodos("commands");
 		// Level-2 picker was offered the running task.
 		assert.equal(calls.length, 2);
 		assert.match(calls[1]!.title, /选择要完成的任务/);
@@ -2825,7 +2825,7 @@ describe("v1.1: /todos command panel", () => {
 			return pick;
 		});
 		notices.length = 0;
-		await runTodos("");
+		await runTodos("commands");
 		if (!currentTp) throw new Error("tp not initialized");
 		const env = await currentTp.store.load(INDEX_TEST_SCOPE);
 		assert.ok(env.state.tasks.find((t) => t.id === 1)?.archivedAt !== undefined);
@@ -2841,7 +2841,7 @@ describe("v1.1: /todos command panel", () => {
 				: undefined;
 		});
 		notices.length = 0;
-		await runTodos("");
+		await runTodos("commands");
 		assert.equal(calls.length, 1, "level-2 picker must not open on empty list");
 		assert.equal(notices[0]?.message, "没有进行中的任务");
 		assert.equal(notices[0]?.level, "info");
@@ -2857,7 +2857,7 @@ describe("v1.1: /todos command panel", () => {
 		uiObj.select = undefined;
 		try {
 			notices.length = 0;
-			await runTodos("");
+			await runTodos("commands");
 			const out = notices[0]?.message ?? "";
 			assert.match(out, /^用法: \/todos <命令>$/m);
 			assert.match(out, /here — /);
@@ -2877,6 +2877,71 @@ describe("v1.1: /todos command panel", () => {
 });
 
 // ── Tool registration contract ─────────────────────────────────────────
+
+describe("task-first interaction", () => {
+  async function openList() {
+    await pendingSeed;
+    pendingSeed = undefined;
+    await commandRegistry.handlers.get("todos")!("", commandRegistry.ctx);
+  }
+  it("opens tasks directly and cancelling does not notify or mutate", async () => {
+    seedTestState(buildTestTask({ id: 17, status: "in_progress" }));
+    let shown: string[] = [];
+    commandRegistry.setSelect(async (_title, rows) => { shown = rows; return undefined; });
+    await openList();
+    assert.match(shown[0]!, /#17/);
+    assert.ok(!shown.some(row => row.startsWith("finish —")));
+    assert.equal(notices.length, 0);
+    assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).revision, 1);
+  });
+
+  it("selects a task then completes it through the existing mutation path", async () => {
+    seedTestState(buildTestTask({ id: 17, status: "in_progress" }));
+    let step = 0;
+    commandRegistry.setSelect(async (_title, rows) => {
+      step++;
+      if (step === 1) return rows.find(row => row.includes("#17"));
+      if (step === 2) return rows.find(row => row.startsWith("finish —"));
+      return undefined;
+    });
+    await openList();
+    assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).state.tasks[0]?.status, "completed");
+    assert.match(notices[0]?.message ?? "", /Finished/);
+  });
+
+  it("keeps history secondary and gives it only historical rows plus return", async () => {
+    seedTestState(
+      buildTestTask({ id: 17, status: "in_progress" }),
+      buildTestTask({ id: 18, status: "completed" }),
+    );
+    const views: string[][] = [];
+    commandRegistry.setSelect(async (_title, rows) => {
+      views.push(rows);
+      if (views.length === 1) return rows.find(row => row.startsWith("历史"));
+      return undefined;
+    });
+    await openList();
+    assert.ok(views[0]?.some(row => row.includes("#17")));
+    assert.ok(!views[0]?.some(row => row.includes("#18")));
+    assert.ok(views[1]?.some(row => row.includes("#18")));
+    assert.ok(views[1]?.some(row => row.startsWith("返回")));
+    assert.ok(!views[1]?.some(row => /^(新增|总览|历史)/.test(row)));
+    assert.equal(notices.length, 0);
+  });
+
+  it("creates a task from the list without asking the model to interpret a command", async () => {
+    let step = 0;
+    commandRegistry.setSelect(async (_title, rows) => ++step === 1 ? rows.find(row => row.startsWith("新增")) : undefined);
+    const ui = commandRegistry.ctx.ui as unknown as { input?: () => Promise<string> };
+    const original = ui.input;
+    ui.input = async () => "补充回归测试";
+    try {
+      await openList();
+      assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).state.tasks[0]?.subject, "补充回归测试");
+    } finally { ui.input = original; }
+  });
+});
+
 //
 // Production regression: a strict OpenAI-compatible provider rejected
 // `tools.function.parameters` = `[]` ("expected an object, but got []

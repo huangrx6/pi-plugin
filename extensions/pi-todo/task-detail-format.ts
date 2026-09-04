@@ -45,7 +45,7 @@
  *      composed from the typed result via `formatDirectUnlockConsequences`.
  */
 
-import { visibleWidth } from "./format.ts";
+import { sanitizeTerminalText, visibleWidth } from "./format.ts";
 import { queryUnlocksTask, queryWhyTask } from "./graph-query.ts";
 import { formatWhyTask } from "./graph-format.ts";
 import { formatDirectUnlockConsequences } from "./direct-unlock-format.ts";
@@ -75,23 +75,21 @@ function lookupDescription(state: TaskState, id: number): string {
  * than `width` are hard-broken to fit. Empty input → `[""]`.
  */
 function wrapText(text: string, width: number): string[] {
- if (width <= 0) return [text];
+ const safe = sanitizeTerminalText(text);
+ if (width <= 0) return [safe];
  const result: string[] = [];
- const words = text.split(/\s+/).filter((w) => w.length > 0);
- if (words.length === 0) return [""];
+ const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(safe);
  let current = "";
- for (const word of words) {
-  if (current === "") {
-   current = word;
-  } else if (visibleWidth(current + " " + word) <= width) {
-   current = current + " " + word;
-  } else {
-   result.push(current);
-   current = word;
-  }
+ for (const { segment } of graphemes) {
+  const normalized = /\s/u.test(segment) ? " " : segment;
+  if (normalized === " " && (current === "" || current.endsWith(" "))) continue;
+  if (current !== "" && visibleWidth(current + normalized) > width) {
+   result.push(current.trimEnd());
+   current = normalized === " " ? "" : normalized;
+  } else current += normalized;
  }
- if (current !== "") result.push(current);
- return result;
+ if (current.trimEnd() !== "") result.push(current.trimEnd());
+ return result.length > 0 ? result : [""];
 }
 
 export function formatTaskDetailRich(

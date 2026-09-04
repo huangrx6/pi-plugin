@@ -16,7 +16,6 @@ import {
 	BATCH_ARCHIVE_ALL,
 	BATCH_RESTORE_ALL,
 	buildTaskOptions,
-	cancelledNotice,
 	emptyTaskNotice,
 	fallbackMenuText,
 	isBatchRow,
@@ -222,10 +221,6 @@ describe("menu-panel: notices + fallback", () => {
 		for (const kind of kinds) {
 			assert.ok(taskPickerTitle(kind).length > 0);
 		}
-	});
-
-	it("cancelledNotice returns 已取消", () => {
-		assert.equal(cancelledNotice(), "已取消");
 	});
 
 	it("fallbackMenuText is a usage table containing every row", () => {

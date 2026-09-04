@@ -24,6 +24,7 @@ import {
   formatTaskDetail,
   formatTaskRow,
   formatTodosSnapshot,
+  sanitizeTerminalText,
   truncateToWidth,
   visibleWidth,
 } from "./format.ts";
@@ -104,14 +105,40 @@ describe("displayWidth / truncateToWidth", () => {
 
   it("truncateToWidth: too long → suffix appended, content truncated", () => {
     const out = truncateToWidth("abcdefghij", 6, "…");
-    // Existing truncateToWidth appends ANSI reset which makes .length
-    // longer than input. We assert on visibleWidth + suffix presence.
     assert.ok(out.includes("…"));
-    assert.ok(displayWidth(out.replace(/\x1b\[0m/g, "")) <= 6);
+    assert.ok(displayWidth(out) <= 6);
+    assert.doesNotMatch(out, /\x1b/);
+  });
+
+  it("colored text truncates without hanging and closes trusted styling", () => {
+    const out = truncateToWidth("\x1b[31m中文🙂abcdef\x1b[0m", 7);
+    assert.ok(visibleWidth(out) <= 7);
+    assert.match(out, /\x1b\[31m/);
+    assert.match(out, /\x1b\[0m$/);
+  });
+
+  it("emoji clusters, flags, keycaps and combining text use terminal columns", () => {
+    assert.equal(displayWidth("👩‍💻"), 2);
+    assert.equal(displayWidth("🇨🇳"), 2);
+    assert.equal(displayWidth("1️⃣"), 2);
+    assert.equal(displayWidth("e\u0301"), 1);
   });
 
   it("visibleWidth (existing helper) matches displayWidth on plain ASCII", () => {
     assert.equal(displayWidth("hello"), visibleWidth("hello"));
+  });
+});
+
+describe("terminal text sanitizer", () => {
+  it("drops complete and incomplete terminal control strings with their payload", () => {
+    assert.equal(sanitizeTerminalText("前\x1b]9;notify\x07后"), "前后");
+    assert.equal(sanitizeTerminalText("前\x1bPpayload\x1b\\后"), "前后");
+    assert.equal(sanitizeTerminalText("保留\x1b]9;unterminated"), "保留");
+    assert.equal(sanitizeTerminalText("保留\x1b[31"), "保留");
+  });
+
+  it("flattens layout controls and removes bidi overrides", () => {
+    assert.equal(sanitizeTerminalText("a\nb\tc\u202ed"), "a b cd");
   });
 });
 

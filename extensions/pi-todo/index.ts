@@ -19,7 +19,7 @@ import {
 import { applyTaskMutation } from "./reducer.ts";
 import { buildMutationPlan, applyMutationPlan } from "./mutation-executor.ts";
 import { buildMutationOutcome } from "./mutation-outcome.ts";
-import { formatContent, formatTaskRow, formatTasksList } from "./format.ts";
+import { formatContent, formatTaskRow, formatTasksList, sanitizeTerminalText, truncateToWidth } from "./format.ts";
 import { formatBoundedOverview } from "./overview-format.ts";
 import { parseGraphCommand } from "./graph-command.ts";
 import { formatCurrentTask } from "./current-task-format.ts";
@@ -34,7 +34,6 @@ import {
  BATCH_ARCHIVE_ALL,
  MENU_TITLE,
  buildTaskOptions,
- cancelledNotice,
  emptyTaskNotice,
  fallbackMenuText,
  isBatchRow,
@@ -85,6 +84,7 @@ import {
  formatMutationError,
  formatMutationOutcome,
 } from "./mutation-format.ts";
+import { taskListRows, taskActions } from "./task-panel.ts";
 import { parseTodosCommand } from "./parse-todos-command.ts";
 
 const TOOL_NAME = "todo";
@@ -100,8 +100,8 @@ const DEFAULT_PROMPT_SNIPPET =
 
 const DEFAULT_PROMPT_GUIDELINES: string[] = [
  "When to CREATE: (1) the user asks you to plan, break down work, or make tasks / a todo list (e.g. 制定任务, 列个计划, 拆解一下, create a plan, break this down) — ALWAYS create todo items via the tool; presenting the plan as plain text instead is a failure mode; (2) the work has 3+ steps; (3) the user hands you a list of tasks; (4) new multi-step instructions arrive. Skip it only for single trivial tasks.",
- "Mark a task in_progress BEFORE starting it. Keep exactly one task in_progress at a time. After EVERY successful tool call, BEFORE starting any new action, ask yourself: 'Did this tool call just close the task I had in_progress?' If yes, update its status to completed FIRST, then proceed to the next action. Never batch completions at end-of-turn.",
- "Mark a task completed EXACTLY ONCE all three hold: (a) every tool call tagged to it returned without isError; (b) any test that exercises this task passes (or no test exists); (c) no unresolved error remains in the current tool result stream. If you cannot tick all three, KEEP the task in_progress and state which one is blocking in the activeForm. Do NOT use the vague 'implementation might be partial' rationale — it is unverifiable and the default fallback that causes tasks to stay open indefinitely.",
+ "Mark a task in_progress when beginning that unit of work; mark it completed when its acceptance criteria are met. Update at meaningful task transitions, not after every tool call. Keep the list aligned with actual progress.",
+ "Complete a task when its intended result and relevant validation are satisfied. Recovered intermediate errors do not prevent completion. If work is still blocked, describe the concrete remaining issue in activeForm.",
  "Status is pending → in_progress → completed, plus deleted tombstones (immutable; ids are never reused, even after clear).",
  'To change status: {"action":"update","id":3,"status":"completed"}. An update with no mutable field is rejected.',
  "blockedBy expresses dependencies (A blocked by B). Create: pass blockedBy. Update: addBlockedBy / removeBlockedBy (additive). Cycles and self-blocks are rejected.",
@@ -590,6 +590,7 @@ async function runReadCommand(
 interface MenuUi {
  notify: (msg: string, level?: string) => void;
  select?: (title: string, options: string[]) => Promise<string | undefined>;
+ input?: (title: string, initial?: string) => Promise<string | undefined>;
 }
 
 /**
@@ -615,10 +616,7 @@ async function runMenu(
  }
 
  const choice = await select(MENU_TITLE, menuRows());
- if (choice === undefined) {
-  ui.notify(cancelledNotice(), "info");
-  return;
- }
+ if (choice === undefined) return;
  const name = parseMenuChoice(choice);
  if (name === undefined) {
   ui.notify(fallbackMenuText(), "info");
@@ -644,10 +642,7 @@ async function runMenu(
   return;
  }
  const taskChoice = await select(taskPickerTitle(taskKind), options);
- if (taskChoice === undefined) {
-  ui.notify(cancelledNotice(), "info");
-  return;
- }
+ if (taskChoice === undefined) return;
  if (isBatchRow(taskChoice)) {
   await runMutationFlow(
    taskChoice === BATCH_ARCHIVE_ALL ? "archive completed" : "restore archived",
@@ -788,18 +783,7 @@ export default function factory(
   overlay.update();
  }
 
- // ── tool ──────────────────────────────────────────────────────────
-
- pi.registerTool({
-  name: TOOL_NAME,
-  label: "Todo",
-  description:
-   "Plan and track multi-step work as a task list. Actions: create, update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
-  promptSnippet: DEFAULT_PROMPT_SNIPPET,
-  promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
-  parameters: TODO_PARAMS_SCHEMA,
-
-  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+ async function executeTodo(params: TaskMutationParams, ctx: unknown): Promise<{ content: Array<{ type: "text"; text: string }>; details?: TodoDetails }> {
    const loaded = await loadEnvelope(ctx, persistence);
    if (loaded.ok !== true) {
     return {
@@ -861,7 +845,75 @@ export default function factory(
     nextId: commitResult.envelope.state.nextId,
    };
    return { content: [{ type: "text", text }], details };
-  },
+
+ }
+
+ async function runTaskList(ctx: unknown): Promise<void> {
+  const ui = (ctx as { ui: MenuUi }).ui;
+  if (!ui.select) { await runReadCommand("", ctx, persistence, overlayCache); return; }
+  let history = false;
+  while (true) {
+   const loaded = await loadEnvelope(ctx, persistence);
+   if (loaded.ok !== true) { reportLoadFailure(loaded, ui.notify); return; }
+   overlayCache.update(loaded.scope, loaded.envelope);
+   refreshOverlay();
+   const state = loaded.envelope.state;
+   const rows = taskListRows(state, history);
+   const navigation = history
+    ? ["返回 — 当前任务"]
+    : ["新增 — 添加任务", "总览 — 全部任务概览（进行中 / 可开始 / 被阻塞）", "历史 — 已完成与已归档"];
+   const choice = await ui.select(history ? "任务历史 · 选择任务后操作" : "任务 · 选择任务后操作", [...rows, ...navigation]);
+   if (choice === undefined) return;
+   if (choice.startsWith("历史")) { history = true; continue; }
+   if (choice.startsWith("返回")) { history = false; continue; }
+   if (choice.startsWith("总览")) { await runReadCommand("", ctx, persistence, overlayCache); return; }
+   let params: TaskMutationParams | undefined;
+   if (choice.startsWith("新增")) {
+    if (!ui.input) { ui.notify("当前界面不支持输入，请直接告诉模型要创建的任务。", "info"); return; }
+    const subject = await ui.input?.("新任务名称");
+    if (!subject?.trim()) return;
+    params = { action: "create", subject: subject.trim() };
+   } else {
+    if (!rows.includes(choice)) return;
+    const id = parseTaskIdFromChoice(choice);
+    if (id === undefined) return;
+    const action = await ui.select(formatTaskDetailRich(state, id, 72).slice(0, 8).join("\n"), taskActions(state, id));
+    if (action === undefined) continue;
+    const verb = action.split(/\s+—/)[0];
+    if (verb === "detail") { await runReadCommand(String(id), ctx, persistence, overlayCache); return; }
+    if (verb === "edit") {
+     const subject = await ui.input?.("修改任务名称", state.tasks.find(task => task.id === id)?.subject);
+     if (!subject?.trim()) continue;
+     params = { action: "update", id, subject: subject.trim() };
+    } else if (["start", "finish", "reopen", "archive", "restore"].includes(verb ?? "")) {
+     await runMutationFlow(`${verb} ${id}`, ctx, persistence, overlayCache);
+     refreshOverlay();
+     continue;
+    } else return;
+   }
+   if (params) {
+    try {
+     const result = await executeTodo(params, ctx);
+     const text = result.content[0]?.text ?? "";
+     ui.notify(text, text.startsWith("Error:") ? "error" : "info");
+     refreshOverlay();
+    } catch (error) { ui.notify(formatError(error), "error"); return; }
+   }
+  }
+ }
+
+ // ── tool ──────────────────────────────────────────────────────────
+
+ pi.registerTool({
+  name: TOOL_NAME,
+  label: "Todo",
+  description:
+   "Plan and track multi-step work as a task list. Actions: create, update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
+  promptSnippet: DEFAULT_PROMPT_SNIPPET,
+  promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
+  parameters: TODO_PARAMS_SCHEMA,
+
+  execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => executeTodo(params as TaskMutationParams, ctx),
 
   renderCall(args, theme) {
    const a = args as {
@@ -871,7 +923,7 @@ export default function factory(
     status?: string;
    };
    const what = a.subject
-    ? ` ${a.subject}`
+    ? ` ${sanitizeTerminalText(a.subject)}`
     : a.id === undefined
       ? ""
       : ` #${a.id}`;
@@ -879,10 +931,10 @@ export default function factory(
    // v0.6: verb in muted so the dim rest doesn't bury the action.
    const call =
     theme.fg("dim", "todo ") +
-    theme.fg("muted", String(a.action ?? "?")) +
-    theme.fg("dim", `${what}${extra}`);
+    theme.fg("muted", sanitizeTerminalText(String(a.action ?? "?"))) +
+    theme.fg("dim", `${what}${sanitizeTerminalText(extra)}`);
    return {
-    render: (_width: number) => [call],
+    render: (width: number) => [truncateToWidth(call, width)],
    };
   },
 
@@ -895,7 +947,7 @@ export default function factory(
    //     `todo list` reads with the same role colors as the overlay.
    // The LLM-facing text is untouched; this is display-only.
    const text = result?.content?.[0]?.text ?? "";
-   const lines = String(text).split("\n");
+   const lines = String(text).split("\n").map(sanitizeTerminalText);
    const lineColor = (line: string): string => {
     if (line.startsWith("Error:")) return "error";
     if (line.startsWith("✓")) return "success";
@@ -905,7 +957,7 @@ export default function factory(
    };
    if (opts?.expanded) {
     return {
-     render: (_width: number) => lines.map((l) => theme.fg(lineColor(l), l)),
+     render: (width: number) => lines.map((l) => theme.fg(lineColor(l), truncateToWidth(l, width))),
     };
    }
    const first = lines[0] ?? "";
@@ -913,7 +965,7 @@ export default function factory(
    if (lines.length > 1) {
     collapsed += theme.fg("muted", ` (+${lines.length - 1})`);
    }
-   return { render: (_width: number) => [collapsed] };
+   return { render: (width: number) => [truncateToWidth(collapsed, width)] };
   },
  });
 
@@ -921,10 +973,26 @@ export default function factory(
 
  pi.registerCommand(COMMAND_NAME, {
   description:
-   "Read or mutate the todo view. Read: /todos [ready|blocked|completed|archived|all|<id>]. Mutation: /todos start|finish|reopen|archive|restore ...",
+   "打开任务列表，选择任务后开始、完成或编辑；历史记录在次级视图。/todos commands 查看全部兼容命令。",
   handler: async (args, ctx) => {
    if (!ctx.hasUI) {
     ctx.ui.notify("/todos requires interactive mode", "error");
+    return;
+   }
+
+   if (String(args ?? "").trim().split(/\s+/)[0] === "display") {
+    const mode = String(args).trim().split(/\s+/)[1];
+    if (!["compact", "full", "hidden"].includes(mode ?? "")) {
+     ctx.ui.notify("用法: /todos display compact|full|hidden（本次会话）", "info");
+     return;
+    }
+    overlay ??= new TodoOverlay(overlayCache, getActiveScope);
+    overlay.setMode(mode as "compact" | "full" | "hidden");
+    ctx.ui.notify(`任务状态条：${mode}`, "info");
+    return;
+   }
+   if (String(args ?? "").trim() === "commands") {
+    await runMenu(ctx, persistence, overlayCache);
     return;
    }
 
@@ -971,7 +1039,7 @@ export default function factory(
    // keep working unchanged — the panel is a discovery entry, not a
    // replacement.
    if (String(args ?? "").trim() === "") {
-    await runMenu(ctx, persistence, overlayCache);
+    await runTaskList(ctx);
     return;
    }
    await runReadCommand(args, ctx, persistence, overlayCache);
