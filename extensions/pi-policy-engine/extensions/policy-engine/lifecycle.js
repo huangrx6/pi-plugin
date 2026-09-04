@@ -18,6 +18,8 @@
 //
 // v0.12 note still applies: no tool_call handler — model-behavior layer only.
 
+import { publishActivity, restoreActivity } from "./activity.js";
+
 import {
   APPROVAL_CONSTRAINT_RES,
   AUTONOMY_GRANT_RE,
@@ -102,6 +104,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     state.phase = "idle";
     state.lastDecision = null;
     state.lastPrompt = null;
+    state.lastActivity = restoreActivity(ctx?.sessionManager?.getBranch?.() ?? []);
     state.history = [];
     state.currentModel = cleanModel(ctx?.model) ?? state.currentModel;
     const cfg = buildEffectiveConfig({
@@ -182,7 +185,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       );
   });
 
-  pi.on("before_agent_start", async (event, ctx) => {
+  async function beforeAgentStart(event, ctx) {
     const state = getState();
     const prompt = String(event?.prompt ?? "");
     const cwd = ctx?.cwd ?? process.cwd();
@@ -369,6 +372,13 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (config.showStatus !== false)
       setStatus(ctx, `policy:${decision.rigor}/${state.phase}`);
     return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
+  }
+
+  pi.on("before_agent_start", async (event, ctx) => {
+    const result = await beforeAgentStart(event, ctx);
+    const injected = result?.systemPrompt?.slice(String(event.systemPrompt ?? "").length).trim() ?? "";
+    publishActivity(pi, getState(), ctx, injected);
+    return result;
   });
 
   pi.on("agent_end", async (_event, ctx) => {

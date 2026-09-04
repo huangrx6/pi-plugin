@@ -12,7 +12,11 @@ const smokeCwd = mkdtempSync(join(tmpdir(), "pi-policy-smoke-"));
 
 const handlers = new Map();
 const commands = new Map();
+const activityEntries = [];
+const entryRenderers = new Map();
 const pi = {
+  appendEntry(type, data) { activityEntries.push({ type, data }); },
+  registerEntryRenderer(type, render) { entryRenderers.set(type, render); },
   on(name, fn) {
     handlers.set(name, fn);
   },
@@ -55,6 +59,9 @@ const quick = await handlers.get("before_agent_start")(
 );
 assert.match(quick.systemPrompt, /Rigor: quick/);
 assert.match(quick.systemPrompt, /MiniMax M3 Adaptation/);
+assert.equal(activityEntries[0].data.injected, quick.systemPrompt.slice("BASE".length).trim());
+assert.ok(entryRenderers.has("policy-engine-activity"));
+const firstSnapshot = JSON.stringify(activityEntries[0].data);
 
 await handlers.get("agent_end")({}, ctx);
 
@@ -122,8 +129,9 @@ assert.equal(
 assert.equal(classifyPlanResponse("为什么这么设计？"), "discuss");
 assert.equal(classifyPlanResponse("先别做了"), "cancel");
 
+assert.equal(JSON.stringify(activityEntries[0].data), firstSnapshot, "later turns must not mutate an earlier explanation");
 await commands.get("policy").handler("why", ctx);
-assert.ok(notices.some((n) => String(n.message).includes("rigor: strict")));
+assert.ok(notices.some((n) => String(n.message).includes("严格流程")));
 
 rmSync(smokeCwd, { recursive: true, force: true });
 process.stdout.write("smoke-extension: OK\n");

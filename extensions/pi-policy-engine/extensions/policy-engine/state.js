@@ -31,6 +31,7 @@ export function createState() {
     runtimeProfile: null,
     onceMode: null,
     lastDecision: null,
+    lastActivity: null,
     lastPrompt: null,
     // Single source of truth for the strict-workflow state machine:
     // idle / planning / awaiting_approval / executing.

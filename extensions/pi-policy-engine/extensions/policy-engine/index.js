@@ -13,6 +13,7 @@
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 
+import { ACTIVITY_TYPE, activityRows } from "./activity.js";
 import { createCommandHandler } from "./commands.js";
 import { findPackageRoot } from "./helpers.js";
 import { registerLifecycleHandlers } from "./lifecycle.js";
@@ -23,10 +24,17 @@ const PACKAGE_ROOT = findPackageRoot(here);
 
 export default function policyEngine(pi) {
   const state = createState();
+  pi.registerEntryRenderer?.(ACTIVITY_TYPE, (entry, options, theme) => ({
+    render(width) {
+      return activityRows(entry.data, options.expanded, width)
+        .map(row => theme.fg(row.tone, row.text));
+    },
+    invalidate() {},
+  }));
 
   pi.registerCommand("policy", {
     description:
-      "Policy engine: mode / profile / once / status / why / cancel / reset",
+      "查看本次策略行为、实际注入的要求与当前流程；设置模式和配置档。",
     handler: createCommandHandler({
       packageRoot: PACKAGE_ROOT,
       getState: () => state,

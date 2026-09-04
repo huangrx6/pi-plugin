@@ -1,4 +1,4 @@
-# Design — pi-policy-engine v0.23
+# Design — pi-policy-engine v0.25.1
 
 ## 1. Design goal
 
@@ -386,9 +386,11 @@ If the extension evolves toward scheduler, DAG engine, worker pool, subagent
 graph, generalized orchestration runtime, or tool-permission enforcement,
 it has exceeded its intended boundary.
 
-## 13. Independence from sibling extensions
+## 13. Runtime boundary
 
-Extensions in this monorepo are independent packages: no cross-imports, no
-cross-tests, no cross-doc links. This extension follows that rule — it never
-references another extension's existence in code, tests, or documentation
-beyond a generic "tool permission is out of scope" statement.
+The engine supplies model-behavior instructions and explanations. Mechanical
+tool permission enforcement is outside its scope.
+
+## Per-turn explanation
+
+The lifecycle captures the exact appended system-prompt block after routing and composition. A copied and recursively frozen decision, phase and injection text form a session CustomEntry; it is UI/persistence data and never enters the LLM context. The fingerprint uses the actual injected block and phase, so repeated equivalent instructions do not generate transcript noise. `/policy` exposes the most recent explanation separately from the current runtime phase, and `injected` exposes the exact text. Historical entries do not read live mutable state. The renderer sanitizes terminal and bidi controls, wraps by grapheme display width, and applies host theme roles after layout. Mode and profile are separate second-level actions.

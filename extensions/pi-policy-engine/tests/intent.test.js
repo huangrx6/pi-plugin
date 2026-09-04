@@ -180,8 +180,7 @@ test("v0.24 ask-me vocabulary lifts an explicit gate", () => {
     null,
   );
   assert.equal(
-    extractExecutionMeta("先给方案，确认后再执行，不用询问我")
-      .approvalRequired,
+    extractExecutionMeta("先给方案，确认后再执行，不用询问我").approvalRequired,
     null,
   );
 });

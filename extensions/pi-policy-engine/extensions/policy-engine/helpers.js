@@ -2,6 +2,7 @@
 
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { sanitizeTerminalText } from "./terminal.js";
 
 /**
  * Locate the package root by walking up to find the `policies/manifest.json` +
@@ -43,7 +44,7 @@ export function modelKey(model) {
  */
 export function notify(ctx, message, level = "info") {
   try {
-    ctx?.ui?.notify?.(message, level);
+    ctx?.ui?.notify?.(sanitizeTerminalText(message), level);
   } catch {
     /* ignore */
   }

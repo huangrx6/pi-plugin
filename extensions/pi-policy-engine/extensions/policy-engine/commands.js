@@ -1,12 +1,13 @@
 // /policy command handler.
 // Two entry points:
 //   - With no args: open an interactive ctx.ui.select() picker covering
-//     mode / profile in sequence.
+//     recent behavior first; mode/profile settings are secondary.
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
+import { activityText, phaseText } from "./activity.js";
+import { sanitizeTerminalText } from "./terminal.js";
 import {
   formatConfig,
-  formatDecision,
   formatDiff,
   formatHistory,
   formatPreview,
@@ -30,43 +31,41 @@ import {
 } from "./state.js";
 
 const MODE_OPTIONS = [
-  { key: "auto", description: "按 prompt 内容自动路由 rigor（默认）" },
-  { key: "quick", description: "轻量 rigor：Inspect → Change → Verify" },
+  { key: "auto", description: "根据任务自动选择（默认）" },
+  { key: "quick", description: "快速检查、修改并验证" },
   {
     key: "standard",
-    description:
-      "中等 rigor：Task Contract → Inspect → Plan → Execute → Verify",
+    description: "明确任务后检查、计划、执行并验证",
   },
-  { key: "strict", description: "plan + 等批准 + 分 wave 执行" },
-  { key: "off", description: "完全关闭策略注入（含 model adaptation）" },
+  { key: "strict", description: "先给计划，确认后分步执行" },
+  { key: "off", description: "关闭策略注入和模型适配" },
 ];
 
 const PROFILE_OPTIONS = [
-  { key: "auto", description: "按 taskType 自动选（默认）" },
+  { key: "auto", description: "根据任务类型自动选择（默认）" },
   {
     key: "coding",
-    description:
-      "通用编码：execution discipline / minimal change / context hygiene",
+    description: "通用编码：持续执行、控制改动、管理上下文",
   },
   {
     key: "debugging",
-    description: "debugging 任务（flow: debug-first 由 task 决定）",
+    description: "故障排查：先复现和定位原因",
   },
   {
     key: "documentation",
-    description: "文档/注释：execution discipline + minimal change",
+    description: "文档与注释：持续执行、控制改动",
   },
   {
     key: "architecture",
-    description: "架构/设计：execution discipline + tool discipline",
+    description: "架构设计：持续执行、遵守工具契约",
   },
   {
     key: "review",
-    description: "代码审查：context hygiene（flow: review-first）",
+    description: "代码审查：优先检查问题与风险",
   },
   {
     key: "research",
-    description: "调研：context hygiene（flow: research-first）",
+    description: "调研：先收集并核对资料",
   },
 ];
 
@@ -118,7 +117,20 @@ export function createCommandHandler({ packageRoot, getState }) {
   return async function policyCommand(args, ctx) {
     const state = getState();
     const trimmed = String(args ?? "").trim();
-    if (!trimmed) return runInteractiveSelector(state, ctx);
+    if (!trimmed) {
+      if (typeof ctx?.ui?.select !== "function") {
+        notify(ctx, activityText(state.lastActivity) + `\n当前：${phaseText(state.phase)}`, "info");
+        return;
+      }
+      const title = sanitizeTerminalText(`${state.lastActivity?.summary ?? "策略 · 尚未处理请求"}\n${phaseText(state.phase)}`);
+      const choice = await ctx.ui.select(title, [
+        "本次行为 — 原因、已注入要求、下一步", "注入原文 — 查看实际追加的指令", "设置 — 调整模式与配置档",
+      ]);
+      if (choice?.startsWith("本次行为")) notify(ctx, activityText(state.lastActivity) + `\n当前：${phaseText(state.phase)}`, "info");
+      if (choice?.startsWith("注入原文")) notify(ctx, state.lastActivity?.injected || "本轮没有注入指令。", "info");
+      if (choice?.startsWith("设置")) await runSettingsSelector(state, ctx);
+      return;
+    }
 
     const { action, rest } = parsePolicyCommand(args);
 
@@ -288,8 +300,12 @@ export function createCommandHandler({ packageRoot, getState }) {
       return;
     }
 
+    if (action === "injected") {
+      notify(ctx, state.lastActivity?.injected || "本轮没有注入指令。", "info");
+      return;
+    }
     if (action === "why") {
-      notify(ctx, formatDecision(state.lastDecision, state.phase), "info");
+      notify(ctx, activityText(state.lastActivity) + `\n当前：${phaseText(state.phase)}`, "info");
       return;
     }
 
@@ -374,7 +390,7 @@ export function createCommandHandler({ packageRoot, getState }) {
 
     notify(
       ctx,
-      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|config|validate|status|why|cancel|reset]",
+      "Usage: /policy [auto|quick|standard|strict|off|once <mode>|profile <name>|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|config|validate|status|why|injected|cancel|reset]",
       "info",
     );
   };
@@ -385,28 +401,24 @@ export function createCommandHandler({ packageRoot, getState }) {
  * any choices the user makes, fall back to notify() messages if the picker
  * UI is unavailable.
  */
-async function runInteractiveSelector(state, ctx) {
-  const mode = await pickOne(
-    ctx,
-    `Policy mode (current: ${state.runtimeMode ?? "auto"})`,
-    MODE_OPTIONS,
-  );
-  if (mode) {
+async function runSettingsSelector(state, ctx) {
+  const choice = await ctx.ui.select("策略设置", [
+    `模式 — 当前 ${state.runtimeMode ?? "auto"}`,
+    `配置档 — 当前 ${state.runtimeProfile ?? "auto"}`,
+  ]);
+  if (choice?.startsWith("模式")) {
+    const mode = await pickOne(ctx, `选择模式 · 当前 ${state.runtimeMode ?? "auto"}`, MODE_OPTIONS);
+    if (!mode) return;
     state.runtimeMode = mode;
     state.onceMode = null;
-    if (mode === "off") {
-      state.phase = "idle";
-    }
+    if (mode === "off") state.phase = "idle";
+    notify(ctx, `策略模式已设为 ${mode}。`, "success");
+    return;
   }
-  const profile = await pickOne(
-    ctx,
-    `Policy profile (current: ${state.runtimeProfile ?? "auto"})`,
-    PROFILE_OPTIONS,
-  );
-  if (profile) state.runtimeProfile = profile;
-  notify(
-    ctx,
-    `Policy: mode=${mode ?? "unchanged"}, profile=${profile ?? "unchanged"}`,
-    "info",
-  );
+  if (choice?.startsWith("配置档")) {
+    const profile = await pickOne(ctx, `选择配置档 · 当前 ${state.runtimeProfile ?? "auto"}`, PROFILE_OPTIONS);
+    if (!profile) return;
+    state.runtimeProfile = profile;
+    notify(ctx, `策略配置档已设为 ${profile}。`, "success");
+  }
 }
