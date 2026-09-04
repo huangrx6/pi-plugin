@@ -24,12 +24,9 @@ jobs:
       - name: Syntax check (node --check over all extension + core files)
         working-directory: extensions/pi-policy-engine
         run: npm run check
-      - name: Self test
+      - name: Unit and extension lifecycle tests
         working-directory: extensions/pi-policy-engine
-        run: node ./scripts/self-test.mjs
-      - name: Smoke test (extension lifecycle)
-        working-directory: extensions/pi-policy-engine
-        run: node ./scripts/smoke-extension.mjs
+        run: npm test
 
   pi-quota-status:
     name: pi-quota-status (ts)
@@ -86,8 +83,15 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
-      - name: Type check (tsc --noEmit)
-        run: npx --yes -p typescript tsc -p extensions/pi-todo
+      - name: Install
+        working-directory: extensions/pi-todo
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        working-directory: extensions/pi-todo
+        run: npm run check
+      - name: Unit and interaction tests
+        working-directory: extensions/pi-todo
+        run: npm test
 
   pi-notify:
     name: pi-notify (ts)
@@ -104,10 +108,10 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Type check (tsc --noEmit)
         working-directory: extensions/pi-notify
-        run: npx --yes -p typescript tsc -p . --noEmit
-      - name: Unit tests (tsx --test)
+        run: npm run check
+      - name: Unit and terminal protocol tests
         working-directory: extensions/pi-notify
-        run: npx --yes -p tsx tsx --test index.test.ts
+        run: npm test
 
   pi-context-qos:
     name: pi-context-qos (ts, Node built-ins)

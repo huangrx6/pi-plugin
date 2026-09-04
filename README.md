@@ -29,24 +29,26 @@ Every extension lives in its own directory as an independently publishable Pi pa
 
 | Extension | Purpose |
 | --- | --- |
-| [skill-inject](./extensions/pi-skill-inject/README.md) | Inline a skill's content into the current model turn with `/skill-name`. |
-| [policy-engine](./extensions/pi-policy-engine/README.md) | Adaptive workflow routing: quick / standard / strict, with plan-then-approve for risky work. |
-| [context-qos](./extensions/pi-context-qos/README.md) | Non-destructive working-context runtime. SQLite + zstd cold store, recallable via `ctx://item/<id>`. |
+| [skill-inject](./extensions/pi-skill-inject/README.md) | Inline skill loading with autocomplete and expandable activity records. |
+| [policy-engine](./extensions/pi-policy-engine/README.md) | Adaptive workflow routing with an auditable explanation of each actual injection. |
+| [context-qos](./extensions/pi-context-qos/README.md) | Working-context maintenance that resumes interrupted work after successful compaction. |
 
 ### TOOL — intercepts tool calls
 
 | Extension | Purpose |
 | --- | --- |
-| [mode-switcher](./extensions/pi-mode-switcher/README.md) | Approval gate before every tool call: ask / smart / full. |
-| [todo](./extensions/pi-todo/README.md) | Task-list tool plus an editor overlay. State replays from the session branch. |
+| [mode-switcher](./extensions/pi-mode-switcher/README.md) | Approval gate with a safe independent selector: ask / smart / full. |
+| [todo](./extensions/pi-todo/README.md) | Workspace task list with contextual actions and an optional two-line editor strip. |
 
-### DISPLAY — renders the footer / status
+### DISPLAY — presents terminal state
 
 | Extension | Purpose |
 | --- | --- |
-| [quota-status](./extensions/pi-quota-status/README.md) | Per-model subscription usage (OpenCode / GLM / MiniMax / Kimi / DeepSeek / OpenRouter) in the footer. |
-| [footer-composer](./extensions/pi-footer-composer/README.md) | Five labelled rows: environment, model, resources, integrations, configuration. |
-| [notify](./extensions/pi-notify/README.md) | Single-line OSC terminal notification when the agent settles. |
+| [quota-status](./extensions/pi-quota-status/README.md) | Independent quota panel for subscription windows, balances and API-key allowances. |
+| [footer-composer](./extensions/pi-footer-composer/README.md) | Optional compact/full footer that can switch back to Pi's native footer at runtime. |
+| [notify](./extensions/pi-notify/README.md) | Terminal-aware completion notification with transport diagnostics and a test surface. |
+
+Every extension keeps its own command or conversation entry for its primary interaction. The footer only summarizes information; removing or disabling it does not remove task operations, quota details, policy explanations, context controls, permission selection, skill history, or notification diagnostics.
 
 ## Choose by workflow
 
