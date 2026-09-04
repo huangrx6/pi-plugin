@@ -636,15 +636,16 @@ test("v0.2: non-raw representations are self-describing (context_recall path)", 
     });
     assert.ok(result.transformed > 0);
     const firstTextOf = (message: LooseMessage): string => {
-      const content = message.content as Array<{ type?: string; text?: string }> | undefined;
+      const content = message.content as
+        | Array<{ type?: string; text?: string }>
+        | undefined;
       const first = Array.isArray(content) ? content[0] : undefined;
       return typeof first?.text === "string" ? first.text : "";
     };
     const originalTextOf = new Map(
-      messages.map((message) => [
-        message.toolCallId ?? "",
-        firstTextOf(message),
-      ] as const),
+      messages.map(
+        (message) => [message.toolCallId ?? "", firstTextOf(message)] as const,
+      ),
     );
     const replaced = result.messages.filter(
       (message) =>

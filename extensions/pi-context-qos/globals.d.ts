@@ -10,6 +10,8 @@ declare module "@earendil-works/pi-coding-agent" {
   export interface ExtensionAPI {
     on(event: string, handler: (event: any, ctx: any) => unknown): void;
     appendEntry(customType: string, data?: unknown): void;
+    sendMessage(message: { customType: string; content: string; display: boolean }, options: { triggerTurn: boolean; deliverAs: "followUp" }): void;
+    registerEntryRenderer<T>(type: string, renderer: (entry: { data?: T }, options: { expanded: boolean }, theme: any) => ContextQosComponent | undefined): void;
     registerCommand(
       name: string,
       definition: {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 - 2026-09-04
+
+- 按实际终端显示宽度渲染整理记录和召回工具摘要，正确处理中文、emoji 与组合字符，并使用宿主主题区分成功、失败和详情。
+- 命令通知、工具参数、整理错误和归档内容在展示前移除终端控制序列与双向文本控制字符。
+- 整理记录冻结为不可变历史快照；`/context stats` 使用更清晰的中文信息层级。移除不再需要的直接 TUI 依赖。
+
+## 0.3.0 - 2026-09-04
+
+- Resume an active task once after successful extension-triggered compaction, while giving new input, session changes and cancellation priority. Failed or ineffective maintenance does not loop automatically.
+- Preserve the interrupted task's effective instruction changes in the hidden continuation, without retriggering user-goal entry. When the base prompt is unknown after reload/model changes, retain the complete effective instructions.
+- Record expandable maintenance outcomes in the conversation without adding the activity entries to model context.
+- Simplify `/context` to usage, pause/resume, a session-only effective-budget threshold, and advanced operations. Keep existing direct commands available and make reserve/threshold semantics explicit.
+- Add installed-SDK lifecycle coverage with an offline model stream and deterministic compaction, alongside cancellation, stale callback and queued-input regressions.
+
 ## 0.2.0
 
 ### The recovery loop becomes self-teaching (and sheds dead weight)

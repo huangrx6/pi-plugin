@@ -41,10 +41,14 @@ function representationText(
   const ref = `ctx://item/${item.id}`;
   if (representation === "raw") return "";
   if (representation === "extract") {
-    return [item.extractText, `raw: context_recall(${ref})`].filter(Boolean).join("\n");
+    return [item.extractText, `raw: context_recall(${ref})`]
+      .filter(Boolean)
+      .join("\n");
   }
   if (representation === "summary")
-    return [item.summaryText, `raw: context_recall(${ref})`].filter(Boolean).join("\n");
+    return [item.summaryText, `raw: context_recall(${ref})`]
+      .filter(Boolean)
+      .join("\n");
   return `[${item.kind} archived · restore: context_recall(${ref})]`;
 }
 

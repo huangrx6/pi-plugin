@@ -9,12 +9,18 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CompactionContinuation, type CompactionNotice } from "./src/runtime/continuation.ts";
 
 import {
   ContextQosController,
-  pressureLabel,
 } from "./src/runtime/controller.ts";
 import { textFromContent } from "./src/runtime/tokens.ts";
+import { calculatePressure } from "./src/runtime/pressure.ts";
+import {
+  sanitizeTerminalText,
+  truncateTerminalText,
+  wrapTerminalText,
+} from "./src/runtime/terminal.ts";
 import type {
   ContextStats,
   LooseMessage,
@@ -48,11 +54,20 @@ const REF_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-function lineComponent(line: string) {
+function lineComponent(line: string, theme: any, tone = "dim") {
+  const clean = sanitizeTerminalText(line);
   return {
-    render: (_width: number) => [line],
+    render: (width: number) => [theme.fg(tone, truncateTerminalText(clean, width))],
     invalidate: () => {},
   };
+}
+
+function notify(ctx: any, message: unknown, level = "info"): void {
+  try {
+    ctx?.ui?.notify?.(sanitizeTerminalText(message), level);
+  } catch {
+    // Presentation is best effort and never changes context state.
+  }
 }
 
 function formatBytes(bytes: number): string {
@@ -66,20 +81,11 @@ function formatTokens(tokens: number): string {
   return tokens < 1000 ? String(tokens) : `${(tokens / 1000).toFixed(1)}k`;
 }
 
-/**
- * Footer status, one compact line matching the quota-status idiom:
- *
- *   ⚡QoS 22%(绿) 活179k 省22.9k 库165项
- *
- * The pressure percentage and level are colour-coded by level
- * (green/yellow/orange/red, bold red for critical); frozen renders as
- * `(绿·冻结)`. Published under the `context:qos` key — aggregators
- * route context-prefixed statuses to a context-governance row.
- */
+/** Optional compact status; primary controls live in /context. */
 export function formatStatus(stats: ContextStats): string {
   // Minimal footer cell: icon + pressure percentage, level shown by COLOR
   // only (no level word, no token/item/cold breakdown — /context stats has
-  // the full report). ◎ distinguishes it from the quota ⚡ prefix.
+  // the full report).
   const color = PRESSURE_ANSI[stats.pressure];
   const pct = (stats.pressureRatio * 100).toFixed(0);
   const frozenSuffix = stats.frozen ? "·冻结" : "";
@@ -127,15 +133,34 @@ function publishStatus(controller: ContextQosController, ctx: any): void {
 
 function statsText(controller: ContextQosController, ctx: any): string {
   const stats = controller.stats([], ctx.model);
+  const tierLabels: Record<string, string> = {
+    pinned: "固定",
+    working: "工作",
+    evidence: "证据",
+    historical: "历史",
+    disposable: "可清理",
+  };
   const tiers = Object.entries(stats.byTier)
-    .map(([tier, tokens]) => `${tier}=${formatTokens(tokens)}`)
+    .map(([tier, tokens]) => `${tierLabels[tier] ?? tier} ${formatTokens(tokens)}`)
     .join(" · ");
   return [
-    `Context QoS ${pressureLabel(stats.pressure)} ${(stats.pressureRatio * 100).toFixed(1)}%${stats.frozen ? " · FROZEN" : ""}`,
-    `Active ${formatTokens(stats.activeTokens)} · Raw ${formatTokens(stats.rawTokens)} · Saved ${formatTokens(stats.savedTokens)}`,
-    `${stats.itemCount} items · Cold ${formatBytes(stats.coldBytes)}`,
-    tiers,
+    `上下文 · 有效预算 ${usageText(controller, ctx)}${stats.frozen ? " · 已暂停" : ""}`,
+    `活动 ${formatTokens(stats.activeTokens)} · 原始 ${formatTokens(stats.rawTokens)} · 已节省 ${formatTokens(stats.savedTokens)}`,
+    `归档 ${stats.itemCount} 项 · 冷存储 ${formatBytes(stats.coldBytes)}`,
+    `分层 · ${tiers}`,
   ].join("\n");
+}
+
+function usageText(controller: ContextQosController, ctx: any): string {
+  const usage = ctx.getContextUsage?.();
+  const window = usage?.contextWindow ?? ctx.model?.contextWindow;
+  if (typeof usage?.tokens === "number" && Number.isFinite(usage.tokens) && usage.tokens >= 0 &&
+      typeof window === "number" && Number.isFinite(window) && window > 0) {
+    const pressure = calculatePressure(usage.tokens, window, controller.config);
+    return `${(pressure.ratio * 100).toFixed(1)}%（运行时估算）`;
+  }
+  if (controller.lastPlan) return `${(controller.stats([], ctx.model).pressureRatio * 100).toFixed(1)}%（上次请求估算）`;
+  return "尚无完整占用数据";
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +204,7 @@ async function pickSubcommand(ctx: any): Promise<string | null | undefined> {
   const options = CONTEXT_SUBS.map((s) => `${s.name} — ${s.desc}`);
   const select = ctx?.ui?.select?.bind(ctx.ui);
   if (typeof select !== "function") {
-    ctx?.ui?.notify?.(
+    notify(ctx,
       `用法: /context <子命令>\n${CONTEXT_SUBS.map((s) => `  ${s.name} — ${s.desc}`).join("\n")}`,
       "info",
     );
@@ -192,16 +217,42 @@ async function pickSubcommand(ctx: any): Promise<string | null | undefined> {
 
 export default function (pi: ExtensionAPI): void {
   let controller: ContextQosController | undefined;
-  let compactInFlight = false;
+  let basePrompt: string | undefined;
+  let lastCompaction: CompactionNotice | undefined;
+  const continuation = new CompactionContinuation(
+    (objective, activeInstructions) => pi.sendMessage({
+      customType: "context-qos-resume",
+      display: false,
+      content: `Context maintenance interrupted this active task. Continue the next unfinished step using the compaction summary and existing user constraints. Do not repeat completed operations or ask the user to say continue. Original objective: ${objective}${activeInstructions ? `\n\nThese execution instructions were active before maintenance. Continue to respect the existing constraints for this same task:\n<active-execution-instructions>\n${activeInstructions}\n</active-execution-instructions>` : ""}`,
+    }, { triggerTurn: true, deliverAs: "followUp" }),
+    notice => {
+      lastCompaction = notice;
+      pi.appendEntry("context-qos-maintenance", notice);
+    },
+  );
+  pi.registerEntryRenderer<CompactionNotice>("context-qos-maintenance", (entry, options, theme) => {
+    const notice = entry.data;
+    if (!notice) return;
+    return {
+      render(width: number) {
+        const tone = notice.status === "failed" ? "warning" : notice.status === "resumed" ? "accent" : "text";
+        const summary = wrapTerminalText(notice.text, width).map(line => theme.fg(tone, line));
+        if (!options.expanded || notice.tokensBefore === undefined) return summary;
+        const details = `整理前 ${formatTokens(notice.tokensBefore)} tokens · 整理后估算 ${notice.tokensAfter === undefined ? "未知" : formatTokens(notice.tokensAfter)}`;
+        return [...summary, ...wrapTerminalText(details, width).map(line => theme.fg("dim", line))];
+      },
+      invalidate() {},
+    };
+  });
   let lastFailureNotice = 0;
 
   function reportFailure(ctx: any, operation: string, error: unknown): void {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = sanitizeTerminalText(error instanceof Error ? error.message : String(error));
     console.warn(`[pi-context-qos] ${operation} failed: ${message}`);
     const now = Date.now();
     if (ctx?.hasUI && now - lastFailureNotice > 30_000) {
       lastFailureNotice = now;
-      ctx.ui.notify(
+      notify(ctx,
         `Context QoS ${operation} failed; Pi session is untouched. Run /context doctor.`,
         "error",
       );
@@ -223,7 +274,8 @@ export default function (pi: ExtensionAPI): void {
     },
     renderCall(args, theme) {
       return lineComponent(
-        theme.fg("dim", `context recall ${String(args.ref ?? "")}`),
+        `context recall ${String(args.ref ?? "")}`,
+        theme,
       );
     },
     renderResult(result, _options, theme) {
@@ -232,7 +284,9 @@ export default function (pi: ExtensionAPI): void {
       );
       const text = firstText?.type === "text" ? firstText.text : "";
       return lineComponent(
-        theme.fg("dim", `recalled ${formatTokens(text.length)} chars`),
+        `recalled ${formatTokens(text.length)} chars`,
+        theme,
+        "success",
       );
     },
   });
@@ -260,18 +314,39 @@ export default function (pi: ExtensionAPI): void {
       // ── No-args path: interactive picker (each subcommand carries its
       // own Chinese explanation, so nothing has to be memorized). ──
       if (!String(args ?? "").trim()) {
-        const picked = await pickSubcommand(ctx);
+        const stats = runtime.stats([], ctx.model);
+        const budget = runtime.config.budget;
+        const title = [
+          `上下文 · 自动管理${runtime.config.enabled && !stats.frozen ? "开启" : "暂停"}`,
+          `有效预算占用 ${usageText(runtime, ctx)} · 整理阈值 ${Number((budget.critical * 100).toFixed(2))}%`,
+          `预留 ${((budget.outputReserveRatio + budget.safetyReserveRatio) * 100).toFixed(0)}% 总窗口 · ${sanitizeTerminalText(lastCompaction?.text ?? "本次会话尚未自动整理")}`,
+        ].join("\n");
+        const toggle = !runtime.config.enabled ? "enable — 开启本次会话自动管理" : `${stats.frozen ? "unfreeze" : "freeze"} — ${stats.frozen ? "恢复" : "暂停"}自动管理`;
+        const rows = ["stats — 查看使用情况", toggle, "threshold — 调整本次会话阈值", "advanced — 高级操作"];
+        let picked = ctx.hasUI && ctx.ui.select ? await ctx.ui.select(title, rows) : null;
+        if (picked === null) { notify(ctx, title + "\n/context stats · /context freeze · /context unfreeze · /context threshold <百分比>", "info"); return; }
+        if (picked?.startsWith("advanced")) picked = await pickSubcommand(ctx);
+        else if (picked) picked = String(picked).split(/\s+—/)[0];
+        if (picked === "threshold") {
+          if (typeof ctx.ui.input !== "function") {
+            notify(ctx, "用法: /context threshold <10–99>，百分比以有效预算为分母。", "info");
+            return;
+          }
+          const input = await ctx.ui.input("本次会话的整理阈值（有效预算百分比）", String(budget.critical * 100));
+          if (input === undefined) return;
+          picked = "threshold";
+          value = input;
+        }
         if (picked === null) return; // usage table already shown
         if (picked === undefined) {
-          ctx.ui.notify("已取消", "info");
           return;
         }
         sub = picked;
         rest = [];
-        value = "";
+        if (sub !== "threshold") value = "";
         const spec = CONTEXT_SUBS.find((s) => s.name === sub);
         if (spec?.needsArg) {
-          ctx.ui.notify(
+          notify(ctx,
             `${sub} 需要参数 ${spec.needsArg}\n` +
               `用法: /context ${sub} ${spec.needsArg}\n` +
               `先用 /context top 或 /context search 拿到 ctx://item/<id> 引用。`,
@@ -283,6 +358,26 @@ export default function (pi: ExtensionAPI): void {
 
       let output = "";
       switch (sub) {
+        case "enable":
+          continuation.invalidate();
+          runtime.config.enabled = true;
+          runtime.freeze(false);
+          output = "本次会话自动管理已开启；重新加载后使用配置文件。";
+          break;
+        case "threshold": {
+          const percent = Number(value);
+          if (!value.trim() || !Number.isFinite(percent) || percent < 10 || percent > 99) {
+            output = "用法: /context threshold <10–99>，百分比以有效预算为分母。";
+            break;
+          }
+          const budget = runtime.config.budget;
+          const factor = percent / 100 / budget.critical;
+          budget.yellow *= factor; budget.orange *= factor; budget.red *= factor;
+          budget.critical = percent / 100;
+          continuation.invalidate();
+          output = `本次会话整理阈值已设为有效预算的 ${percent}%，前置降级阈值按比例调整。重新加载后使用配置文件。`;
+          break;
+        }
         case "stats":
         case "":
           output = statsText(runtime, ctx);
@@ -364,6 +459,7 @@ export default function (pi: ExtensionAPI): void {
         }
         case "freeze":
         case "unfreeze":
+          continuation.invalidate();
           runtime.freeze(sub === "freeze");
           output = `Context transformations ${sub === "freeze" ? "frozen" : "resumed"}.`;
           break;
@@ -387,11 +483,18 @@ export default function (pi: ExtensionAPI): void {
         default:
           output = `Unknown subcommand: ${sub}`;
       }
-      ctx.ui.notify(output, "info");
+      publishStatus(runtime, ctx);
+      notify(ctx, output, "info");
     },
   });
 
   pi.on("session_start", (event, ctx) => {
+    continuation.invalidate();
+    // New runtimes expose their base prompt before before_agent_start handlers.
+    // Reload may retain per-run agent state, so an unknown baseline preserves
+    // the complete effective instructions rather than dropping constraints.
+    basePrompt = event.reason === "reload" ? undefined : ctx.getSystemPrompt?.();
+    lastCompaction = undefined;
     try {
       controller?.close();
       const model = ctx.model as Record<string, unknown> | undefined;
@@ -428,7 +531,10 @@ export default function (pi: ExtensionAPI): void {
     }
   });
 
+  pi.on("input", () => { continuation.invalidate(); });
+
   pi.on("before_agent_start", (event, ctx) => {
+    continuation.invalidate();
     try {
       controller?.setObjective(event.prompt);
     } catch (error) {
@@ -478,23 +584,11 @@ export default function (pi: ExtensionAPI): void {
         ctx.model,
       );
       publishStatus(controller, ctx);
-      if (
-        result.level === "critical" &&
-        result.overBudget &&
-        controller.config.budget.nativeCompactFallback &&
-        !compactInFlight
-      ) {
-        compactInFlight = true;
-        ctx.compact({
-          customInstructions:
-            "Preserve the current user objective, explicit constraints, unresolved evidence, modified files, decisions, and ctx:// recall references.",
-          onComplete: () => {
-            compactInFlight = false;
-          },
-          onError: () => {
-            compactInFlight = false;
-          },
-        });
+      continuation.observePressure(result.overBudget);
+      if (result.level === "critical" && result.overBudget &&
+          controller.config.enabled && !controller.state().frozen &&
+          controller.config.budget.nativeCompactFallback) {
+        continuation.request(ctx, controller.objective, basePrompt);
       }
       return { messages: result.messages as any };
     } catch (error) {
@@ -522,6 +616,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_tree", (_event, ctx) => {
+    continuation.invalidate();
     try {
       if (controller) visibleEntries(controller, ctx);
     } catch (error) {
@@ -531,13 +626,22 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("session_compact", (_event, ctx) => {
     try {
-      if (controller) visibleEntries(controller, ctx);
+      if (controller) {
+        controller.lastPlan = null;
+        visibleEntries(controller, ctx);
+      }
     } catch (error) {
       reportFailure(ctx, "compaction rebuild", error);
     }
   });
 
+  pi.on("session_before_switch", () => { continuation.invalidate(); });
+  pi.on("session_before_fork", () => { continuation.invalidate(); });
+  pi.on("session_before_tree", () => { continuation.invalidate(); });
+  pi.on("model_select", () => { continuation.invalidate(); basePrompt = undefined; });
+
   pi.on("session_shutdown", (_event, ctx) => {
+    continuation.invalidate();
     try {
       controller?.close();
     } catch (error) {

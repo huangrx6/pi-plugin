@@ -6,6 +6,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import extension, { formatStatus } from "../index.ts";
+import { displayWidth } from "../src/runtime/terminal.ts";
 import type { ContextStats } from "../src/types.ts";
 
 test("extension registers lifecycle hooks, ONE model tool, and /context", async () => {
@@ -19,6 +20,7 @@ test("extension registers lifecycle hooks, ONE model tool, and /context", async 
   const handlers = new Map<string, Array<(event: any, ctx: any) => any>>();
   const tools: any[] = [];
   const commands = new Map<string, any>();
+  const entryRenderers = new Map<string, any>();
   const entries: Array<{ type: string; data: unknown }> = [];
   extension({
     on(name: string, handler: (event: any, ctx: any) => any) {
@@ -26,6 +28,10 @@ test("extension registers lifecycle hooks, ONE model tool, and /context", async 
       list.push(handler);
       handlers.set(name, list);
     },
+    registerEntryRenderer(name: string, renderer: any) {
+      entryRenderers.set(name, renderer);
+    },
+    sendMessage() {},
     registerTool(tool: any) {
       tools.push(tool);
     },
@@ -45,6 +51,7 @@ test("extension registers lifecycle hooks, ONE model tool, and /context", async 
     ["context_recall"],
   );
   assert.ok(commands.has("context"));
+  assert.ok(entryRenderers.has("context-qos-maintenance"));
   for (const event of [
     "session_start",
     "before_agent_start",
@@ -80,15 +87,18 @@ test("extension registers lifecycle hooks, ONE model tool, and /context", async 
       contextWindow: 8_000,
       percent: 125,
     }),
-    compact: (options: { onComplete?: () => void }) => {
+    hasUI: true,
+    isIdle: () => false,
+    hasPendingMessages: () => false,
+    compact: (options: { onComplete?: (result: any) => void }) => {
       compactCalls++;
-      options.onComplete?.();
+      options.onComplete?.({ tokensBefore: 10_000, estimatedTokensAfter: 2_000 });
     },
     ui: {
       notify: (message: string) => notifications.push(message),
       setStatus: (key: string, text: string) => statusUpdates.push([key, text]),
       select: async (_title: string, options: string[]) =>
-        options.find((option) => option.startsWith("doctor")),
+        options.find((option) => option.startsWith("stats")),
     },
   };
   await handlers.get("session_start")![0]!({ reason: "startup" }, ctx);
@@ -150,7 +160,7 @@ test("extension registers lifecycle hooks, ONE model tool, and /context", async 
     "the latest publication reflects the critical-pressure plan",
   );
   await handlers.get("turn_end")![0]!({}, ctx);
-  assert.equal(entries[0]?.type, "context-qos-checkpoint");
+  assert.ok(entries.some(entry => entry.type === "context-qos-checkpoint"));
   await commands.get("context").handler("doctor", ctx);
   assert.match(notifications.at(-1) ?? "", /doctor: OK/);
   // No-args path opens the picker; our select mock picks "doctor", which
@@ -158,10 +168,27 @@ test("extension registers lifecycle hooks, ONE model tool, and /context", async 
   await commands.get("context").handler("", ctx);
   assert.match(
     notifications.at(-1) ?? "",
-    /doctor: OK/,
-    "empty /context runs the picked subcommand",
+    /有效预算/,
+    "empty /context offers usage before advanced commands",
   );
   await handlers.get("session_shutdown")![0]!({}, ctx);
+
+  const tones: string[] = [];
+  const theme = { fg: (tone: string, text: string) => { tones.push(tone); return text; } };
+  const maintenance = entryRenderers.get("context-qos-maintenance")(
+    { data: { status: "failed", text: "整理失败\x1b]2;bad\x07，需要检查。", tokensBefore: 2000, tokensAfter: 1000 } },
+    { expanded: true },
+    theme,
+  );
+  const maintenanceLines = maintenance.render(10);
+  assert.ok(maintenanceLines.every((line: string) => displayWidth(line) <= 10));
+  assert.ok(maintenanceLines.every((line: string) => !line.includes("\x1b")));
+  assert.equal(tones[0], "warning");
+
+  const recallCall = tools[0].renderCall({ ref: "ctx://item/1\x1b[31mBAD" }, theme);
+  const recallLines = recallCall.render(12);
+  assert.ok(recallLines.every((line: string) => displayWidth(line) <= 12));
+  assert.ok(recallLines.every((line: string) => !line.includes("\x1b")));
 });
 
 test("footer status is a minimal icon + percentage cell", () => {
