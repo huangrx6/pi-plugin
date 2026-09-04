@@ -5,305 +5,134 @@
 
 # pi-todo
 
-<p align="center"><strong>Workspace-scoped durable todo tool for Pi with a live editor overlay and a workflow-recovery command.</strong></p>
+<p align="center"><strong>工作区级持久任务清单：模型工具、用户命令与编辑器状态条。</strong></p>
 
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
-  <img alt="version" src="https://img.shields.io/badge/version-0.5.1-2ea44f?style=flat-square" />
 </p>
 
-A `todo` tool the model can call, a `/todos` command for the user, and a slim overlay above the editor. State is owned by a per-workspace **durable envelope** stored on disk; the session branch is no longer the authority. Pi `/reload` and built-in compaction both preserve the list (the workspace is the identity, not the session).
+一个模型可调用的 `todo` 工具、一个面向用户的 `/todos` 命令、一条编辑器上方的状态条。状态由按工作区存储的**持久信封**持有——`/reload` 与内置压缩都不会丢清单：工作区是身份，会话不是。
 
-Zero runtime dependencies. The only Pi import is `import type`; tool parameter schemas are hand-written JSON Schema literals.
+零运行时依赖；Pi 导入为类型导入；工具参数 schema 是手写 JSON Schema。
 
-```text
-pi-todo 0.4.2
+## 入口与操作
 
-P0-P3  Kernel                       CLOSED / FROZEN
-       └── P1-D Test Amendment T1   RE-FROZEN
-
-P4     Pi-native Personal UX        CLOSED / FROZEN
-├── P4-A Friction Audit             CLOSED
-├── P4-B UX Prioritization          CLOSED
-├── P4-C1 Core Daily UX             CLOSED / FROZEN
-├── P4-C2 Workflow Convenience      CLOSED / FROZEN
-└── P4-D Real-use Polish            CLOSED / FROZEN
-```
-
-## What it does
-
-| Surface | When | What |
-| --- | --- | --- |
-| `todo` tool | Model | create / update / delete / list / clear tasks atomically. |
-| `/todos` | User | Command panel: pick any action from an annotated list (no memorizing). |
-| `/todos ready` / `blocked` / `completed` / `archived` | User | Section drill-downs — full lists, no budget. |
-| `/todos all` | User | Full historical state including archived. |
-| `/todos next` | User | Explicit "what is ready right now" answer (complete READY list). |
-| `/todos <id>` | User | Rich detail: canonical row + description + blockers + direct unlocks. |
-| `/todos here` | User | Workflow recovery — current running task + completion consequences. |
-| overlay | Always | Live ambient view of the current workspace above the editor. |
-| `session_start` | Pi boot / `/reload` | Silent best-effort cold-bootstrap of the overlay (no branch replay). |
-
-## Display
-
-### Overlay (always on above the editor)
-
-```text
-┌────────────────────────────────────────────────┐
-│  (chat area)                                   │
-├────────────────────────────────────────────────┤
-│  Todos · ▶1 ◆2 ○1                              │  ← overlay
-│  ▶ #11 Write P4-D friction audit               │
-│  ◆ #12 Walk 6 paths in real use                │
-│  ◆ #13 Triage findings into HIGH/MEDIUM/LOW    │
-│  ○ #14 Fix any HIGH before v1 closure ← #12   │
-├────────────────────────────────────────────────┤
-│  > type here...                                │  ← editor
-└────────────────────────────────────────────────┘
-```text
-
-- Header `Todos · ▶N ◆M ○K` — sections whose count is 0 are omitted.
-- In-progress `▶` runs first, then `◆` ready, then `○` blocked; completed `✓` is dropped first, folded into the per-section `+N more` overflow.
-- Dependency links (`← #id`) only appear when a real `blockedBy` exists; `?` marks a missing dependency.
-- Empty state (no active, no visible completed) → overlay hidden.
-- Hidden on cold start until first successful durable load.
-
-### `/todos` (command panel)
-
-No arguments opens an interactive two-level panel. Every row carries a Chinese explanation — the panel doubles as living documentation:
-
-```text
-┌ Todos — 选择操作 ─────────────────────────┐
-│ here    — 我现在在做什么（当前任务 + 完成后会解锁什么）│
-│ finish  — 完成任务（从进行中的任务里选）        │
-│ start   — 开始任务（从可开始的任务里选）        │
-│ next    — 现在可以开始哪些任务              │
-│ 总览    — 全部任务概览（进行中 / 可开始 / 被阻塞）│
-│ 详情    — 查看某个任务（说明 / 依赖 / 解锁）    │
-│ …      — why / unlocks / archive / restore … │
-└──────────────────────────────────────┘
-```
-
-- **Level 2**: action rows offer a task picker (canonical task rows,
-  role icons) built from one durable snapshot; `archive` / `restore`
-  prepend batch rows equivalent to `archive completed` / `restore
-  archived`.
-- **总览** renders the bounded overview below (per-section budget
-  2 / 3 / 2 with `+N more <role>` drill-down hints; section commands
-  remain full lists).
-- Direct verbs (`/todos next`, `/todos finish 17`, `/todos 17`) bypass
-  the panel and keep working unchanged.
-- Headless runtimes (no `ui.select`) get the catalog as plain text.
+`/todos` 无参数直接列出进行中、可开始与被阻塞的任务。方向键选择，回车打开该状态适用的操作：进行中任务可完成，可开始任务可开始，被阻塞任务可查看原因，所有活跃任务均可改名。「新增」直接输入任务名称。「历史」收纳已完成与已归档任务，选中后可重开、归档或恢复；「总览」保留完整分组摘要。取消任何列表都静默返回，不产生消息，也不写数据。
 
 ```text
 RUNNING
-▶ #11 in-progress one
+▶ #11 修正令牌校验
 
 READY
-◆ #20 ready task number 20
-◆ #21 ready task number 21
-◆ #22 ready task number 22
+◆ #20 补充集成测试
+◆ #21 更新文档
   +15 more ready
 
 BLOCKED
-○ #50 blocked one
-○ #51 blocked two
+○ #50 等待 #21 完成
 
 ✓ 6 completed · /todos completed
 ```
 
-### `/todos here` (workflow recovery)
+| 直接命令 | 行为 |
+| --- | --- |
+| `/todos next` | 现在可以开始哪些任务（完整 READY 列表） |
+| `/todos start / finish / reopen <id>` | 状态流转 |
+| `/todos archive <id>… / archive completed` | 归档（批量或全部已完成） |
+| `/todos restore <id>… / restore archived` | 恢复 |
+| `/todos ready / blocked / completed / archived` | 分组全量列表 |
+| `/todos all` | 含归档的完整历史状态 |
+| `/todos <id>` | 详情：标准行 + 说明 + 阻塞原因 + 完成后解锁 |
+| `/todos here` | 工作流恢复：当前任务 + 完成后会解锁什么 |
+| `/todos commands` | 完整兼容命令目录 |
+
+模型侧工具：`create / update / delete / list / clear`，状态机 `pending → in_progress → completed → deleted`（`deleted` 为终态，ID 永不复用）。
+
+## 编辑器状态条
+
+默认紧凑视图最多两行，使用终端主题颜色，优先保留任务名称；窄窗口按中文、组合字符与 emoji 的实际显示宽度换行或截断，任务文本中的终端控制序列先被清除。没有活跃任务时自动隐藏。
 
 ```text
-Current:
-▶ #11 Write P4-D friction audit
-
-Completing this task would make ready:
-  ◆ #21 Triage findings
-```text
-
-- `RUNNING = 0` → `No task is currently running.` (with verbatim frozen `Next:` section if ready exist).
-- `RUNNING = 1` → `Current:` + canonical row + direct unlocks.
-- `RUNNING > 1` → `Current: N running` + indented per-task sections.
-- `here 17` / `HERE` → syntax error (zero-arg verb; LOCK 23).
-
-### `/todos <id>` (rich detail)
-
-```text
-▶ #17 Implement cache bootstrap
-Already running.
-
-Restore the workspace todo overlay from durable state after /reload.
-
-Completing this task would make ready:
-  ◆ #21 Integration tests
+▶ #11 修正令牌校验 · 1/3 已完成 · /todos
+> 补充要求…
 ```
 
-- Canonical row + frozen `formatWhyTask` body (Ready to start. / Already running. / Blocked by: / Completed. / Archived.).
-- `Task.description` is surfaced when present (presentation-only data; LOCK 28).
-- Direct unlocks for `ready` / `running` / `blocked` only; `completed` / `archived` have no completion consequence.
-- No `Required by:` / reverse-dependency section (LOCK 19). No second `Status:` / `State:` vocabulary (LOCK 20). No raw metadata / owner / timestamps (LOCK 28).
+`/todos display compact|full|hidden` 调整本次会话的显示方式。状态条只是展示——隐藏它不影响任何操作，`/todos` 始终是独立入口。列表、详情与工具结果的着色全部走主题 token（▶ accent / ◆ 默认 / ○ muted / ✓ success），无主题路径与纯文本逐字节一致。
 
-## Mutation
+## 语义保证
 
-`/todos` verbs that change state are all-or-nothing — if any target fails its precondition, no target is changed.
-
-- `/todos start <id>` · `/todos finish <id>` · `/todos reopen <id>`
-- `/todos archive <id> [<id> …]` · `/todos archive completed`
-- `/todos restore <id> [<id> …]` · `/todos restore archived`
-
-When a mutation changes downstream readiness, the response may include a `Now ready` or `Re-blocked` section.
-
-The following selector combinations are intentionally unsupported (P1-A policy, frozen):
-
-| Verb | Selector |
+| 保证 | 含义 |
 | --- | --- |
-| `archive` | `all` |
-| `archive` | `archived` |
-| `restore` | `all` |
-| `restore` | `completed` |
+| **原子变更** | 变更类命令全有或全无：任一目标不满足前置条件，则不修改任何目标 |
+| **ID 永不复用** | `clear` 清空列表但 `nextId` 只增不减；对话中过期的 `#N` 引用永远是死引用 |
+| **墓碑不可变** | 对已删除任务的任何 `update` 都被拒绝 |
+| **依赖健康** | 悬空 `blockedBy`、已删除依赖、自阻塞、循环依赖全部拒绝并给出具体错误 |
+| **无操作检测** | 字段完全相同的重复 `update` 返回「无变化」，防止模型重试循环 |
+| **一个命令一个快照** | 每条命令恰好一次持久加载 + 一次提交；提交冲突返回明确的 `cas-conflict` 错误而不是透明重试 |
+| **终端安全** | 模型可控字符串在渲染前清除 CSI / OSC / 换行 / 双向控制 |
+| **工作区身份** | 状态以 `canonical realpath(cwd)` 的 SHA-256 为键；同工作区换会话清单不变，`/reload` 静默恢复状态条 |
 
-The error message now explains *why* the selector is rejected (P4-C2 wording polish), e.g.:
+变更影响下游就绪状态时，响应会附带 `Now ready` 或 `Re-blocked` 段落。`archive` 与 `all` / `archived`、`restore` 与 `all` / `completed` 的组合被策略性拒绝，错误信息解释原因并给出正确选择器。
+
+## 持久化
 
 ```text
-`all` cannot be used with `archive` because already-archived tasks
-are outside the archive target set.
-
-Use task IDs or `completed`.
-```text
-
-The policy itself (which selectors are accepted) is frozen. Only the explanation text changed (P4-C2 LOCK 21).
-
-## Tool schema
-
-```json
-todo { "action": "create",   "subject": "调研现有工具" }
-todo { "action": "update",   "id": 3, "status": "in_progress", "activeForm": "writing tests" }
-todo { "action": "delete",   "id": 2 }            // tombstone — never reusable
-todo { "action": "list",     "status": "pending" }
-todo { "action": "clear" }
+<agentDir>/pi-todo/<sha256(workspace:v1:canonical_realpath)>
+{ schemaVersion: 1, revision: 17, state: { tasks: [...], nextId: 1000 } }
 ```
 
-State machine: `pending → in_progress → completed → deleted` (`deleted` is terminal).
+`revision` 单调递增，作为 CAS 期望版本；提交失败时已格式化的成功文本一并丢弃。会话分支不再承担状态职责——冷启动只做一次静默的持久加载来点亮状态条，失败也不影响 Pi 启动。
 
-## Semantic guarantees
-
-| Guarantee | Why |
-| --- | --- |
-| **IDs never reuse** | `clear` empties the list but `nextId` only increments. Stale "#N" references in the conversation always stay dead. |
-| **Tombstones immutable** | Any `update` on a deleted task — including subject / metadata changes — is rejected. |
-| **Dependencies healthy** | Dangling `blockedBy`, deleted dependencies, self-blocks, and cycles are all rejected with specific error messages. |
-| **No-op detection** | A duplicate `update` with identical fields returns "No change" (metadata key order is insensitive) — prevents model retry loops. |
-| **Terminal-safe text** | Model-controlled strings are scrubbed for CSI / OSC / newlines / bidi controls before rendering. |
-| **Workspace identity ≠ session identity** | State is keyed by `canonical realpath(ctx.cwd)` (SHA-256 → `workspace:v1:<digest>`). Switching sessions on the same workspace keeps the same list. `/reload` restores the overlay silently via the cold-bootstrap path. |
-| **Branch history ≠ workspace state** | `replayFromBranch` is RETIRED from the lifecycle. The overlay never reads from `session_start` / `compact` / `tree` events. Workspace todo state lives in the durable envelope, not in branch entries. |
-| **One durable snapshot per command** | Each `/todos` invocation does exactly one `durableStore.load` + one `durableStore.commit` (on success). Canonical command reads own their snapshot — they do NOT consume `OverlaySnapshotCache` as semantic input. |
-| **Replay evidence ≠ current state authority** | `ReplayMutationMaterial` is reconstruction evidence, never a state source. CAS-conflict discards the provisional material; only successful commits promote it. |
-| **Empty no-op ≠ fake revision** | When `archive` resolves to an empty target set, the formatter emits `Nothing to archive.` and the revision does NOT advance. |
-| **CAS conflict ≠ transparent retry** | On revision mismatch, the formatted success text is discarded and a `cas-conflict` error notice is emitted — the caller decides whether to retry. |
-| **Atomic publish ≠ cross-process CAS** | Each command is its own single-writer CAS. There is no cross-process coordination; concurrent writers race and the loser sees a conflict. |
-| **Overlay cache ≠ semantic authority** | `OverlaySnapshotCache` is presentation projection only. It is updated only after a successful durable load / commit. It MUST NOT be read as semantic input by any canonical command. |
-| **Format before CAS, emit after CAS** | Success text is formatted against the post-execution state BEFORE the durable commit. If CAS reports conflict, the formatted text and the provisional material are both discarded. |
-| **Zero render-time I/O** | Row budget is constant; no config files are read during render. |
-| **P4 formatters do not structurally decompose frozen formatter output** | (LOCK D3) Composition is typed-result based. `formatUnlocksTask(...).slice(2)` is not allowed; the same presentation is built from `UnlocksTaskResult` via `formatDirectUnlockConsequences`. |
-
-## Persistence
-
-State is a `CurrentPersistedTodoEnvelope`:
-
-```text
-{
-  schemaVersion: 1,
-  revision: 17,        // monotonic; CAS expected-revision
-  state: { tasks: [...], nextId: 1000 }
-}
-```text
-
-- **Default root**: `<getAgentDir()>/pi-todo/<filename>` where `<filename> = sha256(workspace:v1:canonical_realpath(cwd))`.
-- **CAS commit**: `durableStore.commit(scope, expectedRevision, next)`. Mismatch → `cas-conflict` error; formatted text and provisional replay material are both discarded.
-- **Replay evidence**: `ReplayMutationMaterial { baseRevision, revision, actions, replayContext: { nowValues } }`. Captured before CAS, isolated via `structuredClone`. Available for reconstruction; not a state source.
-- **Workspace scope resolution**: `createWorkspaceScopeKeyResolver()` maps `(ctx.cwd, ctx.sessionManager) → canonical realpath → SHA-256 → "workspace:v1:<digest>"`.
-- **Cold start**: `session_start` (including Pi's `reason: "reload"`) does a silent best-effort durable load and populates the overlay cache. Failures are silent — overlay stays `[]` and Pi startup continues.
-
-## Coexistence
-
-Tool name `todo` is the persistence key. If you install another extension that also registers a `todo` tool, the two will conflict; pick one.
-
-## Install
+## 安装
 
 ```bash
 pi install git:github.com/huangrx6/pi-plugin
 ```
 
-Or via the monorepo. Restart Pi or `/reload`.
+重启 Pi 或执行 `/reload`。
 
-## Known limitations
+## 已知限制
 
-- Row budget is fixed at the same per-section value for both `/todos` and the overlay (2 / 3 / 2 by default). There is no per-terminal-width adaptation yet (deferred — the Pi extension command/UI contract does not currently expose terminal width; see the design notes in CHANGELOG 0.4.1).
-- Workspace todo state is per-canonical-realpath. Renaming or moving a workspace directory creates a fresh state — by design (location = identity).
-- The overlay chrome and wording are English-only.
-- `/todos here` requires a single `RUNNING` task to show `Current:`; with `RUNNING > 1` it shows the full multi-section view (no "anomaly" claim).
-- The `Task.description` field is rendered in `/todos <id>` only when present. The model-side `activeForm` is prompt-only (not CLI-visible).
+- 分区行预算固定（2 / 3 / 2），尚未按终端宽度自适应——Pi 的命令 / UI 契约暂不暴露终端宽度
+- 状态以 canonical realpath 为键：重命名或移动工作区目录会得到全新清单（位置即身份，设计使然）
+- 工具名 `todo` 是持久化键：同时安装另一个注册同名工具的扩展会冲突，二选一
+- `activeForm` 只进模型提示，不进 CLI 视图；`description` 仅在 `/todos <id>` 存在时渲染
 
-## File structure
+## 开发
+
+```bash
+cd extensions/pi-todo
+npm run check      # tsc --noEmit
+npm test           # glob 全部 *.test.ts（含渲染 / 交互回归）
+```
+
+测试使用 `os.tmpdir()` + `mkdtemp` 存放临时文件。
+
+<details>
+<summary>文件结构（按层）</summary>
 
 ```text
 pi-todo/
-├── index.ts                    # tool + /todos + lifecycle wiring
-├── types.ts                    # domain types + JSON Schema
-├── reducer.ts                  # pure state machine
-├── store.ts                    # legacy session-keyed slots (test surface only; 0 production callers)
-│
-├── format.ts                   # canonical row + snapshot formatters (P0-B B2)
-├── graph-format.ts             # next / why / unlocks formatters (P2-B, frozen)
-├── overview-format.ts          # P4-C1 bounded overview formatter
-├── task-detail-format.ts       # P4-C2 rich /todos <id> formatter
-├── current-task-format.ts      # P4-C2 /todos here formatter
-├── direct-unlock-format.ts     # P4-D typed-result composition (LOCK D3)
-├── mutation-format.ts          # P1-C error wording (frozen)
-├── workflow-format.ts          # P4-C2 workflow syntax wording
-├── selector-policy-notice.ts    # P4-C2 selector rejection wording
-│
-├── parse-todos-command.ts       # P0-B B3 read grammar
-├── parseMutationCommand       (in mutation-command.ts)
-├── parseGraphCommand          (in graph-command.ts)
-├── workflow-command.ts          # P4-C2 additive P4 grammar (here)
-│
-├── query layer (P2-A) — frozen
-├── graph-query.ts               # queryNextTasks / queryWhyTask / queryUnlocksTask
-├── graph.ts                     # reverseDependencies / brokenDependencies
-├── projection.ts                # projectActiveView / projectCompleted / projectArchived
-├── read-model.ts                # buildDependencyPresentation
-│
-├── persistence layer (P3) — frozen
-├── persistence-contract.ts      # ScopeKey, ScopeKeyResolver, ReplayMutationMaterial, ReplayContextSession
-├── persistence-error.ts         # PersistenceError union
-├── persistence-codec.ts         # structural validation of serialized Task shape
-├── persistence-migration.ts     # schema migrations (v0 identity → v1)
-├── persistence-format.ts        # infrastructure notice vocabulary
-├── durable-store.ts             # DurableTodoStore interface + InMemoryDurableTodoStore
-├── file-durable-store.ts        # real backend (SHA-256 scope → filename, atomic publish)
-├── workspace-scope.ts           # canonical realpath → ScopeKey
-│
-├── replay layer (P3-D) — frozen
-├── replay-context.ts            # ReplayContextAdapter (A2 shape)
-├── replay-engine.ts             # replayMutationMaterial / replayMutationChain
-├── replay-capture.ts            # createObservedReduceContext (snapshot-isolated nowValues)
-│
-├── presentation layer (P3-E) — frozen authority
-├── overlay.ts                   # setWidget overlay (scope-keyed presentation)
-├── overlay-snapshot-cache.ts    # ScopeKey-keyed presentation cache
-├── runtime-persistence.ts        # production factory wiring (getAgentDir / file backend)
-│
-├── test-harness.ts              # ExtensionAPI stub + lifecycle capture + widget spy
-├── globals.d.ts                 # ambient shim for the Pi runtime types
-├── tsconfig.json
-├── package.json
-├── README.md
-├── CHANGELOG.md
-└── LICENSE
-```text
+├── index.ts                    # 工具 + /todos + 生命周期接线
+├── types.ts                    # 领域类型 + JSON Schema
+├── reducer.ts                  # 纯状态机
+├── 格式层    format.ts · graph-format.ts · overview-format.ts ·
+│            task-detail-format.ts · current-task-format.ts ·
+│            direct-unlock-format.ts · mutation-format.ts ·
+│            workflow-format.ts · selector-policy-notice.ts
+├── 语法层    parse-todos-command.ts · mutation-command.ts ·
+│            graph-command.ts · workflow-command.ts
+├── 查询层    graph-query.ts · graph.ts · projection.ts · read-model.ts
+├── 持久层    persistence-contract.ts · persistence-error.ts ·
+│            persistence-codec.ts · persistence-migration.ts ·
+│            durable-store.ts · file-durable-store.ts · workspace-scope.ts
+├── 回放层    replay-context.ts · replay-engine.ts · replay-capture.ts
+├── 展示层    overlay.ts · overlay-snapshot-cache.ts · runtime-persistence.ts
+└── 测试      test-harness.ts + 30 个 *.test.ts
+```
+
+</details>
 
 ## License
 

@@ -1,101 +1,94 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <p align="center">
-  <img src="../../assets/icons/skill-inject.svg" alt="skill-inject" width="48" />
+  <img src="../../assets/icons/skill-inject.svg" alt="pi-skill-inject" width="48" />
 </p>
 
 # pi-skill-inject
 
-<p align="center"><strong>Inline a skill's content into the current model turn.</strong></p>
+<p align="center"><strong>在提示词中直接引用技能，内容随本轮一起发送。</strong></p>
 
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
 </p>
 
-Type `/skill-name` anywhere in the prompt and the skill's `SKILL.md` is loaded and sent with the same turn — no extra round-trip, no manual `read` calls.
+在输入里写下 `/skill-name`，对应技能的 `SKILL.md` 会被加载并随同一轮发送给模型——没有额外往返，也不需要模型先去 `read` 文件。加载完成后，对话中出现一条紧凑的 `◆ 技能已加载` 活动记录，展开可查看本轮实际使用的技能名称与来源路径。
 
-## What it does
+## 入口与操作
 
-The extension watches the `input` event, scans the prompt for `/<name>` tokens, resolves them to skill paths, and replaces the user-facing text with the skill's content via `before_agent_start`. The model receives the skill's full instructions on the first turn, so it can act on them without first asking for the file.
+| 入口 | 行为 |
+| --- | --- |
+| 提示词中的 `/<skill-name>` | 解析并注入该技能内容，同轮生效 |
+| `<Tab>`（在 `/` 或任意前缀后） | 从可用技能列表自动补全 |
+| `/loaded-skills` | 以中文竖列查看当前分支已加载的技能；空态保持简洁 |
 
-Key properties:
+## 工作方式
 
-- **Zero monkey-patch** — uses only public events (`input`, `before_agent_start`, `tool_result`); no prototype changes
-- **Strict token matching** — regex anchored to `[a-z0-9][a-z0-9-]*`; URLs, paths, and `skill:name` commands are not misinterpreted
-- **No re-injection** — once a skill is loaded on the current branch, it is not sent again (state replays from `restoreLoadedSkills`)
-- **Frontmatter-safe** — only line-initial `---` is recognized as a frontmatter delimiter, so `---` inside a description does not break parsing
+扩展监听公开事件 `input` 与 `before_agent_start`：扫描提示词中的 `/<name>` 标记，解析为技能路径，把面向用户的文本替换为技能内容。模型在第一轮就拿到完整指令。
 
-## Usage
+- **零侵入** — 只使用公开事件，不做原型修改；Pi 导入为类型导入
+- **标记边界严格** — 正则锚定 `[a-z0-9][a-z0-9-]*` 且要求空白、标点或输入结尾；URL、路径和 `skill:name` 命令不会被误判
+- **按分支去重** — 本轮注入过、或模型已 `read` 过其 `SKILL.md` 的技能都会写入分支墓碑，重载或恢复会话后不再重复注入
+- **frontmatter 安全** — 只识别行首 `---` 作为分隔符，描述内的 `---` 不会破坏解析
+- **终端安全** — 技能描述、路径与加载错误先清理控制序列、再按显示宽度截断后才进入界面
 
-In a Pi prompt:
+### 标记规则
+
+| 输入 | 结果 |
+| --- | --- |
+| 提示词正文中的 `/skill-name` | 注入技能 `skill-name` |
+| `/SKILL-NAME` | 先精确匹配；无精确项时大小写不敏感回退 |
+| `/skill:name` | 视为 Pi 命令，不注入 |
+| `https://example.com/foo` | 边界规则排除，不当作标记 |
+| 行首的 `/model` | 原样传递，不拦截 |
+
+## 使用示例
 
 ```text
-let's /tdd this and /review when done
+用 /tdd 的方式做，完成后 /review 一遍
 ```
 
-Both skills are loaded into the current turn's prompt; the model acts on them immediately. Press `<Tab>` after `/` (or after any prefix like `/t`) to autocomplete from the list of available skills.
+两个技能同时加载进本轮提示词，模型立即按其指令工作。对话中出现：
 
-Confirmation:
+```text
+◆ 技能已加载 · 2 个（展开查看名称与路径）
+```
+
+## 安装
 
 ```bash
-pi list             # confirm the package is registered
+pi install git:github.com/huangrx6/pi-plugin
 ```
 
-In a Pi session, `/loaded-skills` shows what has already been injected on the current branch.
+重启 Pi 或执行 `/reload`。零运行时依赖、零配置。单会话试用：`pi -e <repo>/extensions/pi-skill-inject`。
 
-## Token rules
-
-| Input | Resolves to |
-| --- | --- |
-| `/skill-name` in prompt body | skill `skill-name` |
-| `/SKILL-NAME` | exact-match first; case-insensitive fallback if no exact match |
-| `/skill:name` | not treated as an inline skill (it's a Pi command) |
-| `https://example.com/foo` | never treated as a token (regex boundary) |
-| `/model` at prompt start | passes through; not intercepted as a skill |
-
-## Deduplication
-
-A skill is marked "already loaded" on the current branch when either:
-
-- The extension injected it this turn, or
-- The model called `read` on its `SKILL.md` (observed via `tool_result`).
-
-Both events write a tombstone into the session branch, so reloading or resuming the session does not re-inject.
-
-## Install
+## 开发
 
 ```bash
-pi install git:github.com/huangrx6/pi-skill-inject
+cd extensions/pi-skill-inject
+npm install        # 仅 devDependencies（tsc / tsx）
+npm run check      # tsc --noEmit
+npm test           # 标记边界与加载解析回归
 ```
 
-Or install the whole monorepo via `pi install git:github.com/huangrx6/pi-plugin`. Restart Pi or `/reload`.
+编辑 `index.ts` 后用 `/reload` 生效。
 
-For single-session testing without installation:
-
-```bash
-pi -e /path/to/pi-skill-inject
-```
-
-## Development
-
-```bash
-git clone https://github.com/huangrx6/pi-skill-inject.git
-cd pi-skill-inject
-# No npm install needed: imports of @earendil-works/* resolve to
-# the running Pi install.
-```
-
-Edit `index.ts`, then reload via `/reload` or restart Pi to pick up changes.
-
-## File structure
+<details>
+<summary>文件结构</summary>
 
 ```text
 pi-skill-inject/
-├── index.ts          # single-file extension
+├── index.ts          # 发现、注入、渲染与命令接线
+├── display.ts        # 终端安全文本与已加载列表格式化
+├── tests/            # 标记边界 / 解析回归
+├── globals.d.ts      # Pi 运行时类型 ambient shim
+├── tsconfig.json
 ├── package.json
 ├── README.md
 └── LICENSE
 ```
+
+</details>
 
 ## License
 

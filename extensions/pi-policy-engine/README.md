@@ -5,356 +5,148 @@
 
 # pi-policy-engine
 
-<p align="center"><strong>Adaptive workflow routing: quick / standard / strict, with plan-then-approve for risky work.</strong></p>
+<p align="center"><strong>按任务形态路由流程：quick / standard / strict，高风险先计划后审批。</strong></p>
 
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
 </p>
 
-Inject "strict process" instructions into the system prompt based on what the task looks like. The model reads them, follows them, and stops on its own — exactly how a skill would say "here you must pause and ask the user".
+根据任务长相把「严格流程」指令注入系统提示：模型读到它们、遵守它们、自己停下来——和一个技能说「这里必须暂停问用户」是同一机制。本扩展只作用于任务行为层（系统提示注入 + 流程状态机）；不拦截 `tool_call`，工具权限问题属于权限层，刻意不在范围内。
 
-This extension acts only at the task-behavior layer (system-prompt injection + flow state machine). It does not intercept `tool_call`; any tool-permission question belongs to a permission extension, not this one.
+## 路由
 
-## What it does
-
-When a prompt arrives:
-
-1. **Classifier** (deterministic rules, no LLM call) decides risk → rigor
-2. **`before_agent_start`** injects the matched policies into the system prompt
-3. Under `strict`, the injected policy says verbatim: "This turn is PLAN-ONLY. … Stop after the plan and ask for approval. Do not start implementation in the same turn."
-4. The model, having read that, returns a Task Contract + Constraint Ledger + plan, then stops without issuing any tool call
-5. When you reply "开始执行" / "approve" / "go ahead", `before_agent_start` detects the approval, transitions phase from `planning` → `executing`, and injects `strict-execute` instead
-
-Mid-plan follow-up questions ("为什么第二步要这样做？") are not approval; the state machine stays in `planning` and appends "do not execute until explicit approval".
-
-This is **soft constraint**: the extension injects instructions; the model obeys them. If a model decides to ignore `PLAN-ONLY` and starts writing files, this extension will not stop it — that's a permission-layer concern, deliberately out of scope.
-
-## Quick example
-
-Prompt: `设计生产环境 PostgreSQL schema 迁移方案并实施`
+提示词到达时：
 
 ```text
-# Active Policy Runtime
-Rigor: strict
-Phase: planning
-
-## Policy: rigor.strict-plan
-This turn is PLAN-ONLY. Do not mutate files, configuration, infrastructure,
-or external state. Produce a concise but explicit Task Contract and
-Constraint Ledger. ... Stop after the plan and ask for approval. Do not
-start implementation in the same turn.
+prompt
+  ↓ 分类器（确定性规则，不调 LLM）
+  ↓ 任务 / 风险 / 领域 / 关注点 / 模型 / 用户覆盖
+路由
+  ├─ Rigor（多严格）  高风险 → strict（计划 + 暂停 + 分波执行）
+  │                   低风险 → quick；其余 → standard
+  └─ Flow（怎么做）   debugging → debug-first
+                      review → review-first；research → research-first
 ```
 
-The model returns a plan and stops. You reply `开始执行`, the state transitions, `strict-execute` is injected, and the model executes in waves.
+两者正交：`debug-first + quick` 与 `debug-first + strict` 都合法。为什么用确定性规则而不是 LLM 分类——**让模型自己决定给自己加什么约束是循环论证**；规则路由快、可审计、不受模型漂移影响。
 
-## Rigor vs Flow
+严格档会在注入的策略里写明：「本轮 PLAN-ONLY……在计划后停下并请求批准，不要在同一轮开始实施」。模型返回任务契约与计划后停止；你回复「开始执行 / 批准 / approve / go ahead」，状态机从 `planning` 转入 `executing`，改注入 strict-execute。计划中途的追问不是批准——状态保持 `planning` 并追加「未获显式批准不得执行」。
 
-```text
-prompt enters
-   ↓
-Classifier (deterministic, no LLM)
-   ↓ task / risk / domain / concern / model / user override
-   ↓
-Policy Router
-   ├─ Rigor (how strict)
-   │    risk high → strict (plan + pause + waves)
-   │    risk low  → quick
-   │    else      → standard
-   └─ Flow (how, by task type)
-        debugging → debug-first
-        review    → review-first
-        research  → research-first
-```
+### 自主授权
 
-The two are orthogonal: `debug-first + quick`, `debug-first + strict` both legal. Before v0.19, flow was bolted into profile, which created special cases like "if profile carries flow, do not inject workflow policy" — now flow is derived from task type directly, and profile only carries behavioral constraints.
+说「不用征求我的意见了 / 构思完就执行 / don't ask me」这类明确授权时，审批门**整个释放**：同一条消息里随后出现的约束（「但别动数据库」）成为执行约束而不是重新上锁；只有整句取消或纠错开头（「不对，改成…」）能撤销释放。v0.24 之前这是一个真实事故：用户留言授权后去睡觉，引擎仍按「修订计划」处理，整夜停在等待批准——回归测试用原话钉住了这条路径。
 
-Why deterministic and not LLM-based classification? **Letting the model decide what constraints to put on itself is circular.** Rule routing is fast, auditable, and immune to model drift.
+## 注入记录
 
-## Domain denoising
+每次实际注入发生变化，对话中出现一条简短记录（如 `已注入策略 · 标准流程 · 故障排查`），展开可见触发依据、实际加载的要求、因预算或缺失未加载的项与当时的流程安排；相同注入不重复刷屏。`/policy` 默认解释最近一次行为并显示当前处于执行、计划还是等待确认；`/policy injected` 展示实际追加的完整原文。
 
-Early versions took any keyword hit as a load: one `组件` loaded the entire frontend policy; one `权限` loaded security. Before the model even started, 13 rules had been pushed into its context. **This extension exists to reduce context noise; it must not generate noise.**
+记录保存为会话扩展条目，**不进入模型上下文**；它描述提供给模型的要求，不能证明模型已遵守或验证已通过。历史卡片按终端显示宽度换行、用当前主题区分层级，展示前清理控制序列。模式与配置档在「设置」中分别选择，取消静默返回。
 
-The rules now:
+## 分类维度
 
-- Domain keywords split into **strong / weak**: strong (`postgres`, `react`, `jwt`, `kubectl`, …) loads on hit; weak (`组件`, `api`, `权限`, `sql`, …) alone does not load — needs two weak signals in the same domain, or a frame term (`React` + `组件`)
-- Triggered domains sort by score; only top `maxDomains` (default 2) load; rest are pruned with the reason recorded in `/policy why`
-- **Domain vs Concern separation (v0.18)**: Domain answers "where the problem is" (database / backend); Concern answers "what extra care" (security / production). Concerns **do not** consume the `maxDomains` budget — `postgresql schema + spring controller + jwt 鉴权` loads database + backend (domains) and security (concern) without dropping security
-- Confidence reflects candidate dispersion: tied candidates actively lower confidence (max -0.35); dominant winners unaffected — no more "three candidates tied at 0.95" false numbers
-
-Every prune / down-weight decision shows up in `/policy why` for audit:
-
-```text
-domain:backend dropped (weak-only: 接口 (score 0.5 < 1, needs a frame term or a second signal))
-concern:security dropped (weak-only: 密钥 (score 0.5 < 1, needs a frame term or a second signal))
-confidence penalized: candidates dispersed (top=6, runner-up=6, dominance=0.00)
-```
-
-## Approval is a soft constraint
-
-Strict's plan approval is **not** tool interception — it is the model's own instructions:
-
-- Planning phase injects `strict-plan`: "This turn is PLAN-ONLY. Do not mutate … Stop after the plan and ask for approval."
-- Model obeys → outputs plan and stops, awaiting approval (no write tools are issued, so nothing needs to be intercepted)
-- You reply with an approval phrase (`执行` / `开始执行` / `批准` / `通过` / `可以执行` / `continue` / `approve` / `proceed` / `go ahead` / `do it`) → `before_agent_start` detects it, switches to `executing`, injects `strict-execute`
-- Non-approval follow-up questions ("为什么第二步要这样做？") → state stays `planning`, "do not execute until explicit approval" is appended — no accidental downgrade
-
-Deliberate non-feature: vague phrasing like "差不多就改吧" or "好像可以" is **not** recognised as approval — avoids accidental bypass.
-
-## Execution intent: read-only / mutate / unclear
-
-Every prompt is also classified into a three-value **execution intent**, surfaced in `/policy why`:
-
-| Intent | Heuristic | Example |
+| 维度 | 取值 | 要点 |
 | --- | --- | --- |
-| `mutate` | Any modify-verb present and not negated | 帮我**修复**这个 bug / **优化**性能 |
-| `read-only` | Only read-verbs, no modify-verbs | 只**分析**，不要修改 / **排查**为什么返回旧数据 |
-| `unclear` | Vague or no verb | 帮我**看看**这个 / 继续 |
+| 任务 | coding / debugging / review / research / architecture / documentation | 意图框加权：动作从句里的证据双倍计分，背景提及只算一半 |
+| 执行意图 | `mutate` / `read-only` / `unclear` | 「不要只分析，直接修改代码」= mutate——否定窗口内的动词是死证据；提及不等于意图 |
+| 风险 | high / medium / low | 架构任务默认高风险；强关注点可抬高下限；read-only 意图自动降档 |
+| 时机与审批 | `now` / `deferred` · `explicit` / `none` | 「确认后再执行」显式建门，压过自动风险判断；授权短语可解除 |
+| 领域 | database / backend / frontend / … | 强信号（`postgres`、`react`、`jwt`）命中即载；弱信号（`组件`、`api`）单独不载，需同域两个或一个框词 |
+| 关注点 | security / production / … | 与领域分账，不占 `maxDomains`（默认 2）名额 |
 
-Key rules:
+低置信不是遮羞布：候选并列会主动压低置信度，`/policy why` 展示每一次剪裁的理由——**这个扩展的存在意义是减少上下文噪声，它自己就不能制造噪声**。
 
-- **Negation scope**: verbs inside a negation window are dead evidence; "不要只分析，直接修改代码" = `mutate` (the old `analysisOnly` rule misclassified this)
-- **Mention is not intent**: "迁移**方案**的风险" / "README 里**写了**什么" are mentions, not requests — Intent beats mention
-- `read-only` automatically downgrades `strict` to `standard/quick` (pure reading needs no approval loop); `unclear` keeps the full strictness
-- If the semantic fallback does not explicitly assert an intent, the deterministic result is preserved
+## 可靠性细节
 
-## Strict plan survives session resume (v0.20)
+- **连续性** — 「继续 / 还是不对 / 按这个做」这类裸跟进继承上一轮的任务、领域与关注点，重算意图；风险只升不降（「继续」不会丢掉安全关注点）
+- **跨会话恢复** — 未决的严格计划随历史持久化，`session_start` 恢复（同项目目录、7 天内；`/policy cancel` 丢弃）；状态文件按项目目录哈希分片，互不覆盖
+- **信任边界** — 项目层 `.pi/policy-engine.json` 只承载路由与行为定制；网络、凭证、文件系统特权键（`semanticFallback`、`historyFile` 等）仅全局生效，项目层写入被丢弃并由 `/policy validate` 报告
+- **可选语义回退** — 确定性置信度过低时可启用 OpenAI 兼容的小模型重分类；默认关闭，任何失败静默回退确定性结果，绝不阻塞
 
-A pending strict plan no longer gets lost when you exit Pi or `/resume` an old session: the `awaiting` state and minimal decision are persisted alongside the history file, restored on `session_start` (same project dir match, ≤ 7 days; `/policy cancel` discards). "Generate a plan at night, /resume next morning, approve" now flows through the approval classifier correctly. Persisted state is sharded by project-directory hash (`strict-state-<hash>.json`) so different projects never overwrite each other; two sessions of the same project share the file — last writer wins, and the failure direction is safe (re-asks rather than auto-clearing).
+## 命令
 
-## Execution timing & explicit approval (v0.21)
-
-Two internal dimensions beyond execution intent: **execution timing** (`now` / `deferred`) and **approval requirement** (`explicit` / `none`). When you say "确认后再执行 / 等我批准", explicit approval **overrides** automatic risk judgement — it forces strict's plan → pause → execute flow regardless of what `risk` calculated.
-
-## Project trust boundary (v0.21)
-
-The project-level `.pi/policy-engine.json` uses a **dual-trust model**: routing and behavioural customisation (mode, policy selection, budget — a repo carrying its own conventions is reasonable) **is** trusted; host credentials, arbitrary network destinations, arbitrary filesystem destinations **are not**. So the project layer may carry routing / denoise config, but `semanticFallback` (which can point at any endpoint + any env var), `historyFile`, `historyMaxEntries`, and other network / credential / filesystem-privileged keys are **global-only** (~/.pi/agent/policy-engine.json). Project-layer attempts to write privileged keys are silently dropped; `/policy validate` reports them as "global-only, ignored".
-
-Invalid config values also fall back to defaults at runtime (`maxDomains: "oops"` no longer disables the cap); `/policy validate` reports them in addition.
-
-## Task continuity (v0.18)
-
-After a turn ends (`agent_end`), users often send short follow-ups with no new instruction: `继续` / `还是不对` / `再看看` / `按这个做`. These prompts carry nothing the classifier can latch onto, so they re-classify as `coding / medium / no-domain` and the model loses the previous turn's constraints.
-
-Now a follow-up prompt (no comma-introduced new instruction) inherits the previous turn's **task**, **domains**, and **concerns** ("继续" no longer drops the security concern), recomputes execution intent (new intent wins; no signal = inherited), and only raises risk when the follow-up itself carries real risk evidence (a production keyword appearing in `继续修一下生产那个`). Follow-ups also classify by type: **executive** (`按这个做` / `继续修` / `do it`) flips the previous read-only recommendation to mutate; **neutral** (`继续` / `还是不对`) inherits the previous intent.
-
-## Debug commands
-
-| Command | Purpose |
+| 命令 | 行为 |
 | --- | --- |
-| `/policy` | Interactive selector (mode / profile) |
-| `/policy auto\|quick\|standard\|strict\|off` | Switch runtime mode |
-| `/policy once <mode>` | Use `<mode>` for the next turn only |
-| `/policy profile <name>` | Switch profile (`auto` / `coding` / `debugging` / `documentation` / `architecture` / `review` / `research`) |
-| `/policy preview <prompt>` | Dry-run the routing without sending to the agent |
-| `/policy diff <promptA> \|\| <promptB>` | Compare routing decisions for two prompts |
-| `/policy history [N\|clear-disk]` | Last N routing decisions (default 5); `clear-disk` wipes the JSONL history file |
-| `/policy config` | Print the resolved config (defaults + global + project + runtime override merged) |
-| `/policy validate` | Validate config: manifest paths / profile references / include-exclude references |
-| `/policy status` | Current mode / profile / phase / model |
-| `/policy why` | Last turn's full routing decision, including which rules hit |
-| `/policy cancel` | Cancel a pending strict plan |
-| `/policy reset` | Clear all runtime overrides |
+| `/policy` | 本次行为说明 + 当前流程状态；设置在次级入口 |
+| `/policy auto\|quick\|standard\|strict\|off` | 切换运行时模式 |
+| `/policy once <mode>` | 仅下一轮使用指定模式 |
+| `/policy profile <name>` | 切换配置档（coding / debugging / …） |
+| `/policy preview <prompt>` | 干跑路由：不发送、不改状态、不调用回退 |
+| `/policy diff <A> \|\| <B>` | 对比两条提示词的路由差异 |
+| `/policy why` / `/policy injected` | 触发依据与实际注入原文 |
+| `/policy history [N\|clear-disk]` | 最近 N 条路由决策；可清空磁盘历史 |
+| `/policy config` / `/policy validate` | 解析后的完整配置 / 配置校验 |
+| `/policy status` / `/policy cancel` / `/policy reset` | 当前状态 / 取消未决计划 / 清除运行时覆盖 |
 
-### Preview output
+## 配置
 
-```text
-# Policy preview (dry run; nothing is executed)
-
-task: architecture
-risk: high
-confidence: 0.9
-domains: database, kubernetes
-rigor: strict
-phase: planning
-profile: architecture
-model policy: model.minimax-m3
-would require approval: yes
-
-built-in policies (8 loaded, 3542 bytes / 24000 budget = 14%):
-  - core.evidence-priority
-  - core.constraint-retention
-  - ...
-truncated by byte budget:
-  - (none)
-
-project policies (0 loaded, 0 bytes):
-  - (none)
-```
-
-Preview is pure read — no session state change, no agent call, no fallback call.
-
-### Diff output
-
-```text
-# Policy diff
-
-LEFT : 修一个 PG migration bug
-RIGHT: 改 README typo
-
-LEFT
-  rigor: strict
-  task / risk: architecture / high
-  ...
-RIGHT
-  rigor: quick
-  task / risk: documentation / low
-  ...
-
-Differences (4):
-  rigor: strict  →  quick
-  task: architecture  →  documentation
-  risk: high  →  low
-  would require approval: yes  →  no
-```
-
-Separator is `||` (no spaces needed on either side).
-
-## Configuration
-
-### Precedence
-
-```text
-package defaults
-  ↓
-~/.pi/agent/policy-engine.json     ← user-global
-  ↓
-<project>/.pi/policy-engine.json   ← project-level
-  ↓
-runtime /policy override           ← process-local (/policy command)
-```
-
-### Global example
-
-```json
-{
-  "mode": "auto",
-  "profile": "auto",
-  "showStatus": true,
-  "includePolicies": ["behavior.execution-discipline"],
-  "excludePolicies": [],
-  "domainHints": ["backend"],
-  "projectPolicyMaxFiles": 12,
-  "projectPolicyMaxBytes": 24000,
-  "historyFile": "~/.pi/agent/policy-engine/history.jsonl",
-  "historyMaxEntries": 500
-}
-```
-
-### Project example
-
-`.pi/policy-engine.json`:
+优先级：包默认 → `~/.pi/agent/policy-engine.json`（全局）→ `<project>/.pi/policy-engine.json`（项目）→ `/policy` 运行时覆盖。
 
 ```json
 {
   "mode": "auto",
   "profile": "auto",
   "domainHints": ["backend"],
-  "projectPolicies": ["compatibility.md"]
+  "includePolicies": [],
+  "historyFile": "~/.pi/agent/policy-engine/history.jsonl"
 }
 ```
 
-Without `projectPolicies`, scans `.pi/policies/**/*.md` automatically (capped at 12 files / 24 KB by default).
+项目层额外支持 `projectPolicies`：默认扫描 `.pi/policies/**/*.md`（上限 12 文件 / 24 KB）；多个策略文件时可用 `manifest.json` 按维度条件加载（任务 × 领域跨维 AND、维内 OR，路径仅限 `.pi/policies/` 内且经符号链接校验）。
 
-With multiple policy files, an opt-in `manifest.json` enables conditional loading — only entries relevant to the current decision load, others are skipped. Filter semantics are **AND across dimensions, OR within**:
+全局可复用策略：写入 `policies/<layer>/<name>.md` 并在 `policies/manifest.json` 注册，再挂到某个 `profiles/<name>.json` 或 `includePolicies`。路由关键词在 `config/routing.json` 中纯数据驱动，无需改分类器代码。
 
-```json
-{
-  "db-migration": { "path": "database-migration.md", "tasks": ["architecture"], "domains": ["database"] },
-  "always": { "path": "team-conventions.md" }
-}
-```
-
-`db-migration` loads only when `task ∈ {architecture}` **and** `domains` contains `database`. Manifest `path` values may only reference files inside `.pi/policies/` (symlink-validated); out-of-tree paths are rejected and recorded in `/policy why`.
+## 边界
 
 ```text
-my-project/
-└── .pi/
-    ├── policy-engine.json
-    └── policies/
-        ├── manifest.json
-        ├── compatibility.md
-        └── architecture.md
+AGENTS.md         = 常驻的项目 / 全局小宪法
+Skill             = 具体能力怎么做（迁移、画图……）
+pi-policy-engine  = 动态行为规则 + 严格度 / 流程路由 + 模型 / 领域适配
 ```
 
-### Optional: semantic fallback
+本扩展不替代前两者，也不假设它们存在。
 
-If the v0.x deterministic classifier ever feels brittle on cryptic prompts, optionally enable an OpenAI-compatible semantic re-classifier as a fallback:
+## 已知限制
 
-- **Default off** — needs network + API key, opt in
-- Only fires when deterministic `confidence < confidenceThreshold` (default 0.7)
-- Any failure (timeout / network / schema mismatch) → silent fallback to deterministic result, **never blocks the agent**
-- When enabled, you will see `semantic-fallback: …` in `decision.reasons`; verify with `/policy why`
+- 分类器是规则而非语义模型；神秘提示词可开启可选语义回退（需网络 + API Key，离线场景不适用）
+- 严格审批是软约束：模型被告知要停，不是被机械阻止；工具级强制由宿主负责
+- `/policy` 运行时覆盖是进程内的；持久化走全局 / 项目配置文件
 
-```json
-{
-  "semanticFallback": {
-    "enabled": true,
-    "endpoint": "https://api.openai.com/v1/chat/completions",
-    "model": "gpt-4o-mini",
-    "apiKeyEnvVar": "OPENAI_API_KEY",
-    "confidenceThreshold": 0.7,
-    "timeoutMs": 4000
-  }
-}
+## 安装
+
+```bash
+pi install git:github.com/huangrx6/pi-plugin
 ```
 
-The API key is read by **environment variable name** (`apiKeyEnvVar`), not stored in the config. To switch provider, change `endpoint` + `model` + `apiKeyEnvVar` — not limited to OpenAI.
+重启 Pi 或执行 `/reload`。零运行时依赖（纯 JS + Node 内置模块）。
 
-## Custom policies
+## 开发
 
-Add a globally reusable policy:
-
-1. Write `policies/<layer>/<name>.md`
-2. Register `id → path` in `policies/manifest.json`
-3. Add to a `profiles/<name>.json`'s `policies` array, or enable via `includePolicies`
-
-Add a project-scoped policy: drop it in `.pi/policies/<name>.md` — **no manifest change needed**.
-
-Extend routing keywords: edit `config/routing.json`'s `taskRules / domainRules / highRisk / mediumRisk` — pure data-driven, no classifier code changes.
-
-## Boundaries
-
-```text
-AGENTS.md          = small, always-on project / global constitution
-Skill              = how to do a specific capability (DB migration, drawing, …)
-pi-policy-engine   = dynamic behavior rules + rigor/flow routing + model / domain / concern adaptation
+```bash
+cd extensions/pi-policy-engine
+npm run check                 # node --check 覆盖全部源文件（glob）
+npm test                      # 单元 + 回归 + self-test + 生命周期冒烟
 ```
 
-This extension does not replace AGENTS.md or Skills, and does not assume either exists.
+`src/core/` 不 import 任何 pi 模块——纯函数、独立可测。
 
-## Known limitations
-
-- V0.x classifier is rule-based, not a semantic model. Optional `semanticFallback` (OpenAI-compatible HTTP) re-classifies via a small LLM when deterministic confidence is low. Off by default; any failure falls back deterministically. Needs API key + network; not suitable for offline scenarios.
-- **Strict approval is soft constraint (task behavior layer)**: the model is told "PLAN-ONLY, pause for approval" — it is not mechanically blocked. If the model ignores the instruction, the safety net is whatever permission extension you happen to run.
-- `/policy` runtime override is process-local; persist via global / project `policy-engine.json`
-- Strict approval requires an explicit approval phrase (whitelisted); vague phrases are deliberately ignored to avoid accidental bypass
-
-## File structure
+<details>
+<summary>文件结构</summary>
 
 ```text
 pi-policy-engine/
-├── extensions/policy-engine/
-│   └── index.js                  # Pi extension entry
-├── src/core/                     # pure logic (no pi imports; independently testable)
-│   ├── classifier.js             # rule-based task / risk / domain classifier
-│   ├── router.js                 # classification → decision
-│   ├── loader.js                 # load policies + byte budget
-│   ├── approval.js               # approval-phrase recognition (strict state machine)
-│   ├── config.js                 # four-layer config merge
-│   ├── semantic.js               # optional semantic fallback
-│   └── history-store.js          # routing-history JSONL persistence
-├── policies/                     # Markdown policies
-│   ├── core/ behaviors/ flows/ rigors/ domains/ concerns/ models/
-│   └── manifest.json             # global policy registry
-├── profiles/                     # profile JSONs (policy combinations)
-├── config/
-│   ├── defaults.json
-│   └── routing.json              # routing keywords (data-driven)
-├── examples/                     # small trial runs
-├── scripts/                      # smoke-extension (lifecycle smoke)
-└── tests/                        # node:test unit + regression-corpus.json
+├── extensions/policy-engine/   # Pi 扩展装配（lifecycle / commands / format）
+├── src/core/                   # 纯逻辑：classifier / router / approval /
+│                               # intent / matcher / loader / config /
+│                               # semantic / history-store
+├── policies/                   # Markdown 策略（core / behaviors / flows /
+│                               # rigors / domains / concerns / models）+ manifest
+├── profiles/                   # 配置档 JSON
+├── config/                     # defaults.json + routing.json（数据驱动关键词）
+├── examples/ · scripts/ · tests/
 ```
+
+</details>
 
 ## License
 

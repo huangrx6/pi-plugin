@@ -5,7 +5,7 @@
 
 # pi-context-qos
 
-<p align="center"><strong>Non-destructive, task-aware, recoverable working-context runtime.</strong></p>
+<p align="center"><strong>非破坏性的工作区上下文维护：可降级、可召回、可恢复。</strong></p>
 
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&style=flat-square&label=build" /></a>
@@ -13,260 +13,110 @@
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A522.15-4c1?style=flat-square" />
 </p>
 
-Pi's append-only session stays authoritative. This extension archives tool evidence into a SQLite/FTS5 metadata index + content-addressed zstd cold store, then uses the `context` hook to choose `RAW → EXTRACT → SUMMARY → TOMBSTONE` representations for old tool-result blocks. The newest causal frontier, user messages, pins, unresolved failures, and the current file snapshots are hard-protected; only the deep-copied tool-result text is rewritten, never user / assistant / tool-call shape.
+Pi 的只读追加会话始终是权威。本扩展把工具证据归档进 SQLite/FTS5 元数据索引与内容寻址的 zstd 冷库，再通过 `context` 钩子为旧的工具结果选择 `RAW → EXTRACT → SUMMARY → TOMBSTONE` 表示。最新的因果前沿、用户消息、固定项、未解决失败与当前文件快照被硬保护；被改写的只有深拷贝的工具结果文本，用户 / 助手 / 工具调用形状从不改动。
 
-When QoS still cannot fit the budget, Pi's built-in compaction is called as a fallback — with explicit instructions to preserve the active objective, unresolved evidence, and `ctx://` recall references.
+当降级仍装不进预算时，回退调用 Pi 内置压缩，并带上保留当前目标、未解决证据与 `ctx://` 召回引用的指令。扩展触发的整理成功后，被中断的任务会收到一次续跑请求；取消、失败、会话或分支变化、更新的输入都会阻止这次续跑。
 
-## Core guarantees
+## 日常使用
 
-- **Non-destructive** — the Pi session JSONL is never written or rewritten
-- **Hard-protected** — pinned items, unresolved failures, latest file snapshots, the active causal frontier, and user messages are never auto-downgraded
-- **No orphan tool results** — tool calls and their results always stay paired; the planner only replaces tool-result text representations
-- **Branch lineage** — every item carries `origin_entry_id`; `/tree` filters to the current branch; `/fork` inherits only the new branch's visible metadata
-- **Monotonic representation** — automatic changes only ever move toward more compact forms; a frozen historical prefix is never re-expanded
-- **Content-addressed** — raw text is SHA-256 hashed, zstd-compressed, and deduplicated across sessions
-- **Database stays small** — SQLite holds metadata + deterministic summaries + FTS5 search index; large content lives in blobs
-- **Tight permissions** — storage root `0700`, SQLite + blobs `0600`; secrets are redacted by default; excluded paths archive no body or search row
-- **Last-resort native compaction** — only when critical-level degradation still leaves pressure at or above the critical threshold
-
-## How it works
+`/context` 查看自动管理状态、有效预算占用、压缩阈值与最近一次整理结果；首层菜单提供用量、暂停 / 恢复、仅本会话的阈值调整与高级操作。整理结果以可展开条目出现在对话中——这些条目不进入模型上下文，使用当前终端主题按字素宽度换行，且冻结为不可变的历史快照。
 
 ```text
-tool_result
-  → normalize text
-  → SHA-256 original
-  → security decision / redact
-  → deterministic tool compressor
-  → zstd CAS archive
-  → SQLite metadata + FTS5
-
-context
-  → refresh active branch lineage
-  → estimate effective pressure
-  → protect user / frontier / pin / unresolved / latest-file
-  → compute explainable retention score
-  → choose monotonic representation
-  → replace only the deep-copied tool-result text
-  → return messages to Pi
-  → native compact only when still over budget
+/context                  状态总览 + 日常操作
+/context stats            详细压力统计
+/context threshold 60     仅本会话的临界阈值（有效预算口径）
+/context recall <ref>     召回原始内容
+/context search <query>   FTS 检索
+/context pin / unpin <ref> 固定 / 取消固定
+/context gc / freeze / unfreeze / doctor / config
 ```
 
-## Data model
+## 召回闭环
 
-- `sessions` — Pi session path, project root, model, window, turn, freeze, current epoch
-- `tasks` — current user objective (internal lightweight task model; does not read external todo systems)
-- `epochs` — closed every N turns; frozen summaries never auto-rewritten
-- `context_items` — tool call, branch origin, file, hash, tokens, tier, representation, score, pin / unresolved / superseded / duplicate, structured summary
-- `blobs` — CAS hash, compressed size, access time; physical content in `blobs/<prefix>/<hash-rest>.zst`
-- `context_fts` — FTS5 index over metadata / summaries only; never the redacted original
+工具结果被降级后，替换文本自带恢复指令：
 
-## Tier vs representation
+```text
+[bash archived · restore: context_recall(ctx://item/123)]
+```
 
-- **Tier** describes purpose: `PINNED / WORKING / EVIDENCE / HISTORICAL / DISPOSABLE`
-- **Representation** describes the form sent to the model: `RAW / EXTRACT / SUMMARY / TOMBSTONE`
+模型看到桩后需要证据时，直接调用唯一的模型工具 `context_recall({ ref })` 把原文重新注入当前前沿——从不改写冻结的历史前缀。`/context search|pin|unpin` 仍是用户命令。
 
-The two are independent. Automatic representation changes are monotonic; `context_recall` re-injects raw content as a new tool result on the active frontier, never by rewriting the frozen prefix.
+早期版本验证过一个反直觉事实：17 个会话、4482 个条目、56% 被 tombstone，而旧版哑桩 `[bash archived: ctx://item/N]` 从未被召回过一次——桩不说能恢复，模型就不会恢复。自描述桩与单一工具就是为此而设。
 
-## Causal safety
+## 核心保证
 
-The planner never deletes assistant / user / tool-result messages — it only replaces the text representation of old tool results, so the original assistant tool call and tool result still pair up.
+- **非破坏** — Pi 会话 JSONL 从不被写入或改写
+- **硬保护** — 固定项、未解决失败、最新文件快照、活跃因果前沿与用户消息从不自动降级
+- **因果完整** — 工具调用与结果永远成对；规划器只替换结果文本的表示
+- **表示单调** — 自动变更只会更紧凑；冻结的历史前缀不会被重新展开
+- **分支谱系** — 每个条目携带 `origin_entry_id`；`/tree` 只加载当前分支可见项，`/fork` 只继承新分支可见的元数据
+- **内容寻址** — 原文 SHA-256、zstd 压缩、跨会话去重
+- **紧凑权限** — 存储根 `0700`、库与 blob `0600`；密钥默认脱敏；排除路径不存正文也不进搜索索引
+- **最后手段** — 仅当临界级降级后压力仍不低于临界阈值才调用内置压缩
 
-The active frontier is computed from BOTH recent user turns AND recent causal blocks. Whichever boundary is earlier stays intact; everything after it is rewritten.
+## 压力策略
 
-## Branch and fork
-
-Every item stores the `origin_entry_id` from the tool call's branch entry. After `/tree`, only the current `getBranch()`-visible origins load. `/fork` creates a new session and inherits metadata via `previousSessionFile` (only the new branch's visible metadata is copied; blob hashes are shared, but item IDs and `ctx://` refs are regenerated in the new session so visibility cannot leak across sessions).
-
-## Security
-
-1. Storage root and blob shards are `0700`
-2. SQLite and blob files are `0600`
-3. Common tokens / passwords / private keys / DSNs are recognised and redacted before they hit disk
-4. Excluded paths only save hash + "not archived" stub; body and search index never contain them
-5. Project config (`<repo>/.pi/context-qos.json`) is loaded only when `ctx.isProjectTrusted()` is true
-6. GC only touches QoS-derived data; Pi Session is never affected
-
-## Pressure strategy
-
-Pressure is computed against **effective budget** (`contextWindow − outputReserve − safetyReserve`), not raw window.
-
-| Zone | Threshold | Default action |
-| --- | --- | --- |
-| Green | < 55% | Deduplicate; covered content forms stable summaries |
-| Yellow | 55–70% | `disposable` / `superseded` → `extract` |
-| Orange | 70–82% | `historical` and low-relevance evidence → `extract` |
-| Red | 82–92% | Low-scoring content → `summary` / `tombstone` |
-| Critical | ≥ critical | Maximise degradation; if post-plan pressure is still at or above the critical threshold, fall back to Pi's native compaction |
-
-Score is an explainable linear combination: task relevance, importance, unresolved, causal dependency, recency, uniqueness, code proximity, verification value. Pinned, unresolved failures, latest-file snapshots, and the active frontier are hard rules that always outrank the score.
-
-Re-tuning thresholds and reserves: write `~/.pi/agent/context-qos/config.json` (or `<repo>/.pi/context-qos.json` when trusted). The default layout:
+压力按**有效预算**（`contextWindow − 输出预留 − 安全预留`）计算，阈值默认 `55 / 70 / 82 / 92`%，逐级加深降级；保留分是任务相关性、重要性、未解决、因果依赖、新近度、唯一性、代码邻近与验证价值的可解释线性组合，硬规则始终压过分数。
 
 ```json
 {
-  "enabled": true,
   "budget": {
-    "outputReserveRatio": 0.12,
-    "safetyReserveRatio": 0.06,
-    "yellow": 0.55,
-    "orange": 0.7,
-    "red": 0.82,
-    "critical": 0.92,
+    "yellow": 0.55, "orange": 0.7, "red": 0.82, "critical": 0.92,
     "nativeCompactFallback": true
   },
-  "frontier": {
-    "protectedUserTurns": 2,
-    "protectedCausalBlocks": 8
-  },
-  "storage": {
-    "directory": "~/.pi/agent/context-qos",
-    "maxBytes": 2147483648,
-    "maxAgeDays": 30
-  },
-  "epochs": {
-    "maxTurns": 12
-  },
-  "security": {
-    "archiveSecrets": false,
-    "excludePatterns": ["**/.env", "**/*.pem", "**/secrets/**"]
-  }
+  "storage": { "directory": "~/.pi/agent/context-qos", "maxAgeDays": 30 },
+  "security": { "excludePatterns": ["**/.env", "**/*.pem"] }
 }
 ```
 
-Thresholds must be strictly increasing within `(0, 1)`; `outputReserveRatio + safetyReserveRatio < 0.8`.
+阈值需在 `(0, 1)` 内严格递增。`/context threshold 60` 只调当前会话并按比例缩放下层阈值，不改配置文件。扩展触发的压缩只获得一次续跑请求，压力未降到阈值以下或不开启新用户请求就不会再次触发；用户主动 `/compact` 不自动续跑。
 
-## Default storage layout
+## 安全
+
+存储根与 blob 分片 `0700`，SQLite 与 blob 文件 `0600`；常见令牌 / 密码 / 私钥 / DSN 在落盘前脱敏；排除路径只保存哈希与「未归档」桩；项目配置仅在 `ctx.isProjectTrusted()` 时加载；GC 只清理本扩展数据。
+
+## 数据布局
 
 ```text
 ~/.pi/agent/context-qos/
-├── context.db
-├── context.db-wal
-├── context.db-shm
-├── blobs/
-│   └── ab/
-│       └── <sha256-rest>.zst
-└── config.json
+├── context.db          # 元数据 + 确定性摘要 + FTS5（不含脱敏原文）
+└── blobs/ab/<hash>.zst # 内容寻址冷库
 ```
 
-Project repositories may only carry a policy file `<repo>/.pi/context-qos.json`. No real context data is written into the project.
+项目仓库只能携带策略文件 `<repo>/.pi/context-qos.json`，真实数据不写进项目。压缩器覆盖 tests / git / 文件读取 / 搜索 / 通用 Bash，结构化摘要保留事实、决策、错误、文件、符号与下一步；不向任何外部摘要模型发送源码或终端输出。
 
-## Deterministic compression
+## 安装与开发
 
-First-version compressors: tests, git, file reads, search and generic Bash. Structured summaries preserve facts, decisions, errors, files, symbols, unresolved, and next actions. No source code or terminal output is sent to any external summary model.
-
-## Model tools
-
-Since v0.2 exactly ONE model tool is registered — the recovery valve.
-Live evidence across 17 sessions / 4482 items: the model invoked
-`context_search` / `context_pin` / `context_unpin` **zero times** ever,
-so those schemas (taxing every request) were removed from the model
-tool surface. Their user-facing `/context search|pin|unpin` commands
-are unchanged.
-
-| Tool | Purpose |
-| --- | --- |
-| `context_recall({ ref })` | Restore `ctx://item/<id>` to the current working context. Every downgraded stub names this command inline (`… · restore: context_recall(ctx://item/N)`), so the recovery loop is self-teaching. If the raw body was not archived or has been GC'd, returns a traceable summary instead. |
-
-## User commands
-
-Running `/context` with **no arguments** opens an interactive picker: each subcommand listed with a one-line Chinese explanation. Argument-taking subcommands show their usage when picked. Direct invocation is unchanged:
-
-```text
-/context                  status overview
-/context stats            detailed pressure stats
-/context top              top-relevance items
-/context tree             tier-grouped item tree
-/context tasks            internal task list
-/context epochs           epoch summary
-/context inspect <ref>    single item details
-/context recall <ref>     recall raw content
-/context search <query>   FTS search
-/context pin <ref>        pin
-/context unpin <ref>      unpin
-/context gc [--aggressive]  run GC
-/context freeze           freeze transformations (audit mode)
-/context unfreeze
-/context doctor           diagnostic dump
-/context config           print resolved config
-/context reset-session    reset this session's QoS metadata only
-```
-
-`/context reset-session` only clears the **current session's** QoS metadata; the Pi Session JSONL is untouched and shared blobs are not directly deleted — unreferenced blobs are cleaned up by GC.
-
-## Footer status
-
-The status is published at `session_start` (before any model call, so it is visible from the first paint) and refreshed after every model call, under the `context:qos` key via Pi's status API. It renders as a minimal icon + percentage cell in the resources row of a multi-row footer:
-
-```text
-模型： (zai-coding-cn) glm-5.3 (high) │ ⚡GLM 5h:65%(2h25m) 周:37%(82h39m)
-资源： ↑4.3M │ ↓201k │ R48M │ CH99.9% │ $16.265 │ 32.0%/1.0M │ ◎QoS 6%
-```
-
-| 字段 | 含义 |
-| --- | --- |
-| `◎QoS 6%` | 有效预算（contextWindow × 0.82）占用百分比，压力级别只用颜色表达（绿/黄/红，危级加粗）；冻结时显示 `◎QoS 6%·冻结`。完整的 tokens/tier/冷库报告在 `/context stats` |
-
-## Install
-
-Requires Node.js `>=22.15` (uses `node:sqlite`, FTS5, and zstd, all built-in).
+要求 Node `>=22.15`（`node:sqlite`、FTS5、zstd 均为内置）；无外部服务。
 
 ```bash
-pi install git:github.com/huangrx6/pi-context-qos
+pi install git:github.com/huangrx6/pi-plugin
 ```
-
-Or via the monorepo. Restart Pi or `/reload`.
-
-## Requirements
-
-- Node.js `>=22.15`
-- Pi Coding Agent (any version supporting the documented extension contract)
-- No external services; the cold store and FTS index live entirely under `~/.pi/agent/context-qos/`
-
-## Invariants covered by tests
-
-- `context` input deep copy is never mutated in place
-- User messages preserved
-- Active frontier stays raw
-- Branches do not cross-contaminate item visibility
-- zstd CAS deduplicates and round-trips losslessly
-- Secrets redacted; excluded paths do not archive
-- Test failures stay unresolved until a matching test command runs successfully
-- New file versions supersede old ones; same version deduplicates
-- FTS5 searches only derived metadata / summaries
-- Extension lifecycle, tools, commands, and checkpoint all run through smoke
-
-## Pi API contract
-
-Implementation targets Pi `0.84.x`'s extension contract: `context`, `tool_result`, `session_start`, `session_tree`, `session_compact`, `getContextUsage()`, `ctx.compact()`, and `pi.appendEntry()`. Runtime only rewrites the deep copy of `context`'s messages.
-
-## Development
 
 ```bash
 cd extensions/pi-context-qos
-npm install
-npm run check      # type-check twice: ambient shim + real pi types
-npm test           # 12 unit tests + 1 lifecycle smoke
+npm run check      # 双通道类型检查：ambient shim + 真实 pi 类型
+npm test           # 单元 + 生命周期冒烟（fixture 全在 os.tmpdir()）
 ```
 
-`check` runs the ambient-shim typecheck first, then a second pass against the real installed Pi types (via `tsconfig.runtime.json`, which excludes the shim and tests). Test fixtures all live under `os.tmpdir()`.
-
-## File structure
+<details>
+<summary>文件结构</summary>
 
 ```text
 pi-context-qos/
-├── index.ts                    # extension assembly + lifecycle wiring
-├── globals.d.ts                # ambient shim for local type-check
-├── tsconfig.json               # includes shim
-├── tsconfig.runtime.json       # excludes shim (real types)
+├── index.ts                    # 扩展装配 + 生命周期接线
 ├── src/
-│   ├── types.ts                # domain types (tier / representation / pressure / structured summary)
-│   ├── config.ts               # defaults + global / project merge + validation
-│   ├── compressors/            # tests / git / read / grep / bash / common / index
-│   ├── runtime/                # controller / context / planner / scorer / pressure / archive / tokens
-│   ├── security/redaction.ts   # 4 secret patterns + path exclusion
+│   ├── types.ts / config.ts    # 领域类型 / 默认值与合并校验
+│   ├── compressors/            # tests / git / read / grep / bash
+│   ├── runtime/                # controller / context / planner / scorer /
+│   │                           # pressure / archive / tokens /
+│   │                           # continuation / terminal
+│   ├── security/redaction.ts   # 密钥识别 + 路径排除
 │   └── storage/                # database / blob-store / gc
-└── tests/                      # core.test.ts + extension.test.ts
+└── tests/                      # core / extension / continuation / terminal
 ```
+
+</details>
 
 ## License
 
