@@ -2695,98 +2695,134 @@ describe("P4-C2: architecture — frozen mtimes + grammar isolation", () => {
 // ── Tool registration contract ─────────────────────────────────────────
 
 describe("task-window interaction", () => {
-  async function open(args = "") {
-    await pendingSeed;
-    pendingSeed = undefined;
-    await commandRegistry.handlers.get("todos")!(args, commandRegistry.ctx);
-  }
+	async function open(args = "") {
+		await pendingSeed;
+		pendingSeed = undefined;
+		await commandRegistry.handlers.get("todos")!(args, commandRegistry.ctx);
+	}
 
-  const tui = { terminal: { rows: 24 }, requestRender: () => {} };
-  const theme = {
-    fg: (_color: string, text: string) => text,
-    bg: (_color: string, text: string) => text,
-  };
-  const keybindings = {
-    matches(data: string, id: string) {
-      return ({
-        enter: "tui.select.confirm",
-        down: "tui.select.down",
-        escape: "tui.select.cancel",
-      } as Record<string, string>)[data] === id;
-    },
-  };
+	const tui = { terminal: { rows: 24 }, requestRender: () => {} };
+	const theme = {
+		fg: (_color: string, text: string) => text,
+		bg: (_color: string, text: string) => text,
+	};
+	const keybindings = {
+		matches(data: string, id: string) {
+			return (
+				(
+					{
+						enter: "tui.select.confirm",
+						down: "tui.select.down",
+						escape: "tui.select.cancel",
+					} as Record<string, string>
+				)[data] === id
+			);
+		},
+	};
 
-  it("opens one bounded window and cancelling does not notify or mutate", async () => {
-    seedTestState(buildTestTask({ id: 17, status: "in_progress" }));
-    let rendered: string[] = [];
-    commandRegistry.setCustom(async (factory) => new Promise((resolve) => {
-      const component = factory(tui, theme, keybindings, resolve) as { render(width: number): string[]; handleInput(data: string): void };
-      rendered = component.render(72);
-      component.handleInput("escape");
-    }));
-    await open();
-    assert.ok(rendered.some((line) => line.includes("#17")));
-    assert.ok(rendered.length <= Math.floor(24 * 0.82));
-    assert.equal(notices.length, 0);
-    assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).revision, 1);
-  });
+	it("opens one bounded window and cancelling does not notify or mutate", async () => {
+		seedTestState(buildTestTask({ id: 17, status: "in_progress" }));
+		let rendered: string[] = [];
+		commandRegistry.setCustom(
+			async (factory) =>
+				new Promise((resolve) => {
+					const component = factory(tui, theme, keybindings, resolve) as {
+						render(width: number): string[];
+						handleInput(data: string): void;
+					};
+					rendered = component.render(72);
+					component.handleInput("escape");
+				}),
+		);
+		await open();
+		assert.ok(rendered.some((line) => line.includes("#17")));
+		assert.ok(rendered.length <= Math.floor(24 * 0.82));
+		assert.equal(notices.length, 0);
+		assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).revision, 1);
+	});
 
-  it("completes a selected task and reopens the same window without chat output", async () => {
-    seedTestState(buildTestTask({ id: 17, status: "in_progress" }));
-    let pass = 0;
-    commandRegistry.setCustom(async (factory) => new Promise((resolve) => {
-      const component = factory(tui, theme, keybindings, resolve) as { render(width: number): string[]; handleInput(data: string): void };
-      pass += 1;
-      if (pass === 1) {
-        component.handleInput("enter");
-        // running 任务动作序列头部是 continue，下移一项选中 finish。
-        component.handleInput("down");
-        component.handleInput("enter");
-      } else {
-        assert.ok(component.render(72).some((line) => line.includes("✓ #17")));
-        component.handleInput("escape");
-      }
-    }));
-    await open();
-    assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).state.tasks[0]?.status, "completed");
-    assert.equal(notices.length, 0);
-  });
+	it("completes a selected task and reopens the same window without chat output", async () => {
+		seedTestState(buildTestTask({ id: 17, status: "in_progress" }));
+		let pass = 0;
+		commandRegistry.setCustom(
+			async (factory) =>
+				new Promise((resolve) => {
+					const component = factory(tui, theme, keybindings, resolve) as {
+						render(width: number): string[];
+						handleInput(data: string): void;
+					};
+					pass += 1;
+					if (pass === 1) {
+						component.handleInput("enter");
+						// running 任务动作序列头部是 continue，下移一项选中 finish。
+						component.handleInput("down");
+						component.handleInput("enter");
+					} else {
+						assert.ok(component.render(72).some((line) => line.includes("✓ #17")));
+						component.handleInput("escape");
+					}
+				}),
+		);
+		await open();
+		assert.equal(
+			(await currentTp!.store.load(INDEX_TEST_SCOPE)).state.tasks[0]?.status,
+			"completed",
+		);
+		assert.equal(notices.length, 0);
+	});
 
-  it("opens completed history directly in the same window", async () => {
-    seedTestState(
-      buildTestTask({ id: 17, status: "in_progress" }),
-      buildTestTask({ id: 18, status: "completed" }),
-    );
-    let rendered: string[] = [];
-    commandRegistry.setCustom(async (factory) => new Promise((resolve) => {
-      const component = factory(tui, theme, keybindings, resolve) as { render(width: number): string[]; handleInput(data: string): void };
-      rendered = component.render(72);
-      component.handleInput("escape");
-    }));
-    await open("completed");
-    assert.ok(rendered.some((line) => line.includes("#18")));
-    assert.ok(!rendered.some((line) => line.includes("#17 task 17")));
-    assert.equal(notices.length, 0);
-  });
+	it("opens completed history directly in the same window", async () => {
+		seedTestState(
+			buildTestTask({ id: 17, status: "in_progress" }),
+			buildTestTask({ id: 18, status: "completed" }),
+		);
+		let rendered: string[] = [];
+		commandRegistry.setCustom(
+			async (factory) =>
+				new Promise((resolve) => {
+					const component = factory(tui, theme, keybindings, resolve) as {
+						render(width: number): string[];
+						handleInput(data: string): void;
+					};
+					rendered = component.render(72);
+					component.handleInput("escape");
+				}),
+		);
+		await open("completed");
+		assert.ok(rendered.some((line) => line.includes("#18")));
+		assert.ok(!rendered.some((line) => line.includes("#17 task 17")));
+		assert.equal(notices.length, 0);
+	});
 
-  it("creates a task inside the window and keeps the transcript clean", async () => {
-    let pass = 0;
-    commandRegistry.setCustom(async (factory) => new Promise((resolve) => {
-      const component = factory(tui, theme, keybindings, resolve) as { render(width: number): string[]; handleInput(data: string): void };
-      pass += 1;
-      if (pass === 1) {
-        component.handleInput("n");
-        component.handleInput("补充回归测试");
-        component.handleInput("enter");
-      } else {
-        assert.ok(component.render(72).some((line) => line.includes("补充回归测试")));
-        component.handleInput("escape");
-      }
-    }));
-    await open();
-    assert.equal((await currentTp!.store.load(INDEX_TEST_SCOPE)).state.tasks[0]?.subject, "补充回归测试");
-    assert.equal(notices.length, 0);
-  });
+	it("creates a task inside the window and keeps the transcript clean", async () => {
+		let pass = 0;
+		commandRegistry.setCustom(
+			async (factory) =>
+				new Promise((resolve) => {
+					const component = factory(tui, theme, keybindings, resolve) as {
+						render(width: number): string[];
+						handleInput(data: string): void;
+					};
+					pass += 1;
+					if (pass === 1) {
+						component.handleInput("n");
+						component.handleInput("补充回归测试");
+						component.handleInput("enter");
+					} else {
+						assert.ok(
+							component.render(72).some((line) => line.includes("补充回归测试")),
+						);
+						component.handleInput("escape");
+					}
+				}),
+		);
+		await open();
+		assert.equal(
+			(await currentTp!.store.load(INDEX_TEST_SCOPE)).state.tasks[0]?.subject,
+			"补充回归测试",
+		);
+		assert.equal(notices.length, 0);
+	});
 });
 
 //
@@ -2803,9 +2839,7 @@ describe("tool registration contract", () => {
 		assert.ok(todo, "todo tool must be registered");
 		const params = todo.parameters;
 		assert.ok(
-			typeof params === "object" &&
-				params !== null &&
-				!Array.isArray(params),
+			typeof params === "object" && params !== null && !Array.isArray(params),
 			`parameters must be a JSON Schema object, got ${
 				Array.isArray(params) ? "array" : typeof params
 			}`,

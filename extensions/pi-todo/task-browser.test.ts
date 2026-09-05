@@ -35,7 +35,7 @@ function manyTasks(count: number): TaskState {
     tasks: Array.from({ length: count }, (_, index) => ({
       id: index + 1,
       subject: `任务 ${index + 1}`,
-      status: index === 0 ? "in_progress" as const : "pending" as const,
+      status: index === 0 ? ("in_progress" as const) : ("pending" as const),
       createdAt: index,
       updatedAt: index,
     })),
@@ -115,7 +115,11 @@ test("search filters in place and never renders terminal control payloads", () =
 test("detail actions and task creation return structured intents", () => {
   const state = manyTasks(2);
   const intents: TaskBrowserIntent[] = [];
-  const session: TaskBrowserSession = { view: "current", query: "", selectedId: 1 };
+  const session: TaskBrowserSession = {
+    view: "current",
+    query: "",
+    selectedId: 1,
+  };
   const detail = build(state, session, (intent) => intents.push(intent));
 
   detail.handleInput("enter");
@@ -138,8 +142,21 @@ test("completed, archived and all are first-class views", () => {
     nextId: 4,
     tasks: [
       { id: 1, subject: "当前", status: "pending", createdAt: 1, updatedAt: 1 },
-      { id: 2, subject: "完成", status: "completed", createdAt: 2, updatedAt: 2 },
-      { id: 3, subject: "归档", status: "completed", archivedAt: 3, createdAt: 3, updatedAt: 3 },
+      {
+        id: 2,
+        subject: "完成",
+        status: "completed",
+        createdAt: 2,
+        updatedAt: 2,
+      },
+      {
+        id: 3,
+        subject: "归档",
+        status: "completed",
+        archivedAt: 3,
+        createdAt: 3,
+        updatedAt: 3,
+      },
     ],
   };
   const session: TaskBrowserSession = { view: "completed", query: "" };

@@ -709,8 +709,8 @@ export default function factory(
    customType: "todo-recovery-review",
    display: false,
    content: [
-    "请审查下面这个跨会话未结束的 todo 任务。只给出判断建议，不要调用 todo 工具，不要修改任何任务状态。",
-    "请返回：继续 / 标记完成 / 关闭 / 无法判断，并说明依据；信息不足时必须选择无法判断。",
+    "请审查下面这个尚未结束的 todo 任务。只给出判断建议，不要调用 todo 工具，不要修改任何任务状态。",
+    "请根据当前状态返回：进行中任务用“继续 / 标记完成 / 关闭 / 无法判断”，待办任务用“开始 / 关闭 / 无法判断”；信息不足时必须选择无法判断，并说明依据。",
     details,
    ].join("\n\n"),
   }, { triggerTurn: true, deliverAs: "followUp" });

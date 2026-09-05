@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1 - 2026-09-06
+
+- Expose explicit close and model-review actions for every unfinished active task, including pending and blocked tasks; continue remains specific to in-progress tasks.
+
 ## 0.10.0 - 2026-09-06
 
 - Add an explicit close path for unfinished tasks, preserving the distinction between completed work and work intentionally ended.
