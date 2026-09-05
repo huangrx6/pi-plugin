@@ -8,7 +8,7 @@
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
-为 Pi 的编码、排障、审查和调研任务追加适用的执行要求。当前 agent 默认在正常回答中结合完整对话理解用户意图，本地规则负责基础风险和流程选择。你可以查看判断方式、加载的要求，以及当前是否在等待确认。
+为 Pi 的编码、排障、审查和调研任务追加适用的执行要求。当前 agent 默认在正常回答中结合完整对话理解意图，插件再依据识别结果选择流程、领域和模型适配。你可以查看判断方式、加载的要求，以及当前是否在等待确认。
 
 ## 快速开始
 
@@ -24,7 +24,7 @@ pi install "$PWD"
 
 **任务决定流程。** 简单任务走 `quick`，常规工作走 `standard`，高风险或明确要求确认的工作进入 `strict`。排障、审查和调研还会叠加各自的处理顺序；严格度与任务流程分别判断。
 
-**变化留下记录。** 实际注入内容变化时，对话中显示一条策略摘要。展开后可查看触发依据、已加载要求、因预算或缺失未加载的项，以及当时的流程安排。重复注入不会反复刷屏，历史卡片不会随新任务改写。
+**变化留下记录。** 实际注入内容变化时，对话中显示一条策略摘要。展开后可查看触发依据、已加载要求、因预算或缺失未加载的项，以及当时的流程安排。重复注入不会反复刷屏，历史卡片不会随新任务改写。中断后输入“继续”，或宿主用原消息自动重试，仍会由当前模型确认意图；如果策略没有变化，只复用原策略，不新增相同活动卡片。
 
 **详情随时可查。** `/policy` 只有一级日常面板：查看状态、自动处理、谨慎处理、审批当前计划、结束当前任务、检查配置和关闭策略。选中模式后立即保存，无需再执行保存命令。需要参数的诊断命令不占用面板位置。
 
@@ -37,6 +37,8 @@ pi install "$PWD"
 | `off` | 关闭策略注入与模型适配 |
 
 问候和感谢不追加工程策略，也不改变当前任务。新的独立请求重新分类；全面只读审查会增加覆盖清单，不要求实施审批。
+
+自动模式按四个正交维度组合策略：意图决定能否修改，风险决定安全边界，覆盖范围决定流程深度，任务类型决定工作顺序。聚焦且低风险的修改进入 `quick`；普通或范围较大的任务进入 `standard`；高风险修改、明确要求审批或仍无法确认执行意图的任务进入 `strict`。只读任务不会因为严格模式伪造批准计划；审查、排障和调研分别加载自己的工作顺序。
 
 严格流程中，修改计划通常继续等待确认；明确批准后进入执行。“批准，但别动数据库”等可识别的范围限制会保留为执行约束。对于实现能识别的自主授权表达，例如「构思完就执行，不用征求我的意见了」，会释放审批等待，并保留附带的执行约束。
 
@@ -96,9 +98,9 @@ pi install "$PWD"
 
 默认最多选择 2 个领域，策略正文总预算为 24,000 字节；项目策略另有最多 12 个文件、24,000 字节的上限，仍受总预算约束。意图与阶段策略优先保留；必要策略仍无法加载时，追加禁止执行和配置诊断。标题、说明及用户范围限制另计入实际注入字节，缺失或被截断的策略会反映在行为说明中。
 
-设置 `PI_CODING_AGENT_DIR` 后，全局配置与数据使用该目录下的 `extensions-data/pi-policy-engine/`。新配置不存在时回读旧的 `policy-engine.json`；新 `state/` 不存在时沿用旧的 `policy-engine/` 数据目录。配置与状态分别判断，运行时不自动移动文件；显式配置的 `historyFile` 优先。
+设置 `PI_CODING_AGENT_DIR` 后，全局配置与数据固定使用该目录下的 `extensions-data/pi-policy-engine/`；运行时不再读取旧的散落配置或状态目录。显式配置的 `historyFile` 优先。
 
-在面板选择自动、谨慎或关闭后，会立即原子写入全局个人配置。`/policy config` 显示合并值及来源，结构错误由 `/policy validate` 报告；运行中配置损坏时保留最后有效配置并提示。路由历史默认写入 `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`，其中包含最多 80 字符的输入摘要及任务、会话、阶段、模型和指纹信息。正常恢复优先使用同会话当前分支的工作流记录，并核对计划条目；磁盘后备状态按项目和会话隔离，最多恢复 7 天内记录。旧版仅绑定目录的审批状态保留在磁盘，升级后不自动恢复。对话中的活动卡片和工作流记录不进入模型上下文。
+在面板选择自动、谨慎或关闭后，会立即原子写入全局个人配置。`/policy config` 显示合并值及来源，结构错误由 `/policy validate` 报告；运行中配置损坏时保留最后有效配置并提示。路由历史默认写入 `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`，其中包含最多 80 字符的输入摘要及任务、会话、阶段、模型和指纹信息。正常恢复优先使用同会话当前分支的工作流记录，并核对计划条目；磁盘后备状态按项目和会话隔离，最多恢复 7 天内记录。过期或旧格式审批状态会被忽略，不参与新会话恢复。对话中的活动卡片和工作流记录不进入模型上下文。
 
 安装目录中的 `config/defaults.json` 是随代码发布的内置默认值，不保存用户选择。个人配置固定写入 `<agent-dir>/extensions-data/pi-policy-engine/config.json`；默认 `<agent-dir>` 为 `~/.pi/agent`，因此通常路径是 `~/.pi/agent/extensions-data/pi-policy-engine/config.json`。设置 `PI_CODING_AGENT_DIR` 时，路径跟随该目录。
 
@@ -109,7 +111,7 @@ pi install "$PWD"
 
 包内 `policies/manifest.json` 管理策略索引，`profiles/` 组织配置档，`config/routing.json` 管理路由关键词。项目规则可先参考本包的[配置示例](examples/README.md)，使用 `/policy preview` 和 `/policy validate` 核对效果。
 
-规则分类可能误判模糊表达。大模型优先识别用于解决任务续作、修订、问答和新任务切换；配置见下一节。
+正式运行由模型完成关系、意图、风险、领域和覆盖范围识别；确定性规则只用于离线预览、审批解析和模型结果后的流程组合，不作为在线意图回退。
 
 网络端点、凭证来源、历史路径、模型匹配规则等受信任设置只能从全局配置生效。项目层的对应键会被丢弃，`/policy validate` 会报告原因。
 
@@ -123,9 +125,8 @@ pi install "$PWD"
 
 ```json
 {
-  "semanticFallback": {
+  "recognition": {
     "enabled": true,
-    "strategy": "primary",
     "source": "endpoint",
     "protocol": "openai",
     "endpoint": "https://your-provider.example/v1/chat/completions",
@@ -139,14 +140,14 @@ pi install "$PWD"
 }
 ```
 
-名称 `semanticFallback` 为兼容旧配置保留。`source: "agent"` 表示使用当前 Pi 模型做前置识别；`source: "endpoint"` 才会使用独立网络服务。旧版没有 `source` 的配置仍按独立接口解释，避免升级后改变既有服务。
+`recognition` 是当前识别配置块的固定键名；它不再表示“规则回退”。`source: "agent"` 使用当前 Pi 模型，`source: "endpoint"` 使用独立网络服务。两种来源都必须在正式运行中返回有效识别结果。
 
 - 当前 agent 模式复用 Pi 当前模型、认证和平台适配，不需要填写模型名或 API Key。
 - OpenAI 兼容平台使用 `protocol: "openai"` 和完整 Chat Completions 地址。
-- Anthropic 原生 Messages 使用 `protocol: "anthropic"`、`strategy: "primary"` 和完整 `/v1/messages` 地址，密钥环境变量由你指定。
+- Anthropic 原生 Messages 使用 `protocol: "anthropic"` 和完整 `/v1/messages` 地址，密钥环境变量由你指定。
 - 本地无认证接口可设置 `apiKeyEnvVar: null`。不支持 JSON 格式或 temperature 的服务分别设置 `jsonResponse: false`、`temperature: null`。
 
-只有 `endpoint` 来源会把当前任务摘要发送给所配服务；它不发送仓库文件、工具输出、其他会话或完整聊天记录。任务要求原文可能含有用户输入的敏感内容。请求不重试；缺密钥、超时、非法 JSON、枚举错误或上下文超限时降为规则，并记录原因。
+只有 `endpoint` 来源会把当前任务摘要发送给所配服务；它不发送仓库文件、工具输出、其他会话或完整聊天记录。任务要求原文可能含有用户输入的敏感内容。请求不重试；缺密钥、超时、非法 JSON、枚举错误或上下文超限时会阻止本轮策略执行，并记录原因，避免在没有有效意图结果时继续路由。
 
 独立 endpoint 是高级配置能力，不出现在日常面板。可以用 `/policy preview --semantic <请求>` 验证，普通预览不联网；密钥值不写入诊断。
 
@@ -166,7 +167,7 @@ pi install "$PWD"
 }
 ```
 
-`provider` 精确匹配，`model` 支持精确值或尾部 `*` 前缀匹配，均不区分大小写。辅助分类可跟随主模型或独立配置；仅独立接口来源使用下列参数：对不支持特定参数的兼容接口，可设置 `semanticFallback.jsonResponse: false` 或 `semanticFallback.temperature: null`。本扩展不选择主模型、不管理模型实例或队列。
+`provider` 精确匹配，`model` 支持精确值或尾部 `*` 前缀匹配，均不区分大小写。识别可以跟随主模型，也可以配置独立 endpoint；仅独立接口来源使用下列参数：对不支持特定参数的服务，可设置 `recognition.jsonResponse: false` 或 `recognition.temperature: null`。本扩展不选择主模型、不管理模型实例或队列。
 
 ## 开发与文档
 
