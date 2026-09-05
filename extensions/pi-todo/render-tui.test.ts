@@ -237,7 +237,7 @@ describe("todo tool TUI renderers (v0.6)", () => {
 
 	it("setup", () => {
 		resetHarness();
-		commandRegistry.api && createExtension(commandRegistry.api as never);
+		createExtension(commandRegistry.api as never);
 		todo = toolDefs.find((d) => d.name === "todo")!;
 		assert.ok(todo, "todo tool registered");
 	});
@@ -308,5 +308,55 @@ describe("todo tool TUI renderers (v0.6)", () => {
 			fakeTheme,
 		);
 		assert.equal(comp.render(80)[0], wrap("success", "✓ #7 完成"));
+	});
+});
+
+// ── 4. pi 0.85 component contract ─────────────────────────────────────
+
+describe("tool renderers satisfy the pi 0.85 Component contract", () => {
+	// pi 0.85 wraps tool renderer output in a MouseRegion whose
+	// invalidate() calls child.invalidate() unconditionally (mouse
+	// click-to-expand). A bare { render } literal crashed the whole
+	// TUI at startup with "this.child.invalidate is not a function".
+	let todo: Record<string, unknown>;
+
+	it("setup", () => {
+		resetHarness();
+		createExtension(commandRegistry.api as never);
+		todo = toolDefs.find((d) => d.name === "todo")!;
+		assert.ok(todo, "todo tool registered");
+	});
+
+	it("renderCall / renderResult always return a full Component (render + invalidate)", () => {
+		const asRenderer = (fn: unknown) =>
+			fn as (...args: unknown[]) => { render(w: number): string[]; invalidate?(): void };
+		const cases: Array<{ name: string; comp: { render(w: number): string[]; invalidate?(): void } }> = [
+			{
+				name: "renderCall",
+				comp: asRenderer(todo.renderCall)({ action: "create", subject: "x" }, fakeTheme),
+			},
+			{
+				name: "renderResult collapsed",
+				comp: asRenderer(todo.renderResult)(
+					{ content: [{ type: "text", text: "▶ #1 a\n◆ #2 b" }] },
+					{ expanded: false },
+					fakeTheme,
+				),
+			},
+			{
+				name: "renderResult expanded",
+				comp: asRenderer(todo.renderResult)(
+					{ content: [{ type: "text", text: "✓ #1 a" }] },
+					{ expanded: true },
+					fakeTheme,
+				),
+			},
+		];
+		for (const { name, comp } of cases) {
+			assert.equal(typeof comp.render, "function", `${name}.render`);
+			assert.equal(typeof comp.invalidate, "function", `${name}.invalidate (pi 0.85 MouseRegion contract)`);
+			assert.doesNotThrow(() => comp.invalidate!(), `${name}.invalidate() must be callable`);
+			assert.ok(Array.isArray(comp.render(80)), `${name}.render(80) returns string[]`);
+		}
 	});
 });

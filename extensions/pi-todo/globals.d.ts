@@ -19,9 +19,15 @@ type LooseBranchEntry = {
 
 // Structural shape of a pi TUI renderable (see pi's extensions/types.d.ts:
 // tool renderCall/renderResult must return Component, never a string).
+// pi 0.85+: invalidate is REQUIRED on every component handed to the
+// runtime — ToolExecutionComponent wraps renderer output in a
+// MouseRegion whose invalidate() calls child.invalidate() uncondi-
+// tionally (mouse click-to-expand). A bare { render } literal crashes
+// the TUI at startup render with "this.child.invalidate is not a
+// function".
 type ToolRenderComponent = {
   render(width: number): string[];
-  invalidate?(): void;
+  invalidate(): void;
 };
 
 declare module "@earendil-works/pi-coding-agent" {

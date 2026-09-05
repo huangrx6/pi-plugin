@@ -904,6 +904,15 @@ export default function factory(
 
  // ── tool ──────────────────────────────────────────────────────────
 
+ /** pi 0.85 component contract: tool renderCall/renderResult must
+  *  return a full Component. The new MouseRegion wrapper (click-to-
+  *  expand on tool rows) calls child.invalidate() unconditionally, so
+  *  a bare { render } literal crashes the whole TUI with
+  *  "this.child.invalidate is not a function" at startup render. */
+ const toolLineComponent = (
+  render: (width: number) => string[],
+ ): ToolRenderComponent => ({ render, invalidate: () => {} });
+
  pi.registerTool({
   name: TOOL_NAME,
   label: "Todo",
@@ -933,9 +942,7 @@ export default function factory(
     theme.fg("dim", "todo ") +
     theme.fg("muted", sanitizeTerminalText(String(a.action ?? "?"))) +
     theme.fg("dim", `${what}${sanitizeTerminalText(extra)}`);
-   return {
-    render: (width: number) => [truncateToWidth(call, width)],
-   };
+   return toolLineComponent((width: number) => [truncateToWidth(call, width)]);
   },
 
   renderResult(result, opts, theme) {
@@ -956,16 +963,16 @@ export default function factory(
     return "text";
    };
    if (opts?.expanded) {
-    return {
-     render: (width: number) => lines.map((l) => theme.fg(lineColor(l), truncateToWidth(l, width))),
-    };
+    return toolLineComponent((width: number) =>
+     lines.map((l) => theme.fg(lineColor(l), truncateToWidth(l, width))),
+    );
    }
    const first = lines[0] ?? "";
    let collapsed = theme.fg(lineColor(first), first);
    if (lines.length > 1) {
     collapsed += theme.fg("muted", ` (+${lines.length - 1})`);
    }
-   return { render: (width: number) => [truncateToWidth(collapsed, width)] };
+   return toolLineComponent((width: number) => [truncateToWidth(collapsed, width)]);
   },
  });
 

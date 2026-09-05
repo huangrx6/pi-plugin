@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.3 - 2026-09-04
+
+### Fix: tool renderers crash pi 0.85 at startup (`child.invalidate is not a function`)
+
+pi 0.85 wraps tool renderer output in a `MouseRegion` (mouse
+click-to-expand on tool rows) whose `invalidate()` calls
+`child.invalidate()` **unconditionally**. The `todo` tool's
+`renderCall` / `renderResult` returned bare `{ render }` literals, so
+restoring any session containing todo calls crashed the whole TUI at
+startup render. Every renderer now goes through a local
+`toolLineComponent()` factory returning a full Component
+(`render` + no-op `invalidate`), the ambient shim makes `invalidate`
+required so tsc catches recurrence, and a contract test pins
+render/invalidate on all three renderer paths.
+
+All other component-returning surfaces were audited and already
+compliant: overlay widget, footer factory, policy/auto-compact entry
+renderers, skill-inject message renderer (real Box/Text).
+
 ## 0.7.2 - 2026-09-04
 
 - Align the declared Node.js floor with the installed Pi SDK and run CI on Node.js 22, where the required `node:fs` APIs are available.
