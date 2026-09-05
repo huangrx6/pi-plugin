@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0 - 2026-09-05
+
+- Replace the unbounded task selector and its mixed navigation rows with one centered `ui.custom` task window.
+- Bound list rendering to the terminal height and keep the selected task visible while using arrows, PageUp / PageDown, Home or End.
+- Add in-window views for current, completed, archived and all tasks, plus direct ready/blocked views and name or id search.
+- Keep detail, create, edit and contextual lifecycle actions in the same window; preserve view, query and selection after mutations.
+- Show mutation feedback inside the task window instead of appending task lists or operation notices to the chat transcript.
+- Temporarily suspend the editor task strip while the task window is open, restoring the user's prior display mode on close.
+- Remove the retired two-level `/todos commands` catalog and its menu implementation.
+
 ## 0.8.0 - 2026-09-05
 
 - Remove the retired agent-root `pi-todo/` fallback. Durable tasks now have one canonical `extensions-data/pi-todo/state/` root, avoiding silent split-brain storage.

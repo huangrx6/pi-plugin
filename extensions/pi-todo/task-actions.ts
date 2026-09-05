@@ -1,14 +1,5 @@
-import { formatTaskRow } from "./format.ts";
 import { projectActiveView, projectArchived, projectCompleted } from "./projection.ts";
 import type { TaskState } from "./types.ts";
-
-export function taskListRows(state: TaskState, history = false): string[] {
-  const view = projectActiveView(state);
-  const groups = history
-    ? [[projectCompleted(state), "completed"], [projectArchived(state), "archived"]] as const
-    : [[view.running, "running"], [view.ready, "ready"], [view.blocked, "blocked"]] as const;
-  return groups.flatMap(([tasks, role]) => tasks.map(task => formatTaskRow(task, { role, width: 72 })));
-}
 
 /** Actions follow the same canonical projections used by command validation. */
 export function taskActions(state: TaskState, id: number): string[] {

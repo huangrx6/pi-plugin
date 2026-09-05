@@ -31,19 +31,6 @@ import {
 } from "./workflow-command.ts";
 import { formatWorkflowSyntaxError } from "./workflow-format.ts";
 import {
- BATCH_ARCHIVE_ALL,
- MENU_TITLE,
- buildTaskOptions,
- emptyTaskNotice,
- fallbackMenuText,
- isBatchRow,
- menuRows,
- parseMenuChoice,
- parseTaskIdFromChoice,
- taskKindFor,
- taskPickerTitle,
-} from "./menu-panel.ts";
-import {
  formatNextTasks,
  formatUnlocksTask,
  formatWhyTask,
@@ -84,8 +71,16 @@ import {
  formatMutationError,
  formatMutationOutcome,
 } from "./mutation-format.ts";
-import { taskListRows, taskActions } from "./task-panel.ts";
 import { parseTodosCommand } from "./parse-todos-command.ts";
+import {
+ TaskBrowserComponent,
+ type TaskBrowserIntent,
+ type TaskBrowserKeybindings,
+ type TaskBrowserSession,
+ type TaskBrowserTheme,
+ type TaskBrowserTui,
+ type TaskBrowserView,
+} from "./task-browser.ts";
 
 const TOOL_NAME = "todo";
 const COMMAND_NAME = "todos";
@@ -534,9 +529,9 @@ async function runWorkflowQuery(
 // ── v1.1: /todos read command (B3 + P4-C2 detail) ────────────────────
 
 /**
- * B3 read path: one durable snapshot → parse → render → notify.
- * Extracted from the command handler so the menu panel can dispatch
- * directly into it (`""` maps to the default bounded overview).
+ * B3 fallback read path: one durable snapshot → parse → render → notify.
+ * Interactive runtimes use the task window; runtimes without custom UI
+ * retain the same textual read output.
  */
 async function runReadCommand(
  raw: unknown,
@@ -585,129 +580,31 @@ async function runReadCommand(
  ui.notify(lines.join("\n"), level);
 }
 
-// ── v1.1: /todos command panel (no-args entry) ─────────────────────
+// ── interactive task window ────────────────────────────────────────
 
-interface MenuUi {
+interface TaskWindowUi {
  notify: (msg: string, level?: string) => void;
- select?: (title: string, options: string[]) => Promise<string | undefined>;
- input?: (title: string, initial?: string) => Promise<string | undefined>;
-}
-
-/**
- * `/todos` with no args opens a two-level command panel.
- *
- * Authority boundary: the panel only COMPOSES commands — every picked
- * action re-dispatches through the frozen paths (runMutationFlow /
- * runGraphQuery / runWorkflowQuery / runReadCommand), each owning its
- * own durable snapshot. The level-2 task list does one extra
- * presentation load; that is a UI affordance, not a canonical read.
- */
-async function runMenu(
- ctx: unknown,
- persistence: TodoRuntimePersistence,
- overlayCache: OverlaySnapshotCache,
-): Promise<void> {
- const ui = (ctx as { ui: MenuUi }).ui;
- const select = ui.select?.bind(ui);
- if (typeof select !== "function") {
-  // Headless / rpc runtime: degrade to the text catalog.
-  ui.notify(fallbackMenuText(), "info");
-  return;
- }
-
- const choice = await select(MENU_TITLE, menuRows());
- if (choice === undefined) return;
- const name = parseMenuChoice(choice);
- if (name === undefined) {
-  ui.notify(fallbackMenuText(), "info");
-  return;
- }
-
- const taskKind = taskKindFor(name);
- if (taskKind === undefined) {
-  await runMenuImmediate(name, ctx, persistence, overlayCache);
-  return;
- }
-
- // Second level: pick a concrete task from one snapshot.
- const loaded = await loadEnvelope(ctx, persistence);
- if (loaded.ok !== true) {
-  reportLoadFailure(loaded, ui.notify);
-  return;
- }
- overlayCache.update(loaded.scope, loaded.envelope);
- const options = buildTaskOptions(loaded.envelope.state, taskKind);
- if (options.length === 0) {
-  ui.notify(emptyTaskNotice(taskKind), "info");
-  return;
- }
- const taskChoice = await select(taskPickerTitle(taskKind), options);
- if (taskChoice === undefined) return;
- if (isBatchRow(taskChoice)) {
-  await runMutationFlow(
-   taskChoice === BATCH_ARCHIVE_ALL ? "archive completed" : "restore archived",
-   ctx,
-   persistence,
-   overlayCache,
-  );
-  return;
- }
- const id = parseTaskIdFromChoice(taskChoice);
- if (id === undefined) {
-  ui.notify(fallbackMenuText(), "info");
-  return;
- }
- switch (taskKind) {
-  case "finish":
-  case "start":
-  case "reopen":
-  case "archive":
-  case "restore":
-   await runMutationFlow(`${taskKind} ${id}`, ctx, persistence, overlayCache);
-   return;
-  case "why":
-   await runGraphQuery({ kind: "why", id }, ctx, persistence, overlayCache);
-   return;
-  case "unlocks":
-   await runGraphQuery({ kind: "unlocks", id }, ctx, persistence, overlayCache);
-   return;
-  case "detail":
-   await runReadCommand(String(id), ctx, persistence, overlayCache);
-   return;
- }
-}
-
-/** Immediate rows (no second level): re-dispatch to frozen paths. */
-async function runMenuImmediate(
- name: string,
- ctx: unknown,
- persistence: TodoRuntimePersistence,
- overlayCache: OverlaySnapshotCache,
-): Promise<void> {
- const ui = (ctx as { ui: UiNotify }).ui;
- switch (name) {
-  case "here":
-   await runWorkflowQuery({ kind: "here" }, ctx, persistence, overlayCache);
-   return;
-  case "next":
-   await runGraphQuery({ kind: "next" }, ctx, persistence, overlayCache);
-   return;
-  case "总览":
-   // "" maps to the default bounded overview inside runReadCommand —
-   // no loop: runReadCommand never re-enters the menu.
-   await runReadCommand("", ctx, persistence, overlayCache);
-   return;
-  case "ready":
-  case "blocked":
-  case "completed":
-  case "archived":
-  case "all":
-   await runReadCommand(name, ctx, persistence, overlayCache);
-   return;
-  default:
-   ui.notify(fallbackMenuText(), "info");
-   return;
- }
+ custom?<T>(
+  factory: (
+   tui: TaskBrowserTui,
+   theme: TaskBrowserTheme,
+   keybindings: TaskBrowserKeybindings,
+   done: (result: T) => void,
+  ) => {
+   render(width: number): string[];
+   invalidate(): void;
+   handleInput?(data: string): void;
+  },
+  options?: {
+   overlay?: boolean;
+   overlayOptions?: {
+    anchor?: string;
+    width?: string | number;
+    maxHeight?: string | number;
+    margin?: number;
+   };
+  },
+ ): Promise<T>;
 }
 
 // ── minimal sid / foreground helpers (avoid store.ts) ─────────────
@@ -848,57 +745,105 @@ export default function factory(
 
  }
 
- async function runTaskList(ctx: unknown): Promise<void> {
-  const ui = (ctx as { ui: MenuUi }).ui;
-  if (!ui.select) { await runReadCommand("", ctx, persistence, overlayCache); return; }
-  let history = false;
-  while (true) {
-   const loaded = await loadEnvelope(ctx, persistence);
-   if (loaded.ok !== true) { reportLoadFailure(loaded, ui.notify); return; }
-   overlayCache.update(loaded.scope, loaded.envelope);
-   refreshOverlay();
-   const state = loaded.envelope.state;
-   const rows = taskListRows(state, history);
-   const navigation = history
-    ? ["返回 — 当前任务"]
-    : ["新增 — 添加任务", "总览 — 全部任务概览（进行中 / 可开始 / 被阻塞）", "历史 — 已完成与已归档"];
-   const choice = await ui.select(history ? "任务历史 · 选择任务后操作" : "任务 · 选择任务后操作", [...rows, ...navigation]);
-   if (choice === undefined) return;
-   if (choice.startsWith("历史")) { history = true; continue; }
-   if (choice.startsWith("返回")) { history = false; continue; }
-   if (choice.startsWith("总览")) { await runReadCommand("", ctx, persistence, overlayCache); return; }
-   let params: TaskMutationParams | undefined;
-   if (choice.startsWith("新增")) {
-    if (!ui.input) { ui.notify("当前界面不支持输入，请直接告诉模型要创建的任务。", "info"); return; }
-    const subject = await ui.input?.("新任务名称");
-    if (!subject?.trim()) return;
-    params = { action: "create", subject: subject.trim() };
-   } else {
-    if (!rows.includes(choice)) return;
-    const id = parseTaskIdFromChoice(choice);
-    if (id === undefined) return;
-    const action = await ui.select(formatTaskDetailRich(state, id, 72).slice(0, 8).join("\n"), taskActions(state, id));
-    if (action === undefined) continue;
-    const verb = action.split(/\s+—/)[0];
-    if (verb === "detail") { await runReadCommand(String(id), ctx, persistence, overlayCache); return; }
-    if (verb === "edit") {
-     const subject = await ui.input?.("修改任务名称", state.tasks.find(task => task.id === id)?.subject);
-     if (!subject?.trim()) continue;
-     params = { action: "update", id, subject: subject.trim() };
-    } else if (["start", "finish", "reopen", "archive", "restore"].includes(verb ?? "")) {
-     await runMutationFlow(`${verb} ${id}`, ctx, persistence, overlayCache);
-     refreshOverlay();
-     continue;
-    } else return;
-   }
-   if (params) {
+ /**
+  * Interactive task window. Each pass renders one freshly loaded durable
+  * snapshot. Mutations close only the focused component, commit through the
+  * existing tool path, then reopen the same view and selection.
+  */
+ async function runTaskBrowser(
+  ctx: unknown,
+  initialView: TaskBrowserView = "current",
+  initialDetailId?: number,
+ ): Promise<void> {
+  const ui = (ctx as { ui: TaskWindowUi }).ui;
+  const custom = ui.custom?.bind(ui);
+  if (typeof custom !== "function") {
+   const fallback = initialDetailId === undefined
+    ? initialView === "current" ? "" : initialView
+    : String(initialDetailId);
+   await runReadCommand(fallback, ctx, persistence, overlayCache);
+   return;
+  }
+
+  const session: TaskBrowserSession = {
+   view: initialView,
+   query: "",
+   detailId: initialDetailId,
+   selectedId: initialDetailId,
+   selectedIndex: 0,
+  };
+
+  overlay ??= new TodoOverlay(overlayCache, getActiveScope);
+  overlay.setUICtx(ui as unknown as Parameters<TodoOverlay["setUICtx"]>[0]);
+  overlay.setSuspended(true);
+
+  try {
+   while (true) {
+    const loaded = await loadEnvelope(ctx, persistence);
+    if (loaded.ok !== true) {
+     reportLoadFailure(loaded, ui.notify);
+     return;
+    }
+    overlayCache.update(loaded.scope, loaded.envelope);
+
+    const intent = await custom(
+     (tui, theme, keybindings, done) =>
+      new TaskBrowserComponent(
+       tui,
+       theme,
+       keybindings,
+       loaded.envelope.state,
+       session,
+       done,
+      ),
+     {
+      overlay: true,
+      overlayOptions: {
+       anchor: "center",
+       width: "90%",
+       maxHeight: "85%",
+       margin: 1,
+      },
+     },
+    ) as TaskBrowserIntent;
+
+    if (intent.kind === "close") return;
+
+    let params: TaskMutationParams;
+    if (intent.kind === "create") {
+     params = { action: "create", subject: intent.subject };
+    } else if (intent.kind === "edit") {
+     params = { action: "update", id: intent.id, subject: intent.subject };
+    } else {
+     params = { action: intent.action, id: intent.id };
+    }
+
     try {
      const result = await executeTodo(params, ctx);
-     const text = result.content[0]?.text ?? "";
-     ui.notify(text, text.startsWith("Error:") ? "error" : "info");
-     refreshOverlay();
-    } catch (error) { ui.notify(formatError(error), "error"); return; }
+     const rawMessage = result.content[0]?.text ?? "";
+     const message = sanitizeTerminalText(rawMessage.split("\n", 1)[0] ?? "").trim();
+     const failed = message.startsWith("Error:") || result.details === undefined;
+     session.notice = {
+      text: truncateToWidth(message || (failed ? "操作失败" : "任务已更新"), 72),
+      level: failed ? "error" : "info",
+     };
+
+     if (!failed && intent.kind === "create" && result.details) {
+      const createdId = result.details.nextId - 1;
+      session.selectedId = createdId;
+      session.selectedIndex = result.details.tasks.findIndex((task) => task.id === createdId);
+     } else if (intent.kind !== "create") {
+      session.selectedId = intent.id;
+     }
+     if (intent.kind !== "edit") session.detailId = undefined;
+    } catch (error) {
+     session.notice = { text: sanitizeTerminalText(formatError(error)), level: "error" };
+     session.detailId = undefined;
+    }
    }
+  } finally {
+   overlay.setSuspended(false);
+   refreshOverlay();
   }
  }
 
@@ -980,7 +925,7 @@ export default function factory(
 
  pi.registerCommand(COMMAND_NAME, {
   description:
-   "打开任务列表，选择任务后开始、完成或编辑；历史记录在次级视图。/todos commands 查看全部兼容命令。",
+   "打开任务窗口，浏览、搜索、新增任务，并在详情中执行适用操作。",
   handler: async (args, ctx) => {
    if (!ctx.hasUI) {
     ctx.ui.notify("/todos requires interactive mode", "error");
@@ -998,11 +943,6 @@ export default function factory(
     ctx.ui.notify(`任务状态条：${mode}`, "info");
     return;
    }
-   if (String(args ?? "").trim() === "commands") {
-    await runMenu(ctx, persistence, overlayCache);
-    return;
-   }
-
    const firstToken = String(args ?? "")
     .trim()
     .split(/\s+/)[0];
@@ -1041,12 +981,29 @@ export default function factory(
     return;
    }
 
-   // v1.1: `/todos` with no args opens the interactive command panel.
-   // Direct verbs (`/todos next`, `/todos finish 17`, `/todos 17`, …)
-   // keep working unchanged — the panel is a discovery entry, not a
-   // replacement.
+   // The common read surfaces share one bounded task window. Expert graph,
+   // workflow and mutation commands above keep their direct command paths.
    if (String(args ?? "").trim() === "") {
-    await runTaskList(ctx);
+    await runTaskBrowser(ctx);
+    return;
+   }
+   const parsed = parseTodosCommand(args);
+   if (parsed.command === "detail") {
+    await runTaskBrowser(ctx, "all", parsed.taskId);
+    return;
+   }
+   if (
+    parsed.command === "default" ||
+    parsed.command === "ready" ||
+    parsed.command === "blocked" ||
+    parsed.command === "completed" ||
+    parsed.command === "archived" ||
+    parsed.command === "all"
+   ) {
+    await runTaskBrowser(
+     ctx,
+     parsed.command === "default" ? "current" : parsed.command,
+    );
     return;
    }
    await runReadCommand(args, ctx, persistence, overlayCache);

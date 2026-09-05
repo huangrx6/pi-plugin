@@ -1,7 +1,7 @@
 {
   "name": "pi-todo",
-  "version": "0.8.0",
-  "description": "Workspace-scoped durable tasks for Pi: task-first /todos list, contextual actions, task history, and an optional compact editor status strip.",
+  "version": "0.9.0",
+  "description": "Workspace-scoped durable tasks for Pi with a bounded interactive task window, contextual actions, history, search, and an optional editor status strip.",
   "license": "MIT",
   "type": "module",
   "engines": {

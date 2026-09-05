@@ -274,6 +274,7 @@ export class TodoOverlay {
   private tui: { requestRender(force?: boolean): void } | undefined;
   private theme: OverlayTheme | undefined;
   private mode: "compact" | "full" | "hidden" = "compact";
+  private suspended = false;
 
   constructor(
     private readonly cache: OverlaySnapshotCache,
@@ -285,8 +286,14 @@ export class TodoOverlay {
     this.update();
   }
 
+  /** Temporarily hide the editor strip while a task window is open. */
+  setSuspended(suspended: boolean): void {
+    this.suspended = suspended;
+    this.update();
+  }
+
   private render(width: number): string[] {
-    if (this.mode === "hidden") return [];
+    if (this.suspended || this.mode === "hidden") return [];
     return this.mode === "full" ? renderOverlay(this.currentState(), width, this.theme)
       : renderCompactOverlay(this.currentState(), width, this.theme);
   }
