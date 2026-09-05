@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.33.3 - 2026-09-06
+
+- Show the executing extension version in activity details, status output and the configuration check panel so a long-lived Pi session cannot be mistaken for the package version currently installed on disk.
+- Label every routing-history row with the version that produced it; legacy rows remain explicit instead of silently appearing to come from the current runtime.
+
 ## 0.33.2 - 2026-09-06
 
 - Recover the single valid recognition object when explanatory text also contains a malformed brace example, while continuing to reject multiple valid objects.

@@ -23,6 +23,7 @@ import {
   formatDiff,
   formatHistory,
   formatPreview,
+  formatStatusSummary,
   formatValidation,
 } from "../extensions/policy-engine/format.js";
 
@@ -44,6 +45,7 @@ test("recordHistory caps at HISTORY_CAP, drops oldest", () => {
     });
   }
   assert.equal(state.history.length, HISTORY_CAP);
+  assert.ok(state.history.every((entry) => entry.extensionVersion === "0.33.3"));
   assert.match(state.history[0].prompt, /^prompt 5$/);
   assert.match(
     state.history[HISTORY_CAP - 1].prompt,
@@ -333,6 +335,7 @@ test("formatHistory includes recognition failure diagnostics", () => {
     {
       ts: 1_700_000_000_000,
       source: "decide",
+      extensionVersion: "0.33.0",
       prompt: "进行关闭",
       task: "unknown",
       risk: "unknown",
@@ -351,9 +354,22 @@ test("formatHistory includes recognition failure diagnostics", () => {
     },
   ]);
   assert.match(out, /attempts=2/);
+  assert.match(out, /\[v0\.33\.0\]/);
   assert.match(out, /first=invalid_json\/malformed_json_object/);
   assert.match(out, /final=no_json_object/);
   assert.match(out, /response preview: plain explanation/);
+});
+
+test("status names the version of the code loaded into Pi", () => {
+  const out = formatStatusSummary({
+    config: { mode: "auto", profile: "auto" },
+    phase: "idle",
+    outcome: "idle",
+    task: null,
+    recognition: null,
+    model: "host/model",
+  });
+  assert.match(out, /^runtime version: 0\.33\.3$/m);
 });
 
 test("formatValidation: ok / warnings / errors / pluralization", () => {

@@ -1,5 +1,7 @@
 // Human-readable formatters for decisions and status rows. Pure functions;
 // consumed by commands.js and lifecycle.js.
+import { EXTENSION_VERSION } from "./version.js";
+
 export function formatRecognitionDiagnostics(recognition) {
   if (!recognition) return "none/not_run";
   const parts = [`${recognition.source ?? "none"}/${recognition.reason ?? "not_run"}`];
@@ -42,7 +44,7 @@ export function formatHistory(entries, n = 5) {
     const taskRisk =
       e.task && e.risk ? `${e.task} / ${e.risk}` : (e.task ?? "?");
     lines.push(
-      `${idx}. [${time}] ${e.source ?? "decide"}  ${e.rigor ?? e.workflow ?? "?"}  (${taskRisk}, conf=${conf})`,
+      `${idx}. [${time}] ${e.source ?? "decide"}  ${e.rigor ?? e.workflow ?? "?"}  (${taskRisk}, conf=${conf})  [v${e.extensionVersion ?? "旧版未标注"}]`,
     );
     lines.push(`     prompt: ${e.prompt ?? ""}`);
     if (e.recognition)
@@ -119,6 +121,7 @@ export function formatStatusSummary({
   recognition,
 }) {
   return [
+    `runtime version: ${EXTENSION_VERSION}`,
     `mode: ${config.mode ?? "auto"}`,
     `profile: ${config.profile ?? "auto"}`,
     `phase: ${phase}`,

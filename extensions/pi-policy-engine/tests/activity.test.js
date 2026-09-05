@@ -118,6 +118,7 @@ test("failed recognition explains the real boundary and parser diagnostics", () 
   assert.match(text, /first=invalid_json\/malformed_json_object/);
   assert.match(text, /final=no_json_object/);
   assert.match(text, /响应预览：plain explanation/);
+  assert.match(text, /运行版本：0\.33\.3；当前已加载：0\.33\.3/);
   assert.match(text, /追加停止执行/);
 });
 

@@ -22,6 +22,7 @@ import {
   resolveHistoryPath,
   strictStatePath,
 } from "../../src/core/history-store.js";
+import { EXTENSION_VERSION } from "./version.js";
 
 export function createState() {
   return {
@@ -65,7 +66,7 @@ export function recordHistory(state, { source, prompt, decision }) {
   if (!decision) return;
   state.history.push({
     schemaVersion: 2,
-    extensionVersion: "0.33.2",
+    extensionVersion: EXTENSION_VERSION,
     sessionId: state.sessionId,
     taskId: state.task?.id,
     planVersion: state.task?.planVersion,

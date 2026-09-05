@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { formatRecognitionDiagnostics } from "./format.js";
 import { sanitizeTerminalText, wrapTerminalText } from "./terminal.js";
+import { EXTENSION_VERSION } from "./version.js";
 
 export const ACTIVITY_TYPE = "policy-engine-activity";
 const rigors = {
@@ -66,6 +67,7 @@ export function activitySnapshot(decision, phase, injected = "") {
         ? "等待你批准计划；可以继续提问或修改约束。"
         : "模型继续处理当前任务，无需额外操作。";
   return deepFreeze({
+    extensionVersion: EXTENSION_VERSION,
     decision: data,
     phase,
     injected,
@@ -103,6 +105,7 @@ export function activityText(activity) {
   return sanitizeTerminalText(
     [
       activity.summary,
+      `运行版本：${activity.extensionVersion ?? "旧记录未标注"}；当前已加载：${EXTENSION_VERSION}`,
       d.preflightBlocked
         ? `判断方式：模型识别未成功（${d.recognition?.reason ?? "unknown"}），本轮未使用本地规则继续执行。`
         : d.recognition?.source === "agent" &&

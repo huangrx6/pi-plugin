@@ -1,4 +1,4 @@
-# Design — pi-policy-engine 0.33.2
+# Design — pi-policy-engine 0.33.3
 
 ## Responsibility
 
@@ -91,4 +91,4 @@ If required policies are missing, excluded or cannot fit, the turn is marked blo
 
 Tests use OS temporary directories. The smoke entry point isolates both cwd and `PI_CODING_AGENT_DIR`; asynchronous writes complete before cleanup. Regression scenarios include greetings, fresh reviews after pending debugging, negated/quoted autonomy, narrowing approvals, restart/fork/tree navigation, missing plans, errors, model changes, damaged configuration, preview parity and insufficient budgets.
 
-Version 0.33.2 adds bounded repair and observable parser/schema diagnostics for malformed model responses. Version 0.33.0 removes obsolete legacy config/state reads, the unused one-shot/profile/save command paths and silent live rule fallback. Automatic routing treats unclear or broad mutation work as standard depth, while high-risk mutation remains strict; task profiles are tightened for architecture, documentation, review and research. Version 0.32.0 adds interrupted-task policy reuse on explicit continuation commands. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
+Version 0.33.3 makes the executing runtime version visible in activity, status, configuration checks and every history row. Version 0.33.2 adds bounded repair and observable parser/schema diagnostics for malformed model responses. Version 0.33.0 removes obsolete legacy config/state reads, the unused one-shot/profile/save command paths and silent live rule fallback. Automatic routing treats unclear or broad mutation work as standard depth, while high-risk mutation remains strict; task profiles are tightened for architecture, documentation, review and research. Version 0.32.0 adds interrupted-task policy reuse on explicit continuation commands. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
