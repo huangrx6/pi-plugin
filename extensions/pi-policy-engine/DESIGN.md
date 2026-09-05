@@ -1,398 +1,92 @@
-# Design — pi-policy-engine v0.25.2
+# Design — pi-policy-engine 0.28.0
 
-## 1. Design goal
+## Responsibility
 
-Provide a small **task-flow policy layer** for Pi without recreating a full
-agent runtime. The extension works entirely at the **task-behavior layer**:
-it injects execution-discipline constraints into the system prompt and runs
-a strict-workflow state machine in `before_agent_start`. It does **not**
-intercept tool calls — tool permission is out of scope by design, so the
-extension composes with any permission extension (or none) without
-coordination.
+The extension classifies user intent, selects task instructions, tracks bounded approval, and explains the exact injected text. It does not intercept tools, schedule workers, select the main model, or implement retrieval storage. Instructions remain a behavioral contract; snapshots prove delivery, not compliance.
 
-The extension owns:
-
-- classification (deterministic + opt-in semantic fallback);
-- policy composition (with byte-budget enforcement);
-- rigor selection (quick / standard / strict) + flow selection (v0.19);
-- strict approval state machine;
-- explainability + introspection (`/policy preview`, `why`, `diff`, `history`, `config`, `validate`).
-
-The extension intentionally does not own:
-
-- tool-call permission / approval dialogs (tool_call interception);
-- subagent orchestration;
-- DAG execution;
-- task queues;
-- generalized workflow DSL;
-- model provider abstraction;
-- memory system.
-
-## 1a. Foundational principles (frozen at 1.0)
-
-These eight principles are the contract. Any change that violates one of
-them is a regression, not a feature.
-
-1. **Deterministic first.** Routing is rule-based; the optional semantic
-   model only arbitrates below the confidence threshold.
-2. **Intent beats mention.** A discussed topic is not a request — the
-   imperative frame and action modality decide, background keywords
-   only weigh in.
-3. **Hard evidence is never downgraded.** Semantic merge can raise risk,
-   never lower it; deterministic intent is locked unless unclear.
-4. **Less policy is better.** One unified byte budget; every loaded
-   policy must have earned its slot with evidence.
-5. **Strict approval must be pure.** Only a pure approval releases
-   execution; any constraint remainder is a revise.
-6. **Every route must be explainable.** Every decision carries reasons;
-   dropped policies and domains say why they were dropped.
-7. **Enforce workflow, not permissions.** No tool_call interception;
-   the extension constrains task behavior, not tool access.
-8. **Never become another agent runtime.** No schedulers, DAGs,
-   subagent graphs, or orchestration — see Non-goals (§12).
-
-## 2. Lifecycle
+## Turn pipeline
 
 ```text
-session_start
-    ├─ reset state (history, phase, etc.)
-    └─ set footer status
-    ↓
-user prompt
-    ↓
-before_agent_start
-    ├─ classify task + risk + domains
-    ├─ [opt-in] semantic fallback when deterministic confidence < threshold
-    ├─ choose profile + rigor + flow
-    ├─ choose model adaptation
-    ├─ composePolicies: enforce byte budget, drop low-priority tail
-    ├─ load project policies (with file + byte caps)
-    ├─ recordHistory(state, { source: 'decide', prompt, decision })
-    └─ append active policy block to system prompt
-    ↓
-agent loop
-    ↓
-agent_end
+input + current task contract
+  → contextual model interpretation (primary) OR offline task relationship
+  → authorization and intent
+  → rigor, coverage, profile, current-model adaptation
+  → required boundaries, optional policies and budget
+  → injected instructions + transition record + session snapshot
 ```
 
-`model_select` updates the current model identity used by model-specific policy routing.
-
-No `tool_call` handler exists (v0.12+). See §6.
-
-## 3. Policy layers + byte budget
-
-```text
-Core
-  └─ evidence / constraints / verification         ← always loaded
-Behavior
-  └─ execution discipline / scope / context / tools
-Rigor
-  └─ quick / standard / strict          ← how strict (v0.19)
-Flow
-  └─ debug-first / review-first / research-first   ← how to work
-Domain
-  └─ database / kubernetes / backend / frontend / docs
-Concern
-  └─ security / production            ← cross-cutting, not capped (v0.18)
-Model
-  └─ model-specific adaptation                    ← MiniMax M3 / DeepSeek
-Project
-  └─ .pi/policies/**/*.md                         ← user-supplied
-```
-
-`composePolicies` walks the ordered list above and applies a **byte budget**
-(default `policyMaxBytes: 24000`). When the running total exceeds the budget
-the current policy is dropped entirely (no partial truncation — policies are
-semantic units). Dropped ids surface via `/policy why` and `decision.truncatedPolicies`.
-
-**v0.17 unified budget**: built-in and project policies share ONE
-`policyMaxBytes`. `composeAllPolicies` loads built-ins first (priority
-order), then gives project policies the remaining space
-(`min(projectPolicyMaxBytes, policyMaxBytes - builtInBytes)`). Before
-v0.17 the two lists were capped independently, so the injected block
-could reach `policyMaxBytes + projectPolicyMaxBytes` while
-`/policy preview` reported only the built-in share — verified 700-byte
-budget injecting 1433 bytes. `budgetUsedPct` now reports the true total.
-
-Priority order (v0.23, one budget walk): core > **project** > **intent** >
-flow > rigor > concern > domain > profile behaviors > model. The intent
-policy (policies/intents/) is a HARD BOUNDARY — intent.read-only forbids
-mutation outright and rigor policies are intent-neutral (mutation guidance
-only under an explicit conditional). Intent decides WHETHER, rigor decides
-HOW DEEP, flow decides HOW. A repo's own constraints
-outrank generic model adaptation when the budget is tight — project
-policies used to be dropped first, which inverted that.
-
-## 4. Classification: deterministic first, semantic as opt-in fallback
-
-The main failure mode being addressed is unreliable execution discipline. Allowing the same model to decide which constraints it should receive creates a circular dependency, so the routing decision itself is **always** deterministic.
-
-The opt-in **semantic fallback** is available for users who hit keyword-matching blind spots:
-
-- Disabled by default. Any user who doesn't configure `semanticFallback.enabled: true` gets pure deterministic routing.
-- When enabled, only invokes a one-shot HTTP call to an OpenAI-compatible endpoint when deterministic `confidence < confidenceThreshold` (default 0.7).
-- v0.16 **conservative merge** — the semantic model arbitrates ambiguity, it can never override deterministic hard evidence:
-  - `taskType`: semantic may arbitrate (it only runs below the confidence threshold).
-  - `risk`: `max(deterministic, semantic)` — can only go UP.
-  - `executionIntent`: locked unless deterministic said `unclear`.
-  - `domains`: deterministic always kept; semantic may ADD enum-validated extras up to the cap (an LLM hallucinating unknown domains is filtered before the merge).
-  - `confidence`: the engine keeps its own number; the model does not self-report confidence, and the deterministic hint sent to the model no longer includes it.
-- The merge is recorded in `decision.reasons` so `/policy why` shows exactly what was arbitrated.
-- **Failure isolation**: any error — timeout, network, HTTP non-2xx, JSON parse failure, schema mismatch, missing API key — returns `null` and the deterministic result stands. The agent loop never blocks on this.
-- API key is read from an **environment variable name** (`apiKeyEnvVar`), never persisted to config files.
-
-Implementation: `src/core/semantic.js` (`maybeSemanticClassify`) wired into `state.js::decide()` (which is `async` for this purpose).
-
-Why opt-in rather than always-on:
-
-1. **Privacy / offline**: many users run pi against private codebases and won't accept an extra outbound call by default.
-2. **Latency**: even a 4 s timeout is a long time to wait for a routing decision that usually takes <1 ms.
-3. **Cost**: even cheap models cost money; we shouldn't incur it without consent.
-4. **Determinism contract**: deterministic routing is what users rely on for reproducibility. Making the fallback optional keeps that contract.
-
-### Sequential intent resolution (v0.20)
-
-Intent resolves across clauses IN ORDER — the user's last effective
-instruction wins. Correction heads (不对/等等/算了/actually/scratch
-that…) clear the active intent; a negated clause revokes only the same
-kind it negates ("只分析，不要修改" stays read-only — the negation
-targets mutation, not analysis). Advisory clauses (告诉我如何修复 /
-给我部署步骤) read as read-only guidance requests. Before v0.20, "any
-live mutation short-circuits" let "先修改代码，不要修改，只分析"
-classify as mutate. The intent frame skips clauses before the last
-correction, so "帮我修复，不对，先别改，只分析原因" anchors on 分析.
-
-### Approval-gate modality (v0.22)
-
-The deferred-approval phrase (确认后再执行) is classified per clause
-(`classifyApprovalRequirement`): a NEGATOR lifts any gate (不需要确认后
-再执行 → none), quoted/hypothetical/advisory mentions are ignored (把
-README 里的"确认后再执行"改成… / 如果确认后再执行会怎样 / 解释一下…),
-and only a bare demand creates the gate. Precedence in chooseRigor:
-`/policy off` > current-prompt explicit gate > pinned runtime mode >
-risk routing — a stale /policy standard can never silence a gate the
-user demands in the current prompt; the gate is lifted per-prompt by
-saying so.
-
-### Plan-response sequential resolution (v0.22)
-
-classifyPlanResponse resolves clauses IN ORDER: a whole-CLAUSE cancel
-(anchored — 先别动数据库 is scoped, not global) sets cancel; correction
-heads (不对/等等/还是/actually…) reset everything and their remainder
-becomes the new instruction; constraints (scoped rejection 不要执行第
-二步, negated targets, contrast, added instructions) are STICKY revise —
-later generic approval does not un-stick them, only a correction does.
-
-## 5. Strict rigor state machine
-
-`phase` is the single source of truth (the pre-0.15 `pendingApproval` boolean
-described the same state with a second field and allowed invalid combos).
-
-```text
-idle
-  ↓ strict task classified (mutate intent)
-planning                ← model produces the plan this turn
-  ↓ agent_end
-awaiting_approval
-  ├─ approve (pure) → executing
-  ├─ revise         → planning (plan updated; re-approval required)
-  ├─ discuss        → awaiting_approval (question answered)
-  ├─ cancel         → idle
-  └─ unknown        → awaiting_approval (+ explicit reminder injected)
-executing
-  ↓ agent_end
-idle
-```
-
-Response routing lives in `src/core/approval.js::classifyPlanResponse` —
-five-way classification with one core principle: **only a pure approval
-releases execution**. Any constraint signal (但是/不过/只/先/不要改X/but/
-only/except) makes the response a REVISE regardless of approval flavor.
-Confirmed empirically before the fix: "批准，但是不要改数据库" used to
-release execution as an approval.
-
-A "verifying" phase (post-execution verification pass) is planned but
-requires wave tracking that does not exist yet; executing currently
-returns to idle at agent_end.
-
-## 5a. Session-restart restore (v0.20)
-
-awaiting_approval is persisted (minimal decision fields only) next to the
-history file and restored on session_start — cwd-matched, max 7 days old.
-Plan → quit → /resume → "批准" routes through the approval classifier
-instead of fresh classification. /policy cancel discards. Concurrency:
-two live sessions in one project share the file; last writer wins and
-the failure direction is safe (asks again, never auto-releases).
-
-## 6. No tool-call interception (v0.12)
-
-Early versions shipped a mechanical gate (`soft`/`hard` tool_call blocking
-while `pendingApproval` was set). That put this extension on the same layer as
-permission extensions, creating overlap: when both were installed, both
-evaluated the same tool calls (OR-composition, first block short-circuits),
-and users had to reason about which one would win.
-
-v0.12 removes the tool_call handler entirely:
-
-- Strict planning relies on the injected `strict-plan` policy instruction
-  ("This turn is PLAN-ONLY … Stop after the plan and ask for approval.")
-  — the model is expected to stop on its own, exactly like a skill that
-  says "ask the user here". No tool is invoked, so nothing needs blocking.
-- Whether any tool call is *permitted* is someone else's job — whatever
-  permission extension the user runs (if any). This extension neither knows
-  nor cares about that layer.
-- Consequence (documented as a known limitation): if a model ignores the
-  PLAN-ONLY instruction and issues a mutation anyway, nothing here stops it.
-  That's the deliberate price of clean layering.
-
-**Future option (NOT in 1.0): `strictPhaseGuard`** — an opt-in
-(default-off) invariant guard that blocks exactly `edit` / `write` /
-`apply_patch` while `phase` is planning or awaiting_approval. It would
-parse no Bash, judge no commands, and grant no permissions — pure
-workflow-invariant enforcement, keeping this extension off the
-permission layer. It stays unimplemented until field evidence shows
-PLAN-ONLY instructions being ignored in practice.
-
-`src/core/approval.js` is the only remnant of the old guard module, kept
-because the strict state machine needs phrase recognition.
-
-## 7. Project policy discovery
-
-Project policies live at `.pi/policies/**/*.md`, discovered from cwd
-**upward** to the enclosing git root (v0.18) — starting pi in
-`repo/backend/service-a` now sees `repo/.pi/policies`. Nearest root wins
-on duplicate relative ids (shadowing). Limits prevent unbounded growth:
-
-- `projectPolicyMaxFiles` (default 12)
-- `projectPolicyMaxBytes` (default 24000; participates in the unified
-  policyMaxBytes budget via composeAllPolicies)
-- `projectPolicies` allowlist (optional)
-
-**Conditional loading (v0.18)**: when a `.pi/policies/manifest.json`
-exists, only its listed entries load, each gated by optional
-`tasks` / `domains` / `concerns` filters against the current decision
-(no filters = always). Unlisted files do not load — a 30-file project
-stays quiet.
-
-## 7a. Task continuity (v0.18)
-
-`agent_end` leaves the previous decision in state. A whole-message
-follow-up ("继续" / "还是不对" / "按这个做" — see intent.js
-FOLLOWUP_PATTERNS) carries no instructions of its own, so decide()
-inherits taskType + domains from the last decision, recomputes
-executionIntent (a live intent on the follow-up wins; unclear falls
-back to the inherited one), and escalates risk ONLY when the follow-up
-itself produced a `risk:` reason — the no-evidence default "medium"
-never escalates a quick task to standard. Off-rigor or absent
-lastDecision disables continuity. Every inheritance is recorded in
-reasons as `task-continuity: ...` for /policy why.
-
-## 7b. Config trust boundary (v0.21, dual-trust clarified in v0.22)
-
-Project config layers (`.pi/policy-engine.json` upward to the git root)
-follow a DUAL-TRUST model: trusted for routing/behavior customization
-(mode, policy selection, budgets — a repo may carry its own conventions
-exactly like project instructions), NEVER trusted with host credentials,
-arbitrary network destinations, or arbitrary filesystem destinations.
-`sanitizeProjectConfig` enforces the second half via an allowlist of
-routing/noise keys; `semanticFallback`, `historyFile`,
-`historyMaxEntries` — anything network / credential / filesystem — are
-global-only and silently dropped at load (surfaced by /policy validate).
-A verified exfiltration path (project-level fallback endpoint +
-apiKeyEnvVar sending the env secret + full prompt as a Bearer request)
-motivated this. Invalid VALUES are normalized at load time
-(normalizeEffectiveConfig): unknown mode/profile → auto, non-numeric
-byte/domain caps → defaults; validate consumes the RAW config so it
-still diagnoses the actual mistakes.
-
-## 8. Configuration merging
-
-`mergeConfig(defaults, global, project, runtimeOverrides)`:
-
-- Plain objects: **deep** merge (recursive). v0.1 had a shallow-merge bug that
-  silently dropped nested keys; fixed in v0.2.
-- Arrays of objects with `id`: deduped by id with later-override semantics.
-- Arrays without `id`: replaced wholesale.
-- Scalars: replaced.
-
-## 9. Introspection commands
-
-Read-only commands for tuning and debugging. They never mutate state, never invoke the agent, and never call the semantic fallback (except `/policy preview` when the user has explicitly raised the confidence threshold — see README).
-
-### `/policy preview <prompt>`
-
-Dry-runs the full routing + composition pipeline for a hypothetical prompt.
-Pure read: runs `decide` with a **fresh** state (no runtime overrides applied).
-
-### `/policy why`
-
-Shows the last decision's full reasoning: rigor / flow / phase / task / risk /
-profile / domains / model policy / confidence, plus loaded policies,
-truncated policies, and classification reasons.
-
-### `/policy diff <promptA> || <promptB>`
-
-Runs two previews in parallel and shows side-by-side decisions plus a
-Differences list. Uses `compareDecisions` / `formatDiff`.
-
-### `/policy history [N]` / `/policy history clear-disk`
-
-Global configuration lives at `<agent-dir>/extensions-data/pi-policy-engine/config.json`; `PI_CODING_AGENT_DIR` selects the agent directory, defaulting to `~/.pi/agent`. The old `policy-engine.json` remains a read fallback only when the new file is absent. Default history and strict-plan files share `state/`; an existing legacy `policy-engine/` directory remains in use until the new state directory exists. Configuration and state fallbacks are independent. Runtime path resolution never moves files, and an explicit global `historyFile` overrides the default.
-
-In-memory routing history (default 5, cap 50). When `historyFile` is
-configured (default `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`), entries are
-also persisted and reloaded at `session_start`. See `src/core/history-store.js`.
-
-### `/policy config`
-
-Prints the **resolved effective config** (defaults < global < project <
-runtime merged). Sections: routing / policies / semanticFallback.
-
-### `/policy validate`
-
-Checks the resolved config: include/exclude policy references, manifest
-paths, profile entries. Pure read — safe to run in CI.
-
-## 10. Extensibility
-
-Global reusable policies use a manifest (`policies/manifest.json`) and profiles
-(`profiles/*.json`). Project-only policies require no manifest.
-
-Routing keywords are data-driven in `config/routing.json`, allowing
-domain/task expansion without changing classifier code.
-
-## 11. Extension file layout (v0.12)
-
-```text
-extensions/policy-engine/
-├── index.js          # thin assembly: createState, register command + lifecycle
-├── commands.js       # /policy command + interactive selector + all subcommands
-├── lifecycle.js      # pi event handlers (no tool_call) + strict-rigor state machine
-├── state.js          # createState + decide/preview/compareDecisions/validateConfig glue + history recording
-├── format.js         # all command output formatters
-└── helpers.js        # findPackageRoot / cleanModel / notify / setStatus / parsePolicyCommand
-
-src/core/             # pure modules, no pi import dependency — testable in isolation
-├── classifier.js     # rule-based task/risk/domain classification
-├── router.js         # buildDecision (rigor + flow + profile + model policy via config/models.json)
-├── loader.js         # loadManifest / loadProfile / loadProjectPolicies / composePolicies / renderPolicyBlock
-├── approval.js       # classifyPlanResponse (approve/revise/discuss/cancel/unknown)
-├── config.js         # loadEffectiveConfig / mergeConfig
-├── semantic.js       # maybeSemanticClassify (opt-in OpenAI-compatible fallback)
-└── history-store.js  # appendHistory / readHistory / clearHistory / resolveHistoryPath
-```
-
-## 12. Non-goals
-
-If the extension evolves toward scheduler, DAG engine, worker pool, subagent
-graph, generalized orchestration runtime, or tool-permission enforcement,
-it has exceeded its intended boundary.
-
-## 13. Runtime boundary
-
-The engine supplies model-behavior instructions and explanations. Mechanical
-tool permission enforcement is outside its scope.
-
-## Per-turn explanation
-
-The lifecycle captures the exact appended system-prompt block after routing and composition. A copied and recursively frozen decision, phase and injection text form a session CustomEntry; it is UI/persistence data and never enters the LLM context. The fingerprint uses the actual injected block and phase, so repeated equivalent instructions do not generate transcript noise. `/policy` exposes the most recent explanation separately from the current runtime phase, and `injected` exposes the exact text. Historical entries do not read live mutable state. The renderer sanitizes terminal and bidi controls, wraps by grapheme display width, and applies host theme roles after layout. Mode and profile are separate second-level actions.
+`transitions.js::resolveTurn` owns the transition decision. `policy-block.js` composes and renders it. The lifecycle applies these functions to live state; preview applies them to a cloned state. Preview defaults to no semantic network call. `--new` discards current runtime/task context for the preview; `--semantic` permits the configured opt-in classifier.
+
+Task relationship has one authoritative result per turn. With `semanticFallback.strategy: primary`, a validated model response chooses new, continue, revise, discuss, conversation or uncertain using the current task contract. Otherwise a bounded offline parser decides. Continuations retain task identity and risk context; uncertainty cannot authorize mutation. Explicit user approval responses cannot be reinterpreted as independent tasks by the model. `/policy new` corrects association explicitly; `/policy task` exposes the contract.
+
+## Intent and authorization
+
+Quoted examples are masked before intent and authorization parsing. Negated actions do not authorize mutation. Inspection requests can name mutation paths as objects: checking a database write pipeline remains read-only. A comprehensive review has a coverage dimension independent of mutation risk and uses at least standard depth in auto mode.
+
+The low-level approval parser distinguishes approve, revise, discuss, cancel, and unknown. `resolvePlanResponse` additionally accepts explicit approval with a recognized narrowing or compatibility constraint. Those restrictions are retained with the task and re-injected on continuation. Other added work or plan replacement remains a revision. Autonomous execution is recognized only in a live affirmative instruction; it applies to the current task and is revoked by a fresh explicit approval requirement.
+
+Each task has an ID, full original goal, user requirement records, extracted constraints with their source text, plan version, optional approved version, autonomy flag, and scope restrictions. Raw user requirements remain available even if constraint extraction misses a clause. These records are not an automatically reconciled constraint solver: later corrections must be interpreted in context; the classifier cannot erase history. A separate work decision preserves execution context across questions. New tasks cannot inherit the previous task's authorization. Approval of a version permits bounded continuation of that version. A revised plan increments its version. Reasons keep a bounded recent explanation instead of repeatedly embedding the entire previous history.
+
+## Phases and outcomes
+
+| Current phase | Event | Result |
+| --- | --- | --- |
+| idle | strict mutation without authorization | planning |
+| planning | valid current-task/current-version `policy-plan` report with steps and verification | awaiting_approval |
+| planning | no valid plan report or model error | planning, with missing_plan or failed/interrupted outcome |
+| awaiting_approval | question / unrecognized response | remain awaiting_approval |
+| awaiting_approval | plan revision | planning |
+| awaiting_approval | approved version | executing |
+| any active phase | explicit new task | classify independently |
+| executing | normal round end | idle, outcome unverified |
+| executing | error / abort | outcome failed / interrupted |
+
+The `policy-plan` JSON report must bind taskId and planVersion and contain a nonempty goal and steps with action/verification strings. A request for a file path or plain text does not qualify. The stored evidence is explicitly assistant_reported; structural validity is not semantic proof that the plan is adequate. The engine has no authoritative verification-result protocol and never marks the task verified-complete merely from a round ending.
+
+Mutation planning and awaiting approval both load `rigor.strict-plan`; only executing an authorized mutation loads `rigor.strict-execute`. A pinned strict read-only request uses `rigor.strict-review` without claiming implementation approval. A pending approval is not bypassed by a depth setting. `once` is reserved until the next new-task decision; `off` explicitly disables policy and discards the pending task. Command and menu changes share persistence behavior.
+
+## Session and branch persistence
+
+`policy-engine-workflow` custom entries contain version 3 workflow snapshots. They are not model messages. Restoration uses the current branch, same session ID and cwd, and a seven-day age limit. A waiting plan must reference an assistant entry still present in that branch; the parsed report must match the saved plan. Version 2 snapshots without a plan report downgrade to planning instead of retaining approval. A fork with a different session ID starts without inherited authorization. An executing snapshot restored after interruption becomes idle with an interrupted outcome.
+
+Session-aware hosts without a branch API may use a disk fallback. The file name hashes cwd plus session ID. A host without session identity only maintains runtime/session entries and does not use a shared directory-only approval file. Legacy version 1 state is preserved but cannot restore approval for a version 2 runtime session.
+
+Workflow writes use a temporary file and rename; clearing removes the matching state file. Lifecycle and command handlers await persistence and surface failures. The session snapshot is the primary source on normal Pi hosts. Global JSONL history remains diagnostic, uses best-effort appends and bounded rotation, and is not an authorization source.
+
+## Diagnostics
+
+Every live decision, including pending-plan responses, records relationship, intent, phase before/after, outcome, task/version/session, current model, recognition source/reason/model/latency, configuration fingerprint, injection fingerprint, actual injected bytes and a short prompt excerpt. Round end records its phase/outcome separately. The activity card retains the exact appended text and an immutable decision snapshot; identical injected text and phase do not produce duplicate activity cards.
+
+The current snapshot keeps routing state. JSONL keeps diagnostic events. Neither is a vector database or a learned classifier. No operational state is inferred from semantic similarity.
+
+## Configuration contract
+
+Precedence: package defaults < global config < ancestor-to-nearest project configs < runtime mode/profile/recognition selection. `schema.js` validates types, arrays, enums, integer bounds, nested semantic settings and model rules. `/policy validate` adds policy-reference and file diagnostics. Effective config reports leaf-value sources.
+
+On a runtime configuration error, the previous valid configuration for that cwd is retained and the error is shown. On first load, invalid values use normalized safe defaults, invalid semantic settings cannot initiate a network call, and diagnostics remain visible. Project settings cannot supply credentials, endpoints, history paths or global model rules.
+
+`/policy save global|project` writes only explicitly selected runtime mode/profile plus global-only recognition selection, preserving the existing valid configuration. It refuses to overwrite malformed JSON and atomically replaces a validated result. Global save uses the current data directory and can copy a valid legacy configuration forward without deleting it.
+
+Global `modelRules` precede package rules. Matching is exact provider plus exact or trailing-star model prefix, case insensitive. A proxy/provider alias can map to an existing model policy. The main model is always the host's choice. The semantic classifier can use the active host model or a separately configured endpoint. `agent-classifier.js` captures the complete current model per turn and calls `ctx.modelRegistry.complete` with an isolated context and abort signal; the registry owns provider/auth/OAuth/proxy resolution. There are no Pi namespace imports, credential extraction, tool definitions, session-message writes or recursive agent calls. Missing host support degrades explicitly to rules without switching to a configured endpoint. Primary interpretation supports OpenAI-compatible Chat Completions and Anthropic Messages, optional JSON response format and optional temperature, plus explicitly unauthenticated local services. Legacy fallback retains its single-prompt OpenAI-compatible conservative merge. `/policy recognition agent|endpoint|primary|fallback|off` changes the runtime selection; `/policy save global` persists only that selection while preserving endpoint and credential-reference configuration.
+
+## Model interpretation boundary
+
+`interpretation.js` serializes the current user message, full goal, retained requirements/constraints, proposed plan and phase into a data-only user message. It sends no repository files, tool outputs or unrelated conversations. The context itself may contain user-supplied sensitive text. For endpoint source, the global-only endpoint and environment-variable reference are the network trust boundary. For agent source, the current host model registry resolves requests; endpoint and apiKeyEnvVar settings are not consulted. Both paths share schema validation, context bounds and request deadlines. New defaults select agent/primary but remain disabled; existing source-less semantic configurations preserve endpoint behavior and old timeout defaults. Each interpretation is still an extra model call with latency and usage costs.
+
+Primary results must have exactly the specified fields, valid task/relation/intent/risk/coverage enums, known domains and bounded constraint quotations present in unquoted current user text. Extra authorization fields invalidate the response. The model can correct rule classification, but cannot write task IDs, approved versions or autonomy. Direct user approval requirements remain authoritative. Natural-language approvals still use the conservative local parser; `/policy approve` is the explicit alternative. Risk cannot decrease during a continuing task; architecture retains its high-risk floor. A model's result has no fabricated confidence probability.
+
+The deadline covers transport and JSON parsing even when an injected transport ignores abort. HTTP errors, malformed JSON/schema, missing keys and network failure return diagnostic codes without response bodies or secrets. Oversized serialized context falls back without silently dropping constraints. No retries occur. Primary runs once per turn, before relation/phase handling; disabled and ordinary offline previews make no calls. Legacy fallback does not supply contextual task relation.
+
+The classification result remains fallible, and injected behavior does not enforce tool permissions. Mock protocol tests establish data flow and transition invariants, not model accuracy. Real-model evaluation must measure task misassociation, constraint retention, false approval waits, latency/cost and outcomes before enabling classification by default or claiming provider-specific prompt efficacy.
+
+## Policy composition
+
+Required intent and strict-phase policies precede core and project material. Remaining ordering is flow, comprehensive coverage, rigor, concerns, domains, profile behaviors and model adaptation. Entries are whole semantic units under one policy-content byte budget. The final output adds framing, diagnostics and task contract and plan reporting instructions; actual injected bytes are measured separately.
+
+If required policies are missing, excluded or cannot fit, the turn is marked blocked and receives an explicit instruction not to implement changes. No tool interception is added. Arbitrary contradictory project prose cannot be mechanically proven consistent; controlled built-in phase conflicts are covered by tests.
+
+## Validation and upgrade
+
+Tests use OS temporary directories. The smoke entry point isolates both cwd and `PI_CODING_AGENT_DIR`; asynchronous writes complete before cleanup. Regression scenarios include greetings, fresh reviews after pending debugging, negated/quoted autonomy, narrowing approvals, restart/fork/tree navigation, missing plans, errors, model changes, damaged configuration, preview parity and insufficient budgets.
+
+Version 0.27.0 changes approval restoration intentionally. Existing history stays readable, and old disk states are left intact until normal retention cleanup. Upgrade does not migrate a stale directory-scoped approval into a new session. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
