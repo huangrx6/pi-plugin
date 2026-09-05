@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 - 2026-09-05
+
+- Remove the retired `mode-switcher.json` fallback. The extension now reads and writes only `extensions-data/pi-mode-switcher/config.json`, so configuration ownership is unambiguous.
+
 ## 0.2.1 - 2026-09-04
 
 - Move persisted mode to `extensions-data/pi-mode-switcher/config.json` under the agent directory and respect `PI_CODING_AGENT_DIR`.

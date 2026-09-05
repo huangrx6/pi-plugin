@@ -23,7 +23,7 @@
  *    `rm /`, `rm /*`, and wildcard deletes are still caught.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -67,15 +67,13 @@ function defaultAgentDir(): string {
 export function modeConfigPaths(agentDir = defaultAgentDir()) {
   return {
     current: join(agentDir, "extensions-data", "pi-mode-switcher", "config.json"),
-    legacy: join(agentDir, "mode-switcher.json"),
   };
 }
 
 export function loadPersistedMode(agentDir = defaultAgentDir()): Mode {
   const paths = modeConfigPaths(agentDir);
   try {
-    const path = existsSync(paths.current) ? paths.current : paths.legacy;
-    const parsed = JSON.parse(readFileSync(path, "utf-8"));
+    const parsed = JSON.parse(readFileSync(paths.current, "utf-8"));
     return parsed.mode === "ask" ||
       parsed.mode === "smart" ||
       parsed.mode === "full"
