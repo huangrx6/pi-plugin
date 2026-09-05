@@ -1,7 +1,7 @@
 {
   "name": "pi-footer-composer",
-  "version": "0.6.0",
-  "description": "Full-by-default Pi footer with an aligned bordered grid, muted text, responsive columns and compact/native options.",
+  "version": "0.7.0",
+  "description": "Full-by-default Pi footer with grouped category rows, open table sides, muted text and compact/native options.",
   "license": "MIT",
   "type": "module",
   "engines": {

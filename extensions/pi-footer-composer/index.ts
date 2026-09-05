@@ -1,7 +1,7 @@
 /**
- * pi-footer-composer — full bordered grid by default, compact rows optional.
- * Each grid cell holds one field or one published status; column widths are
- * shared across rows. grid.ts owns wrapping, alignment and quiet theme colors.
+ * pi-footer-composer — grouped table by default, compact rows optional.
+ * Each category occupies one row with a shared label divider and open sides.
+ * grid.ts owns wrapping, alignment and quiet theme colors.
  * Data comes only from Pi's public session, context and footer surfaces.
  * `/footer native` restores Pi's built-in footer.
  */
@@ -352,26 +352,24 @@ export default function (pi: ExtensionAPI): void {
                 const label = typeof labels === "string" ? labels : labels[index];
                 return `${label ? `${label}  ` : ""}${cell.text}`;
               });
-            return renderGrid(
-              [
-                ...labelCells(envCells(activeCtx as Ctx, footerData, theme), [
-                  "路径", ...(footerData.getGitBranch() ? ["分支"] : []), "会话",
-                ]),
-                ...labelCells(modelCells(
+            return renderGrid([
+                { label: "路径", items: labelCells(envCells(activeCtx as Ctx, footerData, theme), [
+                  "", ...(footerData.getGitBranch() ? ["分支"] : []), "会话",
+                ]) },
+                { label: "模型", items: labelCells(modelCells(
                     theme,
                     activeModel,
                     activeThinking,
                     footerData.getAvailableProviderCount(),
-                  ), ["模型", ...(activeModel?.provider && footerData.getAvailableProviderCount() > 1 ? ["平台"] : [])]),
-                ...labelCells(sections.quota, "额度"),
-                ...labelCells([
+                  ), ["", ...(activeModel?.provider && footerData.getAvailableProviderCount() > 1 ? ["平台"] : [])]) },
+                { label: "额度", items: labelCells(sections.quota, "") },
+                { label: "窗口", items: labelCells([
                   ...contextCell(activeCtx as Ctx, theme, activeModel, false),
                   ...sections.context,
-                ], "窗口"),
-                ...labelCells(usageCells(activeCtx as Ctx, theme), ""),
-                ...labelCells(sections.usage, "累计"),
-                ...labelCells(sections.integration, "集成"),
-                ...labelCells([...sections.config, ...sections.misc], "状态"),
+                ], "") },
+                { label: "用量", items: labelCells([...usageCells(activeCtx as Ctx, theme), ...sections.usage], "") },
+                { label: "集成", items: labelCells(sections.integration, "") },
+                { label: "状态", items: labelCells([...sections.config, ...sections.misc], "") },
               ],
               width,
               theme,

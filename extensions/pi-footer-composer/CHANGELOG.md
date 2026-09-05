@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0 - 2026-09-05
+
+- Group related fields into seven fixed category rows instead of filling individual boxes across columns.
+- Remove left and right outer borders; keep horizontal rules and one aligned category divider.
+- Wrap fields within their category, keeping short fields intact and showing each category label once. Preserve muted text and dim separators.
+
 ## 0.6.0 - 2026-09-05
 
 - Replace the full view's loose rows with a bordered table: one field per cell, shared column widths, aligned intersections and padded final rows.

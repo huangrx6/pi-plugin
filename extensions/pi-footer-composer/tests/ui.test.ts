@@ -58,16 +58,18 @@ test("full footer is the default; compact and native remain selectable", async (
     },
   );
   const full = component.render(200);
-  assert.ok(full[0].startsWith("┌"));
-  assert.ok(full.at(-1).endsWith("┘"));
-  assert.match(full.join("\n"), /状态  /);
-  assert.match(full.join("\n"), /模型  model/);
+  assert.ok(full[0].startsWith("──────┬"));
+  assert.ok(full.at(-1).startsWith("──────┴"));
+  assert.equal(full.length, 15, "seven category rows and eight horizontal rules");
+  assert.match(full.join("\n"), /状态 │/);
+  assert.match(full.join("\n"), /模型 │ model.*平台  provider.*思考 high/);
   assert.match(full.join("\n"), /平台  provider/);
   assert.match(full.join("\n"), /思考 high/);
   assert.match(full.join("\n"), /分支  main/);
   assert.match(full.join("\n"), /会话  session/);
-  assert.match(full.join("\n"), /窗口  12.0% \/ 128k/);
-  assert.match(full.join("\n"), /额度  GLM 5h: 37%/);
+  assert.match(full.join("\n"), /窗口 │ 12.0% \/ 128k/);
+  assert.match(full.join("\n"), /额度 │ GLM 5h: 37%/);
+  assert.match(full.join("\n"), /用量 │ 输入 4.0M.*输出 147k.*缓存读 58M/);
   assert.match(full.join("\n"), /输入 4.0M/);
   assert.match(full.join("\n"), /输出 147k/);
   assert.equal(full.join("\n").match(/Context 12%/g)?.length, 1);
