@@ -1,7 +1,7 @@
 {
   "name": "pi-footer-composer",
-  "version": "0.5.1",
-  "description": "Full-by-default Pi footer with themed visual hierarchy, complete status composition, compact/native options and grapheme-aware wrapping.",
+  "version": "0.6.0",
+  "description": "Full-by-default Pi footer with an aligned bordered grid, muted text, responsive columns and compact/native options.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -30,6 +30,7 @@
   "files": [
     "index.ts",
     "layout.ts",
+    "grid.ts",
     "globals.d.ts",
     "tsconfig.json",
     "tests/",

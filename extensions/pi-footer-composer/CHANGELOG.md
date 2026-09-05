@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0 - 2026-09-05
+
+- Replace the full view's loose rows with a bordered table: one field per cell, shared column widths, aligned intersections and padded final rows.
+- Adapt from one to four columns as terminal width increases; wrap long paths and statuses inside cells using grapheme display widths.
+- Use muted gray for all full-view text and dim borders, removing differences in brightness and font weight. Preserve status wording and values.
+- Cover responsive borders, multiline content, terminal-control sanitization and full/compact/native switching.
+
 ## 0.5.1 - 2026-09-05
 
 - Unify normal content color and font weight; use whitespace between fields and readable muted labels.

@@ -1,55 +1,16 @@
 /**
- * pi-footer-composer — optional compact/full labelled footer.
- *
- * Full mode is the default with seven information groups; compact mode
- * keeps three. Every row is prefixed with a dim category label:
- *
- *   1. 环境   cwd / branch / session name (one dim cell each)
- *   2. 模型   (provider) id + thinking level
- *   3. 资源   ↑↓RW tokens · cache hit · $ cost · context % ·
- *            + any status whose key starts with "usage:" (e.g. quota)
- *   4. 集成   statuses whose key starts with "integration:"
- *            (e.g. MCP server count, LSP status)
- *   5. 配置   statuses whose key starts with "config:" (e.g. mode,
- *            policy) — also catches any uncategorised status as a
- *            fallback so nothing is silently dropped
- *
- * Cells within a row are separated by whitespace; a row wider than the
- * terminal greedy-wraps onto continuation lines, which are indented
- * under the label so the content stays aligned. Everything it shows
- * comes from pi's aggregate surfaces — it never imports or knows about
- * any other extension:
- *
- *   - ctx.sessionManager            cwd / session name / usage entries
- *   - ctx.getContextUsage()         context window occupancy
- *   - footerData                    git branch / available-provider count
- *   - footerData.getExtensionStatuses()   every extension's published
- *                                        status text, one CELL each —
- *                                        content-agnostic by design
- *
- * ## Status key → row routing
- *
- * Sections use a key-prefix convention (the documented API):
- *   "usage:<key>"          → 资源 row (line 3)
- *   "integration:<key>"    → 集成 row (line 4)
- *   "config:<key>"         → 配置 row (line 5)
- *
- * A small substring heuristic covers keys without the prefix for
- * backward compatibility with packages that haven't adopted the
- * convention yet — exact `mcp` or substring `lsp` → integration,
- * exact `mode` or substring `policy` → config, exact `quota` →
- * usage. Anything else falls through to the config row as "misc"
- * so it is never silently dropped.
- *
- * Pi replaces rather than composes custom footers. `/footer native`
- * restores the built-in footer immediately when this renderer is not
- * useful for the current process.
+ * pi-footer-composer — full bordered grid by default, compact rows optional.
+ * Each grid cell holds one field or one published status; column widths are
+ * shared across rows. grid.ts owns wrapping, alignment and quiet theme colors.
+ * Data comes only from Pi's public session, context and footer surfaces.
+ * `/footer native` restores Pi's built-in footer.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { renderTable, makeCell, sanitizeTerminalText } from "./layout.ts";
 import type { Cell } from "./layout.ts";
+import { renderGrid } from "./grid.ts";
 
 type Theme = {
   fg(color: string, text: string): string;
@@ -85,12 +46,6 @@ type LooseUsage = {
   cost?: { total?: number };
 };
 
-/**
- * Fixed two-character labels, in row order. Two spaces separate the
- * quiet label from content. The set is closed — adding/removing a row requires
- * editing both this array and the `renderTable` call below.
- */
-const ROW_LABELS = ["路径", "模型", "额度", "窗口", "累计", "集成", "状态"] as const;
 const COMPACT_ROW_LABELS = ["路径", "模型", "状态"] as const;
 type FooterMode = "compact" | "full" | "native";
 
@@ -392,35 +347,34 @@ export default function (pi: ExtensionAPI): void {
                 COMPACT_ROW_LABELS,
               );
             }
-            return renderTable(
+            const labelCells = (cells: Cell[], labels: string | string[]) =>
+              cells.map((cell, index) => {
+                const label = typeof labels === "string" ? labels : labels[index];
+                return `${label ? `${label}  ` : ""}${cell.text}`;
+              });
+            return renderGrid(
               [
-                // row 1: 环境 — cwd · branch · session
-                envCells(activeCtx as Ctx, footerData, theme),
-                // Keep model identity, account quota and current window separate.
-                modelCells(
+                ...labelCells(envCells(activeCtx as Ctx, footerData, theme), [
+                  "路径", ...(footerData.getGitBranch() ? ["分支"] : []), "会话",
+                ]),
+                ...labelCells(modelCells(
                     theme,
                     activeModel,
                     activeThinking,
                     footerData.getAvailableProviderCount(),
-                  ),
-                sections.quota,
-                [
+                  ), ["模型", ...(activeModel?.provider && footerData.getAvailableProviderCount() > 1 ? ["平台"] : [])]),
+                ...labelCells(sections.quota, "额度"),
+                ...labelCells([
                   ...contextCell(activeCtx as Ctx, theme, activeModel, false),
                   ...sections.context,
-                ],
-                // Accumulated usage is a different timescale from window pressure.
-                [
-                  ...usageCells(activeCtx as Ctx, theme),
-                  ...sections.usage,
-                ],
-                // row 4: 集成 — integration-prefixed statuses (MCP, LSP)
-                sections.integration,
-                // row 5: 配置 — config-prefixed statuses (mode, policy) + misc fallback
-                [...sections.config, ...sections.misc],
+                ], "窗口"),
+                ...labelCells(usageCells(activeCtx as Ctx, theme), ""),
+                ...labelCells(sections.usage, "累计"),
+                ...labelCells(sections.integration, "集成"),
+                ...labelCells([...sections.config, ...sections.misc], "状态"),
               ],
               width,
               theme,
-              ROW_LABELS,
             );
           },
           invalidate: () => {},

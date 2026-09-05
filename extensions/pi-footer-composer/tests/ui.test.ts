@@ -12,6 +12,7 @@ test("full footer is the default; compact and native remain selectable", async (
   const footerCalls: unknown[] = [];
   const notices: string[] = [];
   let selection: string | undefined;
+  let branch: string | null = "main";
   footerExtension({
     on(name: string, handler: Function) { handlers.set(name, handler); },
     registerCommand(_name: string, definition: { handler: Function }) {
@@ -43,7 +44,7 @@ test("full footer is the default; compact and native remain selectable", async (
       return text;
     }, bold: () => { throw new Error("Footer must use uniform font weight"); } },
     {
-      getGitBranch: () => "main",
+      getGitBranch: () => branch,
       getExtensionStatuses: () => new Map([
         ["config:mode", "⚙ 权限 smart"],
         ["integration:mcp", "🔌 MCP ready"],
@@ -57,20 +58,30 @@ test("full footer is the default; compact and native remain selectable", async (
     },
   );
   const full = component.render(200);
-  assert.equal(full.length, 7);
+  assert.ok(full[0].startsWith("┌"));
+  assert.ok(full.at(-1).endsWith("┘"));
   assert.match(full.join("\n"), /状态  /);
-  assert.match(full.join("\n"), /模型  model   provider   思考 high/);
+  assert.match(full.join("\n"), /模型  model/);
+  assert.match(full.join("\n"), /平台  provider/);
+  assert.match(full.join("\n"), /思考 high/);
+  assert.match(full.join("\n"), /分支  main/);
+  assert.match(full.join("\n"), /会话  session/);
   assert.match(full.join("\n"), /窗口  12.0% \/ 128k/);
   assert.match(full.join("\n"), /额度  GLM 5h: 37%/);
-  assert.match(full.join("\n"), /累计  输入 4.0M   输出 147k/);
+  assert.match(full.join("\n"), /输入 4.0M/);
+  assert.match(full.join("\n"), /输出 147k/);
   assert.equal(full.join("\n").match(/Context 12%/g)?.length, 1);
   assert.match(full.join("\n"), /Context 12% · 暂停/);
   assert.match(full.join("\n"), /额外用量 42/);
   assert.match(full.join("\n"), /MCP ready/);
-  assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|│|⚡|🔌|⚙|◎/);
+  assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|⚡|🔌|⚙|◎/);
   for (const width of [1, 5, 6, 12, 40, 80, 120]) {
     assert.ok(component.render(width).every((line: string) => visibleWidth(line) <= width));
   }
+  branch = null;
+  const withoutBranch = component.render(200).join("\n");
+  assert.match(withoutBranch, /会话  session/);
+  assert.doesNotMatch(withoutBranch, /分支/);
 
   await command?.("compact", ctx);
   const fullRenderer = footerCalls.at(-1) as Function;
