@@ -63,7 +63,7 @@ export function createCommandHandler({
         ctx,
         mode === "off"
           ? `策略已关闭并保存。配置：${path}`
-          : `${mode === "strict" ? "谨慎处理" : "自动处理"}已启用并保存；当前模型将在正常回答中结合完整对话判断意图，不增加前置等待。配置：${path}`,
+          : `${mode === "strict" ? "谨慎处理" : "自动处理"}已启用并保存；当前模型将在用户消息显示后的 Working 阶段识别意图，再继续正式回答。配置：${path}`,
         "success",
       );
     } catch (error) {
@@ -139,7 +139,7 @@ export function createCommandHandler({
         });
         notify(
           ctx,
-          `个人配置：${globalConfigPath()}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（同一次回答）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
+          `个人配置：${globalConfigPath()}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（Working 阶段前置识别）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
           checked.ok ? "info" : "warning",
         );
       }

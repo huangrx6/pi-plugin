@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   interpretTask,
+  parseRecognitionResponse,
   validateInterpretation,
 } from "../src/core/interpretation.js";
 import { readPlanReport } from "../src/core/task-contract.js";
@@ -106,6 +107,35 @@ test("malformed response and network failures report bounded diagnostic codes", 
     assert.equal(r.reason, reason);
     assert.doesNotMatch(JSON.stringify(r), /private server secret/);
   }
+});
+
+test("recognition accepts one validated object with common model wrappers", async () => {
+  const json = JSON.stringify(valid);
+  for (const [content, format] of [
+    [json, "json"],
+    [`\uFEFF${json}`, "json"],
+    [`\`\`\`json\n${json}\n\`\`\``, "markdown_fence"],
+    [`识别结果如下：\n${json}`, "embedded_json"],
+  ]) {
+    const result = await interpretTask({
+      prompt: "继续",
+      state,
+      config: config(),
+      fetcher: async () => ({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content } }] }),
+      }),
+    });
+    assert.equal(result.reason, "contextual");
+    assert.equal(result.responseFormat, format);
+  }
+});
+
+test("wrapper recovery rejects ambiguous or malformed model output", () => {
+  const json = JSON.stringify(valid);
+  assert.equal(parseRecognitionResponse(`${json}\n${json}`), null);
+  assert.equal(parseRecognitionResponse(`before {not-json} after`), null);
+  assert.equal(parseRecognitionResponse("plain explanation"), null);
 });
 
 test("deadline works when a transport ignores AbortSignal", async () => {

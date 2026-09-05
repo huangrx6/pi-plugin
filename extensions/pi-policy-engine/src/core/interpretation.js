@@ -116,6 +116,68 @@ export function validateInterpretation(value, prompt) {
   };
 }
 
+/**
+ * Parse one JSON value from a model response without accepting ambiguous
+ * output. Models occasionally wrap an otherwise valid object in a Markdown
+ * fence or a short explanatory sentence even when instructed to return JSON
+ * only. Accept those common wrappers, but reject output containing multiple
+ * top-level objects so the selected interpretation is always deterministic.
+ */
+export function parseRecognitionResponse(content) {
+  if (typeof content !== "string") return null;
+  const text = content.replace(/^\uFEFF/, "").trim();
+  if (!text) return null;
+  try {
+    return { value: JSON.parse(text), format: "json" };
+  } catch {
+    // Continue with bounded wrapper recovery.
+  }
+
+  const fenced = text.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
+  if (fenced) {
+    try {
+      return { value: JSON.parse(fenced[1].trim()), format: "markdown_fence" };
+    } catch {
+      return null;
+    }
+  }
+
+  const objects = [];
+  let start = -1;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (start < 0) {
+      if (char === "{") {
+        start = index;
+        depth = 1;
+      }
+      continue;
+    }
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') quoted = true;
+    else if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) {
+      const candidate = text.slice(start, index + 1);
+      try {
+        objects.push(JSON.parse(candidate));
+      } catch {
+        return null;
+      }
+      start = -1;
+    }
+  }
+  if (start >= 0 || objects.length !== 1) return null;
+  return { value: objects[0], format: "embedded_json" };
+}
+
 export async function interpretTask({
   prompt,
   state,
@@ -235,18 +297,15 @@ export async function interpretTask({
         }
         if (typeof content !== "string" || content.length > 64000)
           return failure("invalid_response");
-        let parsed;
-        try {
-          parsed = JSON.parse(content);
-        } catch {
-          return failure("invalid_json");
-        }
-        const interpretation = validateInterpretation(parsed, prompt);
+        const parsed = parseRecognitionResponse(content);
+        if (!parsed) return failure("invalid_json");
+        const interpretation = validateInterpretation(parsed.value, prompt);
         return interpretation
           ? {
               source: useAgent ? "agent" : "model",
               reason: "contextual",
               interpretation,
+              responseFormat: parsed.format,
             }
           : failure("invalid_schema");
       } catch {

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.33.1 - 2026-09-06
+
+- Accept one strictly validated recognition object when the active model wraps it in a Markdown JSON fence, a byte-order mark, or a short explanatory prefix.
+- Continue rejecting malformed output and responses containing multiple top-level JSON objects; record the accepted response format for diagnostics.
+- Describe current-agent recognition accurately as a separate preflight call during the host Working phase.
+
 ## 0.33.0 - 2026-09-05
 
 - Remove legacy global config/state fallback reads and obsolete v1 strict-state compatibility paths.
