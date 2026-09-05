@@ -49,6 +49,7 @@ declare module "@earendil-works/pi-coding-agent" {
 
   export interface ExtensionAPI {
     on(event: string, handler: (event: any, ctx: any) => unknown): void;
+    sendMessage?(message: { customType: string; content: string; display: boolean }, options: { triggerTurn: boolean; deliverAs: "followUp" }): void;
     registerCommand(
       name: string,
       def: {

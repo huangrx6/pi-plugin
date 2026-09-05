@@ -15,7 +15,7 @@
  *   2. Validation covers ALL fields required by the TaskState
  *      type, including optional fields and enum / discriminant
  *      values (status ∈ "pending" | "in_progress" | "completed"
- *      | "deleted"; archivedAt absent-or-number; blockedBy absent-or-
+ *      | "deleted"; archivedAt / closedAt absent-or-number; blockedBy absent-or-
  *      number[]).
  *   3. Validation failures yield PersistenceError (corrupt / io),
  *      NOT user-facing UX strings.
@@ -168,6 +168,8 @@ function validateTask(raw: unknown, path: string): PersistenceError | null {
   createdAt?: unknown;
   updatedAt?: unknown;
   archivedAt?: unknown;
+  closedAt?: unknown;
+  closedReason?: unknown;
   blockedBy?: unknown;
  };
 
@@ -205,6 +207,18 @@ function validateTask(raw: unknown, path: string): PersistenceError | null {
   return {
    kind: "corrupt",
    message: `${path}.archivedAt is present but not a non-negative safe integer`,
+  };
+ }
+ if (t.closedAt !== undefined && !isNonNegativeSafeInteger(t.closedAt)) {
+  return {
+   kind: "corrupt",
+   message: `${path}.closedAt is present but not a non-negative safe integer`,
+  };
+ }
+ if (t.closedReason !== undefined && typeof t.closedReason !== "string") {
+  return {
+   kind: "corrupt",
+   message: `${path}.closedReason is present but not a string`,
   };
  }
  if (t.blockedBy !== undefined) {

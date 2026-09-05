@@ -86,6 +86,8 @@ function buildAction(command: MutationCommand, id: TaskId): TaskMutationParams {
    return { action: "finish", id };
   case "reopen":
    return { action: "reopen", id };
+  case "close":
+   return { action: "close", id };
   case "archive":
    return { action: "archive", ids: [id] };
   case "restore":

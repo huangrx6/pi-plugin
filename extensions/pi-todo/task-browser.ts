@@ -19,7 +19,7 @@ export type TaskBrowserIntent =
   | { kind: "edit"; id: number; subject: string }
   | {
       kind: "action";
-      action: "start" | "finish" | "reopen" | "archive" | "restore";
+      action: "continue" | "start" | "finish" | "reopen" | "close" | "review" | "archive" | "restore";
       id: number;
     };
 
@@ -51,7 +51,7 @@ export interface TaskBrowserTui {
 type BrowserMode = "list" | "detail" | "search" | "create" | "edit";
 type BrowserEntry = { task: Task; role: TaskRowRole };
 type BrowserAction = {
-  action: "start" | "finish" | "reopen" | "archive" | "restore" | "edit";
+  action: "continue" | "start" | "finish" | "reopen" | "close" | "review" | "archive" | "restore" | "edit";
   label: string;
 };
 
@@ -72,7 +72,8 @@ const VIEW_LABEL: Record<TaskBrowserView, string> = {
 };
 
 function roleFor(state: TaskState, task: Task): TaskRowRole {
-  if (task.archivedAt !== undefined) return "archived";
+ if (task.archivedAt !== undefined) return "archived";
+ if (task.closedAt !== undefined) return "closed";
   if (task.status === "completed") return "completed";
   return classifyTask(state, task) ?? "blocked";
 }
@@ -119,7 +120,7 @@ function isPrintable(data: string): boolean {
 }
 
 function actionRows(state: TaskState, id: number): BrowserAction[] {
-  const allowed = new Set(["start", "finish", "reopen", "archive", "restore", "edit"]);
+  const allowed = new Set(["continue", "start", "finish", "reopen", "close", "review", "archive", "restore", "edit"]);
   return taskActions(state, id).flatMap((row) => {
     const [rawAction, rawLabel] = row.split(/\s+—\s+/, 2);
     if (!rawAction || !allowed.has(rawAction)) return [];

@@ -55,6 +55,7 @@ export function formatDirectUnlockConsequences(
  switch (result.kind) {
   case "not-found":
   case "completed":
+  case "closed":
   case "archived":
    // No completion consequence for these classifications.
    return [];

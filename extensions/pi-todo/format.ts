@@ -100,7 +100,8 @@ function formatListLine(t: Task): string {
       t.status === "in_progress" && t.activeForm
          ? ` (${sanitizeTerminalText(t.activeForm)})`
          : "";
-   return `[${t.status}] #${t.id} ${sanitizeTerminalText(t.subject)}${form}${deps}`;
+   const state = t.closedAt !== undefined ? "closed" : t.status;
+   return `[${state}] #${t.id} ${sanitizeTerminalText(t.subject)}${form}${deps}`;
 }
 
 function formatGetLines(task: Task, state: TaskState): string {
@@ -108,7 +109,7 @@ function formatGetLines(task: Task, state: TaskState): string {
       .filter((t) => t.status !== "deleted" && t.blockedBy?.includes(task.id))
       .map((t) => `#${t.id}`);
    const lines = [
-      `#${task.id} [${task.status}] ${sanitizeTerminalText(task.subject)}`,
+      `#${task.id} [${task.closedAt !== undefined ? "closed" : task.status}] ${sanitizeTerminalText(task.subject)}`,
    ];
    if (task.description)
       lines.push(`  description: ${sanitizeTerminalText(task.description)}`);
@@ -121,6 +122,7 @@ function formatGetLines(task: Task, state: TaskState): string {
    }
    if (blocks.length > 0) lines.push(`  blocks: ${blocks.join(", ")}`);
    if (task.owner) lines.push(`  owner: ${sanitizeTerminalText(task.owner)}`);
+   if (task.closedReason) lines.push(`  closedReason: ${sanitizeTerminalText(task.closedReason)}`);
    return lines.join("\n");
 }
 
@@ -160,6 +162,8 @@ export function formatContent(op: Op, state: TaskState): string {
          const subj = t ? " " + sanitizeTerminalText(t.subject) : "";
          return `○ #${op.id}${subj} reopened`;
       }
+      case "close":
+         return `· #${op.id} ${sanitizeTerminalText(op.subject)} closed`;
       case "list": {
          let view = state.tasks;
          if (!op.includeDeleted)
@@ -240,6 +244,10 @@ export function formatMutationError(error: MutationError): string {
          return `Error: #${error.id} is not archived (use /todos archive first)`;
       case "ARCHIVE_REQUIRES_COMPLETED":
          return `Error: #${error.id} cannot be archived (status must be completed)`;
+      case "ALREADY_CLOSED":
+         return `Error: #${error.id} is already closed`;
+      case "CLOSE_REQUIRES_ACTIVE":
+         return `Error: #${error.id} can only be closed while pending or in progress`;
       case "TASK_REFERENCED":
          return `Error: #${error.id} is referenced by ${error.referencedBy.map((r) => `#${r}`).join(", ")} (archive or remove the dependency first)`;
       case "MUTABLE_FIELDS_REQUIRED":
@@ -259,27 +267,31 @@ export function countsOf(state: TaskState): {
    pending: number;
    inProgress: number;
    completed: number;
+   closed: number;
 } {
    const visible = state.tasks.filter((t) => t.status !== "deleted");
-   const by = (s: TaskStatus) => visible.filter((t) => t.status === s).length;
+   const by = (s: TaskStatus) => visible.filter((t) => t.status === s && t.closedAt === undefined).length;
    return {
       total: visible.length,
       pending: by("pending"),
       inProgress: by("in_progress"),
       completed: by("completed"),
+      closed: visible.filter((t) => t.closedAt !== undefined).length,
    };
 }
 
 /** Multi-line /todos body, grouped by status. */
 export function formatTodosCommand(state: TaskState): string {
    const visible = state.tasks.filter((t) => t.status !== "deleted");
-   const groups: Record<"pending" | "in_progress" | "completed", Task[]> = {
+   const groups: Record<"pending" | "in_progress" | "completed" | "closed", Task[]> = {
       pending: [],
       in_progress: [],
       completed: [],
+      closed: [],
    };
    for (const t of visible) {
-      if (t.status !== "deleted") groups[t.status].push(t);
+      if (t.closedAt !== undefined) groups.closed.push(t);
+      else if (t.status !== "deleted") groups[t.status].push(t);
    }
    const c = countsOf(state);
    const lines: string[] = [];
@@ -287,13 +299,15 @@ export function formatTodosCommand(state: TaskState): string {
    if (c.completed > 0) header.push(`${c.completed}/${c.total} completed`);
    if (c.inProgress > 0) header.push(`${c.inProgress} in progress`);
    if (c.pending > 0) header.push(`${c.pending} pending`);
+   if (c.closed > 0) header.push(`${c.closed} closed`);
    lines.push(header.length > 0 ? header.join(" · ") : "Todos");
    const icon: Record<string, string> = {
       pending: "○",
       in_progress: "◐",
       completed: "✓",
+      closed: "·",
    };
-   for (const key of ["in_progress", "pending", "completed"] as const) {
+   for (const key of ["in_progress", "pending", "completed", "closed"] as const) {
       if (groups[key].length === 0) continue;
       lines.push(`── ${key.replace("_", " ")} ──`);
       for (const t of groups[key]) {
@@ -455,6 +469,7 @@ const ROLE_ICON: Record<TaskRowRole, string> = {
    ready: "◆",
    blocked: "○",
    completed: "✓",
+   closed: "·",
    archived: "·", // mid-dot (not ✓) — archive is visibility, not lifecycle;
    // using ✓ would falsely imply "done" when the task may still be pending.
 };
@@ -606,6 +621,7 @@ export function formatTaskRowStyled(
       ready: "text",
       blocked: "muted",
       completed: "dim",
+      closed: "dim",
       archived: "dim",
    };
    let out = theme.fg(ROLE_COLOR[ctx.role], parts.prefix);

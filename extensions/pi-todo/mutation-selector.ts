@@ -185,7 +185,8 @@ export function validateMutationCommand(
  if (
   command.kind === "start" ||
   command.kind === "finish" ||
-  command.kind === "reopen"
+  command.kind === "reopen" ||
+  command.kind === "close"
  ) {
   return { ok: true };
  }

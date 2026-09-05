@@ -76,6 +76,7 @@ export type Op =
       fromStatus: TaskStatus;
       toStatus: TaskStatus;
     }
+  | { kind: "close"; id: number; subject: string }
   | { kind: "archive"; ids: number[]; count: number }
   | { kind: "restore"; ids: number[]; count: number }
   | { kind: "error"; error: MutationError };
@@ -217,6 +218,8 @@ function taskChanged(before: Task, after: Task): boolean {
     before.description !== after.description ||
     before.activeForm !== after.activeForm ||
     before.owner !== after.owner ||
+    before.closedAt !== after.closedAt ||
+    before.closedReason !== after.closedReason ||
     !sameIds(before.blockedBy, after.blockedBy) ||
     !sameRecord(before.metadata, after.metadata)
   );
@@ -542,7 +545,7 @@ export function applyTaskMutation(
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
-      if (!current || current.status !== "pending") {
+      if (!current || current.status !== "pending" || current.closedAt !== undefined) {
         return errorResult(state, {
           code: "INVALID_TRANSITION",
           from: current?.status ?? "deleted",
@@ -571,7 +574,7 @@ export function applyTaskMutation(
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
-      if (!current || current.status !== "in_progress") {
+      if (!current || current.status !== "in_progress" || current.closedAt !== undefined) {
         return errorResult(state, {
           code: "INVALID_TRANSITION",
           from: current?.status ?? "deleted",
@@ -603,23 +606,58 @@ export function applyTaskMutation(
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
-      if (!current || current.status !== "completed") {
+      if (!current || current.status === "deleted") {
         return errorResult(state, {
           code: "INVALID_TRANSITION",
           from: current?.status ?? "deleted",
           to: "pending",
         });
       }
+      if (current.closedAt === undefined && current.status !== "completed") {
+        return errorResult(state, {
+          code: "INVALID_TRANSITION",
+          from: current.status,
+          to: "pending",
+        });
+      }
+      const reopened: Task = { ...current, status: "pending", updatedAt: ctx.now() };
+      delete reopened.closedAt;
+      delete reopened.closedReason;
       const tasks = [...state.tasks];
-      tasks[idx] = { ...current, status: "pending", updatedAt: ctx.now() };
+      tasks[idx] = reopened;
       return {
         state: { tasks, nextId: state.nextId },
         op: {
           kind: "reopen",
           id: current.id,
-          fromStatus: "completed",
+          fromStatus: current.status,
           toStatus: "pending",
         },
+      };
+    }
+    case "close": {
+      if (params.id === undefined)
+        return errorResult(state, { code: "ID_REQUIRED" });
+      const idx = state.tasks.findIndex((t) => t.id === params.id);
+      if (idx === -1)
+        return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
+      const current = state.tasks[idx];
+      if (current.closedAt !== undefined) {
+        return errorResult(state, { code: "ALREADY_CLOSED", id: current.id });
+      }
+      if (current.status !== "pending" && current.status !== "in_progress") {
+        return errorResult(state, { code: "CLOSE_REQUIRES_ACTIVE", id: current.id });
+      }
+      const now = ctx.now();
+      const closed: Task = { ...current, closedAt: now, updatedAt: now };
+      if (typeof params.closeReason === "string" && params.closeReason.trim()) {
+        closed.closedReason = params.closeReason.trim();
+      }
+      const tasks = [...state.tasks];
+      tasks[idx] = closed;
+      return {
+        state: { tasks, nextId: state.nextId },
+        op: { kind: "close", id: current.id, subject: current.subject },
       };
     }
     case "archive": {

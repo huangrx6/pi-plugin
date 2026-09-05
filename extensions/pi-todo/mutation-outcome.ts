@@ -35,7 +35,7 @@ import type {
 import type { MutationPlan } from "./mutation-executor.ts";
 
 /** Canonical command kind string. */
-export type CommandKind = "start" | "finish" | "reopen" | "archive" | "restore";
+export type CommandKind = "start" | "finish" | "reopen" | "close" | "archive" | "restore";
 
 /**
  * Canonical target presentation (frozen from `next` via classifyTask).
@@ -45,7 +45,7 @@ export interface MutationTargetPresentation {
  readonly id: TaskId;
  readonly subject: string;
  /** Final role from classifyTask. NOT inferred from command kind. */
- readonly role: "running" | "ready" | "blocked" | "completed" | "archived";
+ readonly role: "running" | "ready" | "blocked" | "completed" | "closed" | "archived";
  /** Final lifecycle status. */
  readonly status: TaskStatus;
 }
@@ -110,7 +110,8 @@ export function buildMutationOutcome(
  ): MutationTargetPresentation["role"] {
   if (task.archivedAt !== undefined) return "archived";
   if (task.status === "deleted") return "completed"; // tombstone sentinel
-  if (task.status === "completed") return "completed";
+   if (task.closedAt !== undefined) return "closed";
+   if (task.status === "completed") return "completed";
   return classifyTask(state, task) ?? "completed";
  }
 

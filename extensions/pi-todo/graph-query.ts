@@ -70,6 +70,7 @@ export type TaskPresentationRole =
  | "ready"
  | "blocked"
  | "completed"
+ | "closed"
  | "archived";
 
 // ── next ────────────────────────────────────────────────────────────────
@@ -98,6 +99,7 @@ export type WhyTaskResult =
  | { readonly kind: "ready"; readonly task: TaskPresentation }
  | { readonly kind: "running"; readonly task: TaskPresentation }
  | { readonly kind: "completed"; readonly task: TaskPresentation }
+ | { readonly kind: "closed"; readonly task: TaskPresentation }
  | { readonly kind: "archived"; readonly task: TaskPresentation }
  | {
     readonly kind: "blocked";
@@ -112,11 +114,14 @@ export type WhyTaskResult =
  */
 export function queryWhyTask(state: TaskState, id: TaskId): WhyTaskResult {
  const task = state.tasks.find((t) => t.id === id);
- // Precedence: missing → deleted → archived → completed → active role.
+ // Precedence: missing → deleted → archived → closed → completed → active role.
  if (!task) return { kind: "not-found", id };
  if (task.status === "deleted") return { kind: "not-found", id };
  if (task.archivedAt !== undefined) {
   return { kind: "archived", task: toPresentation("archived")(task) };
+ }
+ if (task.closedAt !== undefined) {
+  return { kind: "closed", task: toPresentation("closed")(task) };
  }
  if (task.status === "completed") {
   return { kind: "completed", task: toPresentation("completed")(task) };
@@ -143,6 +148,7 @@ export function queryWhyTask(state: TaskState, id: TaskId): WhyTaskResult {
 export type UnlocksTaskResult =
  | { readonly kind: "not-found"; readonly id: TaskId }
  | { readonly kind: "completed"; readonly task: TaskPresentation }
+ | { readonly kind: "closed"; readonly task: TaskPresentation }
  | { readonly kind: "archived"; readonly task: TaskPresentation }
  | {
     readonly kind: "unlocks";
@@ -169,6 +175,9 @@ export function queryUnlocksTask(
  }
  if (task.archivedAt !== undefined) {
   return { kind: "archived", task: toPresentation("archived")(task) };
+ }
+ if (task.closedAt !== undefined) {
+  return { kind: "closed", task: toPresentation("closed")(task) };
  }
  if (task.status === "completed") {
   return { kind: "completed", task: toPresentation("completed")(task) };

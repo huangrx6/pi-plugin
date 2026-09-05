@@ -9,6 +9,7 @@
  *   start  <single-positive-safe-integer>
  *   finish <single-positive-safe-integer>
  *   reopen <single-positive-safe-integer>
+ *   close  <single-positive-safe-integer>
  *   archive <selector-tokens>
  *   restore <selector-tokens>
  *
@@ -48,7 +49,8 @@ export type ParsedCommand = LifecycleCommand | ArchiveRestoreCommand;
 export type LifecycleCommand =
  | { kind: "start"; id: TaskId }
  | { kind: "finish"; id: TaskId }
- | { kind: "reopen"; id: TaskId };
+ | { kind: "reopen"; id: TaskId }
+ | { kind: "close"; id: TaskId };
 
 export type ArchiveRestoreCommand =
  | { kind: "archive"; rawTokens: readonly string[] }
@@ -56,7 +58,7 @@ export type ArchiveRestoreCommand =
 
 /** Type guards. */
 export function isLifecycle(c: ParsedCommand): c is LifecycleCommand {
- return c.kind === "start" || c.kind === "finish" || c.kind === "reopen";
+ return c.kind === "start" || c.kind === "finish" || c.kind === "reopen" || c.kind === "close";
 }
 
 export function isArchiveRestore(c: ParsedCommand): c is ArchiveRestoreCommand {
@@ -90,7 +92,8 @@ export function parseMutationCommand(raw: string): ParseResult {
  switch (verb) {
   case "start":
   case "finish":
-  case "reopen": {
+  case "reopen":
+  case "close": {
    if (args.length !== 1) return { ok: false, error: "SYNTAX" };
    const id = parsePositiveSafeInteger(args[0]);
    if (id === null) return { ok: false, error: "SYNTAX" };

@@ -40,6 +40,7 @@ const SINGLE_LABEL: Record<CommandKind, string> = {
  start: "Started:",
  finish: "Finished:",
  reopen: "Reopened:",
+ close: "Closed:",
  archive: "Archived:",
  restore: "Restored:",
 };
@@ -48,6 +49,7 @@ const BATCH_LABEL: Record<CommandKind, string> = {
  start: "Started",
  finish: "Finished",
  reopen: "Reopened",
+ close: "Closed",
  archive: "Archived",
  restore: "Restored",
 };
@@ -59,7 +61,7 @@ const EMPTY_SELECTOR_LABEL: Record<"archive" | "restore", string> = {
 
 const USAGE_LINES: readonly string[] = [
  "Invalid mutation command.",
- "Usage: /todos start <id> | finish <id> | reopen <id>",
+ "Usage: /todos start <id> | finish <id> | reopen <id> | close <id>",
  "       /todos archive <ids|completed>",
  "       /todos restore <ids|archived>",
 ];

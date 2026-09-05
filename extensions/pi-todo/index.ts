@@ -43,6 +43,7 @@ import {
 import {
  projectActiveView,
  projectArchived,
+ projectClosed,
  projectCompleted,
 } from "./projection.ts";
 import { buildDependencyPresentation } from "./read-model.ts";
@@ -97,7 +98,7 @@ const DEFAULT_PROMPT_GUIDELINES: string[] = [
  "When to CREATE: (1) the user asks you to plan, break down work, or make tasks / a todo list (e.g. 制定任务, 列个计划, 拆解一下, create a plan, break this down) — ALWAYS create todo items via the tool; presenting the plan as plain text instead is a failure mode; (2) the work has 3+ steps; (3) the user hands you a list of tasks; (4) new multi-step instructions arrive. Skip it only for single trivial tasks.",
  "Mark a task in_progress when beginning that unit of work; mark it completed when its acceptance criteria are met. Update at meaningful task transitions, not after every tool call. Keep the list aligned with actual progress.",
  "Complete a task when its intended result and relevant validation are satisfied. Recovered intermediate errors do not prevent completion. If work is still blocked, describe the concrete remaining issue in activeForm.",
- "Status is pending → in_progress → completed, plus deleted tombstones (immutable; ids are never reused, even after clear).",
+ "Status is pending → in_progress → completed, with close available for unfinished work and deleted tombstones (immutable; ids are never reused, even after clear).",
  'To change status: {"action":"update","id":3,"status":"completed"}. An update with no mutable field is rejected.',
  "blockedBy expresses dependencies (A blocked by B). Create: pass blockedBy. Update: addBlockedBy / removeBlockedBy (additive). Cycles and self-blocks are rejected.",
  "list hides deleted tombstones by default; includeDeleted:true shows them. status filters the list.",
@@ -115,6 +116,7 @@ const MUTATION_VERBS: ReadonlySet<string> = new Set([
  "start",
  "finish",
  "reopen",
+ "close",
  "archive",
  "restore",
 ]);
@@ -138,10 +140,14 @@ type DepMap = Map<number, ReturnType<typeof buildDependencyPresentation>>;
 function renderDefault(state: TaskState, width: number): string[] {
  const view = projectActiveView(state);
  const total = view.running.length + view.ready.length + view.blocked.length;
+ const closed = projectClosed(state);
  // Empty / archived-only state: user-visible "No todos." (per B4
  // invariant, archived never contributes to completedVisible).
- if (total === 0 && view.counts.completedVisible === 0) {
+ if (total === 0 && view.counts.completedVisible === 0 && closed.length === 0) {
   return ["No todos."];
+ }
+ if (total === 0 && view.counts.completedVisible === 0 && closed.length > 0) {
+  return [`No active todos. ${closed.length} task(s) ended; open /todos all to review.`];
  }
  const depsMap = buildBlockedDepsMap(state, view.blocked);
  // P4-C1: default /todos is a bounded overview with per-section
@@ -182,10 +188,11 @@ function renderArchived(state: TaskState, width: number): string[] {
 function renderAll(state: TaskState, width: number): string[] {
  const view = projectActiveView(state);
  const completed = projectCompleted(state);
+ const closed = projectClosed(state);
  const archived = projectArchived(state);
  const hasActive =
   view.running.length + view.ready.length + view.blocked.length > 0;
- if (!hasActive && completed.length === 0 && archived.length === 0) {
+ if (!hasActive && completed.length === 0 && closed.length === 0 && archived.length === 0) {
   return ["No todos."];
  }
  const lines: string[] = [];
@@ -226,6 +233,11 @@ function renderAll(state: TaskState, width: number): string[] {
   for (const t of completed) {
    lines.push(formatTaskRow(t, { role: "completed", width }));
   }
+  lines.push("");
+ }
+ if (closed.length > 0) {
+  lines.push("CLOSED");
+  for (const t of closed) lines.push(formatTaskRow(t, { role: "closed", width }));
   lines.push("");
  }
  if (archived.length > 0) {
@@ -674,10 +686,34 @@ export default function factory(
 
  let overlay: TodoOverlay | undefined;
  let uiCtx: MinimalCtx["ui"] | undefined;
+ const recoveryNotifiedScopes = new Set<string>();
 
  function refreshOverlay(): void {
   if (!uiCtx || !overlay) return;
   overlay.update();
+ }
+
+ function requestModelReview(task: { id: number; subject: string; description?: string; status: string; updatedAt: number }, ctx: unknown): void {
+  const sendMessage = (pi as unknown as { sendMessage?: (message: { customType: string; content: string; display: boolean }, options: { triggerTurn: boolean; deliverAs: "followUp" }) => void }).sendMessage;
+  if (typeof sendMessage !== "function") {
+   (ctx as { ui: UiNotify }).ui.notify("当前 Pi 版本不支持把任务交给模型判断。", "warning");
+   return;
+  }
+  const details = [
+   `任务 #${task.id}: ${sanitizeTerminalText(task.subject)}`,
+   `状态: ${task.status}`,
+   `最近更新: ${new Date(task.updatedAt).toISOString()}`,
+   task.description ? `说明: ${sanitizeTerminalText(task.description)}` : "",
+  ].filter(Boolean).join("\n");
+  sendMessage({
+   customType: "todo-recovery-review",
+   display: false,
+   content: [
+    "请审查下面这个跨会话未结束的 todo 任务。只给出判断建议，不要调用 todo 工具，不要修改任何任务状态。",
+    "请返回：继续 / 标记完成 / 关闭 / 无法判断，并说明依据；信息不足时必须选择无法判断。",
+    details,
+   ].join("\n\n"),
+  }, { triggerTurn: true, deliverAs: "followUp" });
  }
 
  async function executeTodo(params: TaskMutationParams, ctx: unknown): Promise<{ content: Array<{ type: "text"; text: string }>; details?: TodoDetails }> {
@@ -808,6 +844,20 @@ export default function factory(
     ) as TaskBrowserIntent;
 
     if (intent.kind === "close") return;
+
+    if (intent.kind === "action" && intent.action === "review") {
+     const task = loaded.envelope.state.tasks.find((candidate) => candidate.id === intent.id);
+     if (task) {
+     requestModelReview(task, ctx);
+      (ctx as { ui: UiNotify }).ui.notify("已把任务交给模型判断；模型不会直接修改任务状态。", "info");
+     }
+     return;
+    }
+
+    if (intent.kind === "action" && intent.action === "continue") {
+     session.notice = { text: `任务 #${intent.id} 已保留为进行中，可以继续当前工作`, level: "info" };
+     continue;
+    }
 
     let params: TaskMutationParams;
     if (intent.kind === "create") {
@@ -1012,7 +1062,7 @@ export default function factory(
 
  // ── lifecycle (NO replayFromBranch / replaceState — LOCK §26) ────
 
- pi.on("session_start", async (_event, ctx) => {
+ pi.on("session_start", async (event, ctx) => {
   let id: string;
   try {
    id = sidFromCtx(ctx);
@@ -1044,7 +1094,8 @@ export default function factory(
   //      and renders []. The cache is presentation projection only;
   //      canonical command reads (/todos, /todos ready, etc.) do
   //      their own durable load per P3-E authority boundary.
-  //   3. NO ctx.ui.notify. NO mutation. NO branch rewind.
+  //   3. No mutation or branch rewind. A new-session recovery hint may
+  //      notify once when the loaded snapshot has unfinished work.
   //   4. refreshOverlay runs last, even if bootstrap failed, so the
   //      overlay widget always attempts registration with the
   //      current (post-clear) state.
@@ -1054,6 +1105,17 @@ export default function factory(
    const envelope = await persistence.durableStore.load(scope);
    overlayCache.update(scope, envelope);
    setActiveScope(scope);
+   const reason = (event as { reason?: unknown } | undefined)?.reason;
+   const recoveryKey = `${id}\0${String(scope)}`;
+   if (reason !== undefined && reason !== "reload" && !recoveryNotifiedScopes.has(recoveryKey)) {
+    const unfinished = envelope.state.tasks.filter((task) => task.status === "in_progress" && task.closedAt === undefined && task.archivedAt === undefined);
+    if (unfinished.length > 0) {
+     recoveryNotifiedScopes.add(recoveryKey);
+     const ids = unfinished.slice(0, 3).map((task) => `#${task.id}`).join("、");
+     const suffix = unfinished.length > 3 ? ` 等 ${unfinished.length} 项` : "";
+     ctx.ui.notify(`发现上次未结束的任务：${ids}${suffix}。打开 /todos，在详情中选择“继续任务 / 让模型判断 / 结束任务”。`, "info");
+    }
+   }
   } catch {
    // silent: overlay stays [], session startup continues. Cache may
    // still hold a previous-session envelope, but activeScope is
@@ -1093,6 +1155,9 @@ export default function factory(
   } catch (sidErr) {
    // sid extraction is best-effort; if it fails we fall through with id="".
    void sidErr;
+  }
+  for (const key of recoveryNotifiedScopes) {
+   if (key.startsWith(`${id}\0`)) recoveryNotifiedScopes.delete(key);
   }
   evictScope(id);
   if (id === "" || id === getFgSession()) {

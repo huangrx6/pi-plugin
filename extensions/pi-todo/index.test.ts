@@ -2708,7 +2708,11 @@ describe("task-window interaction", () => {
   };
   const keybindings = {
     matches(data: string, id: string) {
-      return ({ enter: "tui.select.confirm", escape: "tui.select.cancel" } as Record<string, string>)[data] === id;
+      return ({
+        enter: "tui.select.confirm",
+        down: "tui.select.down",
+        escape: "tui.select.cancel",
+      } as Record<string, string>)[data] === id;
     },
   };
 
@@ -2735,6 +2739,8 @@ describe("task-window interaction", () => {
       pass += 1;
       if (pass === 1) {
         component.handleInput("enter");
+        // running 任务动作序列头部是 continue，下移一项选中 finish。
+        component.handleInput("down");
         component.handleInput("enter");
       } else {
         assert.ok(component.render(72).some((line) => line.includes("✓ #17")));

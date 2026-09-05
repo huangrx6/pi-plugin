@@ -120,6 +120,8 @@ test("detail actions and task creation return structured intents", () => {
 
   detail.handleInput("enter");
   assert.ok(detail.render(72).some((line) => line.includes("标记完成")));
+  // 0.10.0：动作序列头部是 continue，下移一项选中 finish。
+  detail.handleInput("down");
   detail.handleInput("enter");
   assert.deepEqual(intents[0], { kind: "action", action: "finish", id: 1 });
 

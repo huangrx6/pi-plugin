@@ -22,6 +22,7 @@ export type TaskAction =
  | "start"
  | "finish"
  | "reopen"
+ | "close"
  | "archive"
  | "restore";
 
@@ -48,6 +49,10 @@ export interface Task {
   *  visible. Orthogonal to status — archive is visibility, not lifecycle.
   *  Managed by reducer in A2.4; declared here as data shape. */
  archivedAt?: number;
+ /** Timestamp when an unfinished task was intentionally ended. */
+ closedAt?: number;
+ /** Optional explanation recorded for an intentional close. */
+ closedReason?: string;
 }
 
 /** Canonical state per session. `nextId` is MONOTONIC — see reducer. */
@@ -91,6 +96,7 @@ export function isTodoDetails(value: unknown): value is TodoDetails {
  *   - createdAt missing → 0
  *   - updatedAt missing → = createdAt
  *   - archivedAt missing → undefined (visible)
+ *   - closedAt / closedReason missing → undefined (not ended)
  *   - subject missing → "" (caller decides whether to reject)
  *   - status missing → "pending" (caller decides whether to reject)
  *
@@ -147,6 +153,8 @@ export type MutationErrorCode =
  | "ALREADY_ARCHIVED"
  | "NOT_ARCHIVED"
  | "ARCHIVE_REQUIRES_COMPLETED"
+ | "ALREADY_CLOSED"
+ | "CLOSE_REQUIRES_ACTIVE"
  | "TASK_REFERENCED"
  | "MUTABLE_FIELDS_REQUIRED"
  | "UNKNOWN_ACTION";
@@ -173,6 +181,8 @@ export type MutationError =
  | { code: "ALREADY_ARCHIVED"; id: number }
  | { code: "NOT_ARCHIVED"; id: number }
  | { code: "ARCHIVE_REQUIRES_COMPLETED"; id: number }
+ | { code: "ALREADY_CLOSED"; id: number }
+ | { code: "CLOSE_REQUIRES_ACTIVE"; id: number }
  | { code: "TASK_REFERENCED"; id: number; referencedBy: number[] }
  | { code: "MUTABLE_FIELDS_REQUIRED" }
  | { code: "UNKNOWN_ACTION"; action: string };
@@ -279,6 +289,7 @@ export type TaskRowRole =
  | "ready"
  | "blocked"
  | "completed"
+ | "closed"
  | "archived";
 
 /** Pre-computed dependency presentation. Caller derives this from
@@ -352,6 +363,7 @@ export interface TaskMutationParams {
  removeBlockedBy?: number[];
  owner?: string;
  metadata?: Record<string, unknown>;
+ closeReason?: string;
  id?: number;
  includeDeleted?: boolean;
  /** Task ids for batch operations (archive, restore). */
@@ -373,11 +385,12 @@ export const TODO_PARAMS_SCHEMA = {
     "start",
     "finish",
     "reopen",
+    "close",
     "archive",
     "restore",
    ],
    description:
-    "Operation: create (new task), update (change fields/status/deps), list (all tasks), get (one task), delete (tombstone), clear (reset all), start (pending → in_progress), finish (in_progress → completed), reopen (completed → pending), archive (visibility off, completed only), restore (visibility on, batch via ids).",
+    "Operation: create (new task), update (change fields/status/deps), list (all tasks), get (one task), delete (tombstone), clear (reset all), start (pending → in_progress), finish (in_progress → completed), reopen (completed or closed → pending), close (intentionally end an active task without claiming completion), archive (visibility off, completed only), restore (visibility on, batch via ids).",
   },
   subject: {
    type: "string",
@@ -417,6 +430,10 @@ export const TODO_PARAMS_SCHEMA = {
    description:
     "Arbitrary metadata. update: pass null as a value to delete that key.",
   },
+  closeReason: {
+   type: "string",
+   description: "Optional reason recorded when close ends an unfinished task.",
+  },
   id: {
    type: "number",
    description: "Task id (required for update, get, delete).",
@@ -448,6 +465,7 @@ export type MutationCommand =
  | { kind: "start"; id: TaskId }
  | { kind: "finish"; id: TaskId }
  | { kind: "reopen"; id: TaskId }
+ | { kind: "close"; id: TaskId }
  | { kind: "archive"; selector: Selector }
  | { kind: "restore"; selector: Selector };
 

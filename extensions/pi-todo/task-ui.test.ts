@@ -17,7 +17,9 @@ const state: TaskState = { nextId: 5, tasks: [
 ] };
 
 test("actions are contextual: blocked tasks cannot start and archived tasks restore", () => {
-  assert.match(taskActions(state, 1)[0]!, /^finish/);
+  // 0.10.0：running 任务动作序列头部是 continue（恢复指引），finish 紧随。
+  assert.match(taskActions(state, 1)[0]!, /^continue/);
+  assert.ok(taskActions(state, 1).some(row => /^finish/.test(row)));
   assert.ok(!taskActions(state, 2).some(row => /^(start|finish)/.test(row)));
   assert.match(taskActions(state, 3)[0]!, /^reopen/);
   assert.match(taskActions(state, 4)[0]!, /^restore/);

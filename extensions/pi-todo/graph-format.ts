@@ -55,12 +55,13 @@ const UNLOCKS_EMPTY =
 const INDENT = "  ";
 
 const WHY_SUFFIX: Record<
- "ready" | "running" | "completed" | "archived",
+ "ready" | "running" | "completed" | "closed" | "archived",
  string
 > = {
  ready: "Ready to start.",
  running: "Already running.",
  completed: "Completed.",
+ closed: "Closed without completion.",
  archived: "Archived.",
 };
 
@@ -126,6 +127,9 @@ export function formatUnlocksTask(
 
   case "completed":
    return [formatPresentationRow(result.task, width), UNLOCKS_COMPLETED_SUFFIX];
+
+  case "closed":
+   return [formatPresentationRow(result.task, width), "Closed without completion."];
 
   case "archived":
    return [formatPresentationRow(result.task, width), "Archived."];

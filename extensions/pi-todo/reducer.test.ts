@@ -128,6 +128,31 @@ describe("normalizeTask", () => {
   });
 });
 
+describe("unfinished task recovery", () => {
+ it("close preserves unfinished semantics and records the reason", () => {
+  const state = mkState(taskWithTimestamps({ id: 17, status: "in_progress" }));
+  const result = applyTaskMutation(
+   state,
+   { action: "close", id: 17, closeReason: "用户决定暂缓" },
+   fixedCtx(900),
+  );
+  assert.equal(result.op.kind, "close");
+  const task = result.state.tasks[0];
+  assert.equal(task?.status, "in_progress");
+  assert.equal(task?.closedAt, 900);
+  assert.equal(task?.closedReason, "用户决定暂缓");
+ });
+
+ it("reopen clears the close marker and returns the task to pending", () => {
+  const state = mkState(taskWithTimestamps({ id: 17, status: "in_progress", closedAt: 800 }));
+  const result = applyTaskMutation(state, { action: "reopen", id: 17 }, fixedCtx(900));
+  assert.equal(result.op.kind, "reopen");
+  const task = result.state.tasks[0];
+  assert.equal(task?.status, "pending");
+  assert.equal(task?.closedAt, undefined);
+ });
+});
+
 // ── create timestamps ───────────────────────────────────────────────────
 
 describe("create timestamps", () => {

@@ -57,6 +57,15 @@ describe("parseMutationCommand: lifecycle single-id", () => {
   if (isOk(r)) assert.equal(r.command.kind, "reopen");
  });
 
+ it("close 12 → ok", () => {
+  const r = p("close 12");
+  assert.equal(r.ok, true);
+  if (isOk(r) && isLifecycle(r.command)) {
+   assert.equal(r.command.kind, "close");
+   assert.equal(r.command.id, 12);
+  }
+ });
+
  it("0012 accepted as 12", () => {
   const r = p("start 0012");
   assert.equal(r.ok, true);

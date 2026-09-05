@@ -69,6 +69,7 @@ export function classifyTask(
 ): ActiveClassification | undefined {
  // Visibility FIRST: archived overrides status. (See invariant #2.)
  if (task.archivedAt !== undefined) return undefined;
+ if (task.closedAt !== undefined) return undefined;
  // Tombstone: deleted is terminal, no active role.
  if (task.status === "deleted") return undefined;
  // Completed: not active; lives in projectCompleted instead.
@@ -187,6 +188,18 @@ export function projectCompleted(state: TaskState): Task[] {
  const out: Task[] = [];
  for (const task of state.tasks) {
   if (task.status === "completed" && task.archivedAt === undefined) {
+   out.push(task);
+  }
+ }
+ out.sort(compareCompleted);
+ return out;
+}
+
+/** Tasks intentionally ended without asserting completion. */
+export function projectClosed(state: TaskState): Task[] {
+ const out: Task[] = [];
+ for (const task of state.tasks) {
+  if (task.closedAt !== undefined && task.status !== "deleted" && task.archivedAt === undefined) {
    out.push(task);
   }
  }

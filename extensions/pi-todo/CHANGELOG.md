@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 - 2026-09-06
+
+- Add an explicit close path for unfinished tasks, preserving the distinction between completed work and work intentionally ended.
+- Add recovery guidance for unfinished in-progress tasks when a new session restores a workspace snapshot.
+- Add a detail action that sends a read-only recovery review request to the current model; the model is instructed to recommend a decision without mutating tasks.
+- Keep archive as a visibility and history operation rather than a lifecycle state.
+
 ## 0.9.1 - 2026-09-05
 
 - Present the default editor task strip as an open-sided one-row table with aligned top and bottom rules and a fixed task label column; rely on Pi's own widget spacing so the gaps above and below the editor stay balanced.
