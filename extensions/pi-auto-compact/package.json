@@ -1,6 +1,6 @@
 {
   "name": "pi-auto-compact",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Automatically compact Pi context at a configurable threshold and continue the interrupted task.",
   "license": "MIT",
   "type": "module",

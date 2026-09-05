@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 - 2026-09-05
+
+- Remove retired `pi-context-qos` configuration fallback and legacy threshold translation. Runtime configuration now has one canonical global path and one trusted project override.
+
 ## 0.4.1 - 2026-09-04
 
 - Align the declared Node.js floor with the installed Pi SDK used by runtime and lifecycle tests.
