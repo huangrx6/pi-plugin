@@ -26,9 +26,15 @@ test("actions are contextual: blocked tasks cannot start and archived tasks rest
 test("default task strip stays bounded at narrow terminal widths and hides completed-only work", () => {
   for (const width of [1, 12, 40, 80, 120]) {
     const lines = renderCompactOverlay(state, width);
-    assert.ok(lines.length <= 2);
+    assert.ok(lines.length <= 5);
     assert.ok(lines.every(line => visibleWidth(line) <= width));
   }
+  const wide = renderCompactOverlay(state, 120);
+  assert.ok(wide[0]?.startsWith("──────┬"));
+  assert.match(wide[1] ?? "", /^ 任务 │ /);
+  assert.ok(wide.at(-2)?.startsWith("──────┴"));
+  assert.equal(wide.at(-1), "", "one spacer row separates the task strip from the editor");
+  assert.ok(wide.slice(0, -1).every(line => visibleWidth(line) === 120));
   assert.deepEqual(renderCompactOverlay({ ...state, tasks: state.tasks.filter(task => task.status === "completed") }, 80), []);
 });
 

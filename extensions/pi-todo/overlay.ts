@@ -252,7 +252,50 @@ function renderSection(
   return lines;
 }
 
-/** Default editor strip: current task and progress, at most two short lines. */
+const COMPACT_LABEL = "任务";
+
+function padCompactCell(text: string, width: number): string {
+  const clipped = truncateToWidth(text, width);
+  return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+}
+
+/**
+ * Frame the compact status as the same kind of open-sided horizontal table
+ * used elsewhere in Pi's terminal UI. A trailing blank line keeps the widget
+ * visually separate from the editor border below it.
+ */
+function frameCompactOverlay(
+  content: readonly string[],
+  width: number,
+  theme?: OverlayTheme,
+): string[] {
+  const labelWidth = visibleWidth(COMPACT_LABEL);
+  const dividerColumn = labelWidth + 2;
+  const contentWidth = width - dividerColumn - 2;
+  if (contentWidth < 2) {
+    return [...content.map((line) => truncateToWidth(line, width)), ""];
+  }
+
+  const border = (junction: "┬" | "┴"): string => {
+    const line = "─".repeat(dividerColumn) + junction + "─".repeat(width - dividerColumn - 1);
+    return theme ? theme.fg("dim", line) : line;
+  };
+  const vertical = theme ? theme.fg("dim", "│") : "│";
+  const lines = [border("┬")];
+  for (const [index, value] of content.entries()) {
+    const label = index === 0 ? COMPACT_LABEL : "";
+    const labelCell = ` ${label}${" ".repeat(labelWidth - visibleWidth(label) + 1)}`;
+    lines.push(
+      (theme ? theme.fg("muted", labelCell) : labelCell) +
+      vertical +
+      ` ${padCompactCell(value, contentWidth)}`,
+    );
+  }
+  lines.push(border("┴"), "");
+  return lines;
+}
+
+/** Default editor strip: a one-row table; narrow terminals may use two content rows. */
 export function renderCompactOverlay(state: TaskState, width: number, theme?: OverlayTheme): string[] {
   const view = projectActiveView(state);
   if (!view.counts.active || width < 1) return [];
@@ -260,10 +303,26 @@ export function renderCompactOverlay(state: TaskState, width: number, theme?: Ov
   if (!task) return [];
   const role = view.running.length ? "running" : view.ready.length ? "ready" : "blocked";
   const progress = `${view.counts.completedVisible}/${view.counts.active + view.counts.completedVisible} 已完成 · /todos`;
-  const row = formatTaskRow(task, { role, width });
+  const contentWidth = Math.max(1, width - visibleWidth(COMPACT_LABEL) - 4);
+  const row = formatTaskRow(task, { role, width: contentWidth });
   const combined = `${row} · ${progress}`;
-  const lines = visibleWidth(combined) <= width ? [combined] : [row, truncateToWidth(progress, width)];
-  return theme ? lines.map((line, index) => theme.fg(index === 0 ? "accent" : "dim", line)) : lines;
+  let content: string[];
+  if (visibleWidth(combined) <= contentWidth) {
+    content = theme
+      ? [
+          formatTaskRowStyled(task, { role, width: contentWidth }, theme) +
+          theme.fg("dim", ` · ${progress}`),
+        ]
+      : [combined];
+  } else {
+    content = theme
+      ? [
+          formatTaskRowStyled(task, { role, width: contentWidth }, theme),
+          theme.fg("dim", truncateToWidth(progress, contentWidth)),
+        ]
+      : [row, truncateToWidth(progress, contentWidth)];
+  }
+  return frameCompactOverlay(content, width, theme);
 }
 
 // ── Widget class (registration lifecycle only) ────────────────────────────
