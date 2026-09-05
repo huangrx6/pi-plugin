@@ -1,4 +1,4 @@
-# Design — pi-policy-engine 0.29.0
+# Design — pi-policy-engine 0.30.0
 
 ## Responsibility
 
@@ -8,7 +8,7 @@ The extension classifies user intent, selects task instructions, tracks bounded 
 
 ```text
 input + current conversation
-  → in-band agent interpretation OR optional endpoint classification
+  → model preflight interpretation OR optional endpoint classification
   → authorization and intent
   → rigor, coverage, profile, current-model adaptation
   → required boundaries, optional policies and budget
@@ -17,7 +17,7 @@ input + current conversation
 
 `transitions.js::resolveTurn` owns the transition decision. `policy-block.js` composes and renders it. The lifecycle applies these functions to live state; preview applies them to a cloned state. Preview defaults to no semantic network call. `--new` discards current runtime/task context for the preview; `--semantic` permits the configured opt-in classifier.
 
-Endpoint classification produces one authoritative relationship result before the turn. In the default agent source, the engine makes no extra model request: the normal agent call receives `intent.contextual` and uses its complete conversation to interpret continuation, correction, question, or new work. Deterministic labels remain provisional hints for base policy selection. Continuations with a plugin task snapshot retain task identity and risk context; missing snapshots do not force the agent to forget visible conversation. Uncertainty cannot grant mutation or approval.
+Model preflight interpretation produces one authoritative relationship, task, intent, risk, domain and coverage result before the normal turn. The default agent source calls the host's active model through `modelRegistry.complete`, using a bounded conversation payload and no tools. The validated result selects the corresponding intent, flow, rigor, profile and domain policies. Deterministic keyword classification is retained only as an emergency fallback when the configured model cannot be called or returns invalid output; it is not used when preflight succeeds. Uncertainty cannot grant mutation or approval.
 
 ## Intent and authorization
 
@@ -67,11 +67,11 @@ On a runtime configuration error, the previous valid configuration for that cwd 
 
 The daily panel atomically saves automatic, strict and off selections to `<agent-dir>/extensions-data/pi-policy-engine/config.json`, preserving unrelated valid settings. It refuses to overwrite malformed JSON. Package `config/defaults.json` is immutable distribution data, not user state. The default agent directory is `~/.pi/agent`; `PI_CODING_AGENT_DIR` replaces that root.
 
-Global `modelRules` precede package rules. Matching is exact provider plus exact or trailing-star model prefix, case insensitive. A proxy/provider alias can map to an existing model policy. The main model is always the host's choice. Agent source uses the existing normal turn and therefore needs no provider API, credential extraction, tool definitions, session-message writes or recursive call. Endpoint source supports OpenAI-compatible Chat Completions and Anthropic Messages, optional JSON response format and temperature, plus explicitly unauthenticated local services. Legacy fallback retains its single-prompt OpenAI-compatible conservative merge.
+Global `modelRules` precede package rules. Matching is exact provider plus exact or trailing-star model prefix, case insensitive. A proxy/provider alias can map to an existing model policy. The main model is always the host's choice. Agent source calls the active host model through the registry with no tools, session-message writes or recursive agent calls. Endpoint source supports OpenAI-compatible Chat Completions and Anthropic Messages, optional JSON response format and temperature, plus explicitly unauthenticated local services. Legacy fallback retains its single-prompt OpenAI-compatible conservative merge.
 
 ## Model interpretation boundary
 
-For agent source, `interpretation.js` returns `in_band` immediately with zero classification duration. `intent.contextual` tells the current model to use the full conversation and treat rule labels as provisional; this is part of the existing model call and introduces no pre-display wait or extra usage. For endpoint source, the module serializes the latest message, goal, retained requirements/constraints, plan and phase into a bounded data-only request. The global-only endpoint and environment-variable reference form the network trust boundary. Existing source-less semantic configurations preserve endpoint behavior.
+For agent source, `interpretation.js` sends a bounded conversation and task snapshot to the active host model before policy composition. `validateInterpretation` accepts only the declared route schema; the result is then used to select policies. `before_agent_start` exposes the preflight state through `ctx.ui.setStatus`. For endpoint source, the module serializes the latest message, goal, retained requirements/constraints, plan and phase into a bounded data-only request. The global-only endpoint and environment-variable reference form the network trust boundary. Existing source-less semantic configurations preserve endpoint behavior.
 
 Primary results must have exactly the specified fields, valid task/relation/intent/risk/coverage enums, known domains and bounded constraint quotations present in unquoted current user text. Extra authorization fields invalidate the response. The model can correct rule classification, but cannot write task IDs, approved versions or autonomy. Direct user approval requirements remain authoritative. Natural-language approvals still use the conservative local parser; `/policy approve` is the explicit alternative. Risk cannot decrease during a continuing task; architecture retains its high-risk floor. A model's result has no fabricated confidence probability.
 
@@ -89,4 +89,4 @@ If required policies are missing, excluded or cannot fit, the turn is marked blo
 
 Tests use OS temporary directories. The smoke entry point isolates both cwd and `PI_CODING_AGENT_DIR`; asynchronous writes complete before cleanup. Regression scenarios include greetings, fresh reviews after pending debugging, negated/quoted autonomy, narrowing approvals, restart/fork/tree navigation, missing plans, errors, model changes, damaged configuration, preview parity and insufficient budgets.
 
-Version 0.29.0 changes current-agent recognition from a blocking extra request to in-band interpretation. Existing history stays readable, and endpoint configurations remain compatible. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
+Version 0.30.0 changes current-agent recognition to a validated model preflight with visible loading status. Existing history stays readable, and endpoint configurations remain compatible. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.

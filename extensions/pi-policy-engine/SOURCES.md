@@ -11,4 +11,4 @@ The extension intentionally avoids importing Pi package namespaces so it is less
 
 ## Current-agent context (0.29)
 
-The installed `@earendil-works/pi-coding-agent` 0.85.0 lifecycle documentation confirms that `before_agent_start` runs before the normal model turn and can extend its system prompt. Current-agent interpretation therefore uses an injected contextual policy in the existing turn. It does not call `modelRegistry.complete`; this avoids blocking message display and lets the model use the conversation already supplied by the host. Core logic still imports no Pi namespace.
+The installed `@earendil-works/pi-coding-agent` 0.85.0 lifecycle documentation confirms that `before_agent_start` runs before the normal model turn, can update `ctx.ui.setStatus`, and can extend its system prompt. Current-agent interpretation therefore calls `ctx.modelRegistry.complete` during the preflight phase, updates the status while waiting, validates the result, and then composes the normal turn. Core logic still imports no Pi namespace.
