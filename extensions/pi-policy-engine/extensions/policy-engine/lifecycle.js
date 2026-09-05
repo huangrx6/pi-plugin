@@ -1,418 +1,215 @@
-// Event handler registration: session_start, model_select, before_agent_start,
-// agent_end. Owns the strict-workflow state machine.
-//
-// v0.15 state machine (single source of truth = `phase`):
-//   idle
-//     ↓ strict task classified (mutate intent)
-//   planning            ← model produces the plan this turn
-//     ↓ agent_end
-//   awaiting_approval   ← classifyPlanResponse() routes the next prompt:
-//     ├─ approve → executing
-//     ├─ revise  → planning (plan updated, re-approval required)
-//     ├─ discuss → awaiting_approval (question answered, plan untouched)
-//     ├─ cancel  → idle
-//     └─ unknown → awaiting_approval
-//   executing
-//     ↓ agent_end
-//   idle
-//
-// v0.12 note still applies: no tool_call handler — model-behavior layer only.
-
+// Pi lifecycle: resolve one turn, compose instructions, and record transitions.
 import { publishActivity, restoreActivity } from "./activity.js";
-
+import { resolveTurn } from "./transitions.js";
 import {
-  APPROVAL_CONSTRAINT_RES,
-  AUTONOMY_GRANT_RE,
-  classifyPlanResponse,
-} from "../../src/core/approval.js";
-import { loadModelRules, modelPolicyId } from "../../src/core/router.js";
-import {
-  composeAllPolicies,
-  renderPolicyBlock,
-} from "../../src/core/loader.js";
-import {
-  appendHistory,
-  clearStrictState,
-  loadStrictState,
-  pruneStrictStates,
-  readHistory,
-  resolveHistoryPath,
-  saveStrictState,
-} from "../../src/core/history-store.js";
-import { cleanModel, modelKey, notify, setStatus } from "./helpers.js";
-import {
-  HISTORY_CAP,
   buildEffectiveConfig,
-  decide,
-  mergeRevisionDecision,
+  createState,
   recordHistory,
   resolveStrictStatePath,
+  fingerprint,
 } from "./state.js";
-
-/**
- * Compose + render the policy block for a decision/phase, and update the
- * decision's loaded/truncated bookkeeping. Shared by every branch that
- * injects a system-prompt block.
- */
-function buildBlock({ packageRoot, cwd, config, decision, phase, model }) {
-  // v0.21: model adaptation always reflects the CURRENT model — a restored
-  // strict plan or a mid-session /model switch must not replay a stale
-  // modelPolicy (it is no longer persisted at all).
-  decision.modelPolicy = modelPolicyId(model, loadModelRules(packageRoot));
-  // v0.17: one TOTAL byte budget — project policies participate in
-  // policyMaxBytes after built-ins (composeAllPolicies).
-  const {
-    policies,
-    projectPolicies,
-    truncated,
-    missing,
-    projectSkipped,
-    builtInBytes,
-    projectBytes,
-  } = composeAllPolicies({
-    packageRoot,
-    cwd,
-    decision,
-    config,
-    phase,
-  });
-  decision.loadedPolicies = [...policies, ...projectPolicies].map((p) => p.id);
-  decision.truncatedPolicies = truncated;
-  decision.missingPolicies = missing;
-  decision.droppedProjectPolicies = projectSkipped;
-  decision.policyBytes = builtInBytes + projectBytes;
-  decision.policyBudget = Number(config.policyMaxBytes ?? 24000);
-  return renderPolicyBlock({
-    decision,
-    policies,
-    projectPolicies,
-    phase,
-    truncated,
-  });
-}
-
-/** Clear the persisted awaiting state (approval/cancel resolved it). */
-function clearAwaitState(cfg, cwd) {
-  const sPath = resolveStrictStatePath(cfg, cwd);
-  if (!sPath) return Promise.resolve();
-  return clearStrictState(sPath);
-}
+import {
+  loadStrictState,
+  readHistory,
+  appendHistory,
+  resolveHistoryPath,
+  pruneStrictStates,
+} from "../../src/core/history-store.js";
+import { cleanModel, notify, setStatus } from "./helpers.js";
+import { buildTurnBlock } from "./policy-block.js";
+import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
+import { readPlanReport } from "../../src/core/task-contract.js";
+import { createAgentClassifier } from "./agent-classifier.js";
 
 export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
-  pi.on("session_start", async (_event, ctx) => {
+  async function restore(_event, ctx) {
     const state = getState();
-    state.phase = "idle";
-    state.lastDecision = null;
-    state.lastPrompt = null;
-    state.lastActivity = restoreActivity(ctx?.sessionManager?.getBranch?.() ?? []);
-    state.history = [];
-    state.currentModel = cleanModel(ctx?.model) ?? state.currentModel;
-    const cfg = buildEffectiveConfig({
-      packageRoot,
-      cwd: ctx?.cwd ?? process.cwd(),
-      state,
-    });
-
-    // Load persisted history (if configured). Best-effort: file missing or
-    // unreadable is fine; we just continue with an empty in-memory history.
-    // Read at most HISTORY_CAP entries — the in-memory ring buffer can't
-    // hold more, so reading historyMaxEntries lines just to slice them down
-    // is wasted IO.
-    if (cfg.historyFile) {
-      const path = resolveHistoryPath(
-        cfg.historyFile,
-        ctx?.cwd ?? process.cwd(),
-      );
-      if (path) {
-        const limit = Math.min(
-          Number(cfg.historyMaxEntries ?? 500),
-          HISTORY_CAP,
-        );
-        const diskEntries = await readHistory(path, limit);
-        if (Array.isArray(diskEntries) && diskEntries.length > 0) {
-          state.history = diskEntries;
-        }
-        // v0.24 hygiene: strict-state-<hash>.json files never had a
-        // cleanup path — prune stale ones (>14d) so the data dir doesn't
-        // accumulate forever. Fire-and-forget; failures are ignored.
-        pruneStrictStates(path).catch(() => {});
-      }
-    }
-
-    // Restore a strict plan left awaiting approval by a previous session
-    // (v0.20): plan in the evening, /resume the next morning, "批准" must
-    // still route through the approval classifier instead of a fresh
-    // classification. cwd-matched, max one week old; /policy cancel discards.
-    {
-      const sPath = resolveStrictStatePath(cfg, ctx?.cwd ?? process.cwd());
-      if (sPath) {
-        const restored = await loadStrictState(sPath, {
-          cwd: ctx?.cwd ?? process.cwd(),
-        });
-        if (restored) {
-          state.phase = restored.phase;
-          state.lastDecision = restored.decision;
-          notify(
-            ctx,
-            "Restored a strict plan awaiting approval from a previous session (/policy cancel to discard).",
-            "info",
-          );
-        }
-      }
-    }
-
-    if (cfg.showStatus !== false)
-      setStatus(
-        ctx,
-        state.phase === "awaiting_approval"
-          ? "policy:strict/awaiting_approval"
-          : `policy:${cfg.mode ?? "auto"}`,
-      );
-  });
-
-  pi.on("model_select", async (event, ctx) => {
-    const state = getState();
-    state.currentModel = cleanModel(event?.model);
-    const cfg = buildEffectiveConfig({
-      packageRoot,
-      cwd: ctx?.cwd ?? process.cwd(),
-      state,
-    });
-    if (cfg.showStatus !== false)
-      setStatus(
-        ctx,
-        `policy:${cfg.mode ?? "auto"} · ${modelKey(state.currentModel)}`,
-      );
-  });
-
-  async function beforeAgentStart(event, ctx) {
-    const state = getState();
-    const prompt = String(event?.prompt ?? "");
     const cwd = ctx?.cwd ?? process.cwd();
-
-    // ---- awaiting_approval: route the user's plan response ----------------
-
-    if (state.phase === "awaiting_approval" && state.lastDecision) {
-      const verdict = classifyPlanResponse(prompt);
-      const cfgAwait = buildEffectiveConfig({
-        packageRoot,
-        cwd,
-        state,
-      });
-
-      if (verdict === "cancel") {
+    const branch = ctx?.sessionManager?.getBranch?.() ?? [];
+    const runtimeMode =
+      _event?.type === "session_tree" ? state.runtimeMode : null;
+    const runtimeProfile =
+      _event?.type === "session_tree" ? state.runtimeProfile : null;
+    const runtimeRecognition =
+      _event?.type === "session_tree" ? state.runtimeRecognition : null;
+    Object.assign(state, createState(), {
+      runtimeMode,
+      runtimeProfile,
+      runtimeRecognition,
+    });
+    state.sessionId = ctx?.sessionManager?.getSessionId?.() ?? null;
+    state.currentModel = cleanModel(ctx?.model);
+    state.lastActivity = restoreActivity(branch);
+    const cfg = buildEffectiveConfig({ packageRoot, cwd, state });
+    const saved = restoreWorkflow(branch, state.sessionId, cwd);
+    if (saved) {
+      state.phase = saved.phase;
+      state.task = saved.task;
+      state.lastDecision = saved.decision;
+      state.lastPrompt = saved.lastPrompt;
+      state.outcome = saved.outcome;
+      if (state.phase === "executing") {
         state.phase = "idle";
-        state.lastDecision = null;
-        clearAwaitState(cfgAwait, cwd).catch(() => {});
-        if (cfgAwait.showStatus !== false) setStatus(ctx, "policy:idle");
-        notify(ctx, "Strict plan cancelled.", "info");
-        return undefined;
+        state.outcome = "interrupted";
       }
-
-      if (verdict === "discuss") {
-        // Question about the plan: answer it, keep waiting for approval.
-        const decision = { ...state.lastDecision };
-        state.lastDecision = decision;
-        const block = buildBlock({
-          model: ctx?.model ?? state.currentModel,
-          packageRoot,
-          cwd,
-          config: cfgAwait,
-          decision,
-          phase: "awaiting_approval",
-        });
-        if (cfgAwait.showStatus !== false)
-          setStatus(ctx, `policy:${decision.rigor}/awaiting_approval`);
-        return {
-          systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Pending-plan discussion\nThe user is asking about the pending plan. Answer the question; do not start implementation. The plan still requires explicit approval afterwards.`,
-        };
-      }
-
-      if (verdict === "revise") {
-        // Constraint modification: update the plan, re-approval required.
-        // v0.20: the REVISION TEXT is new evidence — conservatively merge
-        // its risk/domains/concerns into the decision (risk only up,
-        // domains/concerns union; task/flow/intent untouched: still the
-        // same strict mutation task). Verified failure mode: "批准，但是
-        // 这是生产数据库，不要改 schema" used to keep risk=medium
-        // domains=[backend] concerns=[] while the plan was re-scoped to
-        // production/database/security.
-        // v0.22: revision classification is unified in
-        // mergeRevisionDecision — same config as decide() (maxDomains,
-        // domainHints), plus task-replacement rerouting.
-        const decision = mergeRevisionDecision({
-          previous: state.lastDecision,
-          prompt,
-          config: cfgAwait,
-          packageRoot,
-        });
-        state.lastDecision = decision;
-        state.phase = "planning";
-        const block = buildBlock({
-          model: ctx?.model ?? state.currentModel,
-          packageRoot,
-          cwd,
-          config: cfgAwait,
-          decision,
-          phase: "planning",
-        });
-        if (cfgAwait.showStatus !== false)
-          setStatus(ctx, `policy:${decision.rigor}/planning`);
-        return {
-          systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Plan revision requested\nThe user approved the direction but added constraints or modifications. Update the Task Contract, Constraint Ledger, and plan accordingly; present the revised plan and stop for approval again. Do not execute.`,
-        };
-      }
-
-      if (verdict === "approve") {
-        state.phase = "executing";
-        clearAwaitState(cfgAwait, cwd).catch(() => {});
-        // v0.24: an approval that CARRIES content (autonomy grant with
-        // riding constraints, scoped approvals like "批准但别动 schema")
-        // must not lose that evidence — merge it exactly like a revision
-        // (risk only up, domains/concerns union) while still entering the
-        // executing phase. A bare "批准" keeps the frozen decision as-is.
-        const carriesEvidence =
-          AUTONOMY_GRANT_RE.test(prompt) ||
-          APPROVAL_CONSTRAINT_RES.some((re) => re.test(prompt));
-        const decision = carriesEvidence
-          ? mergeRevisionDecision({
-              previous: state.lastDecision,
-              prompt,
-              config: cfgAwait,
-              packageRoot,
-            })
-          : { ...state.lastDecision };
-        state.lastDecision = decision;
-        const granted = AUTONOMY_GRANT_RE.test(prompt);
-        if (granted) {
-          decision.reasons = [
-            ...(decision.reasons ?? []),
-            "approval:autonomy granted — the user explicitly authorized execution without further stops; do not pause for approval again",
-          ];
+    } else if (state.sessionId && !ctx?.sessionManager?.getBranch) {
+      // Disk fallback only for a session-aware host that cannot expose its branch.
+      const savedDisk = await loadStrictState(
+        resolveStrictStatePath(cfg, cwd, state.sessionId),
+        { cwd, sessionId: state.sessionId },
+      );
+      if (savedDisk) {
+        state.phase = savedDisk.phase;
+        state.task = savedDisk.task;
+        state.lastDecision = savedDisk.decision;
+        if (!state.task?.plan) {
+          state.phase = "planning";
+          state.outcome = "missing_plan";
         }
-        const block = buildBlock({
-          model: ctx?.model ?? state.currentModel,
-          packageRoot,
-          cwd,
-          config: cfgAwait,
-          decision,
-          phase: "executing",
-        });
-        if (cfgAwait.showStatus !== false)
-          setStatus(ctx, `policy:${decision.rigor}/executing`);
-        return {
-          systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Approved\nThe plan has been approved by the user. Execute the bounded waves defined in the plan; re-check constraints after each wave.${granted ? " The user has granted AUTONOMOUS execution: do not stop to ask for further approvals — carry the task through to completion, verifying each wave yourself." : ""}`,
-        };
       }
-
-      // unknown: not approval-shaped. Keep awaiting approval and say so,
-      // otherwise a casual "继续" would silently sit in limbo.
-      const block = buildBlock({
-        model: ctx?.model ?? state.currentModel,
-        packageRoot,
-        cwd,
-        config: cfgAwait,
-        decision: state.lastDecision,
-        phase: "awaiting_approval",
-      });
-      if (cfgAwait.showStatus !== false)
-        setStatus(ctx, `policy:${state.lastDecision.rigor}/awaiting_approval`);
-      return {
-        systemPrompt: `${event.systemPrompt}\n\n${block}\n\n## Still awaiting approval\nThe user's message was not recognized as an approval, revision, or cancellation. Remain in PLAN-ONLY mode; remind the user that the plan is awaiting explicit approval.`,
-      };
     }
+    if (cfg.historyFile) {
+      const path = resolveHistoryPath(cfg.historyFile, cwd);
+      state.history = (
+        await readHistory(path, Math.min(cfg.historyMaxEntries, 50))
+      ).filter((r) => !r.sessionId || r.sessionId === state.sessionId);
+      await pruneStrictStates(path);
+    }
+    if (cfg.showStatus !== false)
+      setStatus(
+        ctx,
+        `policy:${state.phase === "awaiting_approval" ? "strict/awaiting_approval" : cfg.mode}`,
+      );
+  }
+  pi.on("session_start", restore);
+  pi.on("session_tree", (event, ctx) =>
+    restore({ ...event, type: "session_tree" }, ctx),
+  );
+  pi.on("model_select", async (event, ctx) => {
+    getState().currentModel = cleanModel(event.model ?? ctx?.model);
+  });
 
-    // ---- brand new task: classify and route --------------------------------
-
-    const { decision, config } = await decide({
+  async function history(
+    state,
+    ctx,
+    source,
+    prompt,
+    decision,
+    phaseFrom,
+    extra = {},
+  ) {
+    const cwd = ctx?.cwd ?? process.cwd();
+    state.recordContext = { cwd, phaseFrom, phaseTo: state.phase, ...extra };
+    recordHistory(state, { source, prompt, decision });
+    delete state.recordContext;
+    const cfg = buildEffectiveConfig({ packageRoot, cwd, state });
+    if (cfg.historyFile && state.history.length) {
+      const result = await appendHistory(
+        resolveHistoryPath(cfg.historyFile, cwd),
+        state.history.at(-1),
+      );
+      if (!result.ok)
+        notify(
+          ctx,
+          `Policy history could not be saved: ${result.reason}`,
+          "warning",
+        );
+    }
+  }
+  pi.on("before_agent_start", async (event, ctx) => {
+    const state = getState();
+    const phaseFrom = state.phase;
+    const prompt = String(event.prompt ?? "");
+    state.currentModel = cleanModel(ctx?.model ?? state.currentModel);
+    const turn = await resolveTurn({
       packageRoot,
-      cwd,
+      cwd: ctx?.cwd ?? process.cwd(),
       prompt,
       state,
-      model: cleanModel(ctx?.model ?? state.currentModel),
+      model: state.currentModel,
+      agentClassifier: createAgentClassifier(ctx),
     });
-    state.lastPrompt = prompt;
-    state.lastDecision = decision;
-    recordHistory(state, { source: "decide", prompt, decision });
-    // Fire-and-forget persist to disk if configured.
-    if (config.historyFile) {
-      const path = resolveHistoryPath(config.historyFile, cwd);
-      if (path && state.history.length > 0) {
-        const latest = state.history[state.history.length - 1];
-        appendHistory(path, latest).catch(() => {});
-      }
-    }
-
-    if (state.onceMode) state.onceMode = null;
-
-    if (decision.rigor === "off") {
-      state.phase = "idle";
-      if (config.showStatus !== false) setStatus(ctx, "policy:off");
-      return undefined;
-    }
-
-    if (
-      decision.rigor === "strict" &&
-      decision.executionIntent !== "read-only"
-    ) {
-      state.phase = "planning";
-    } else {
-      state.phase = "executing";
-    }
-
-    const block = buildBlock({
-      model: ctx?.model ?? state.currentModel,
-      packageRoot,
-      cwd,
-      config,
-      decision,
-      phase: state.phase,
+    const built = turn.inject
+      ? buildTurnBlock({
+          packageRoot,
+          cwd: ctx?.cwd ?? process.cwd(),
+          turn,
+          model: state.currentModel,
+        })
+      : { injected: "" };
+    state.turnRelation = turn.relation;
+    state.outcome =
+      turn.relation === "conversation"
+        ? state.outcome
+        : built.blocked
+          ? "blocked"
+          : turn.inject
+            ? "in_progress"
+            : "idle";
+    if (turn.config._diagnostics.length)
+      notify(
+        ctx,
+        `Policy configuration: ${turn.config._usingLastValid ? "using last valid configuration. " : ""}${turn.config._diagnostics.map((x) => x.message).join("; ")}`,
+        "warning",
+      );
+    await history(state, ctx, "decide", prompt, turn.decision, phaseFrom, {
+      relation: turn.relation,
+      configFingerprint: fingerprint({
+        ...turn.config,
+        _sources: undefined,
+        _diagnostics: undefined,
+      }),
+      injectionFingerprint: fingerprint(built.injected),
+      injectedBytes: Buffer.byteLength(built.injected),
     });
-
-    if (config.showStatus !== false)
-      setStatus(ctx, `policy:${decision.rigor}/${state.phase}`);
-    return { systemPrompt: `${event.systemPrompt}\n\n${block}` };
-  }
-
-  pi.on("before_agent_start", async (event, ctx) => {
-    const result = await beforeAgentStart(event, ctx);
-    const injected = result?.systemPrompt?.slice(String(event.systemPrompt ?? "").length).trim() ?? "";
-    publishActivity(pi, getState(), ctx, injected);
-    return result;
+    publishActivity(pi, state, ctx, built.injected, turn.decision);
+    await persistWorkflow({ pi, state, ctx, packageRoot });
+    if (turn.config.showStatus !== false)
+      setStatus(ctx, `policy:${turn.decision.rigor}/${state.phase}`);
+    return built.injected
+      ? { systemPrompt: `${event.systemPrompt ?? ""}\n\n${built.injected}` }
+      : undefined;
   });
-
-  pi.on("agent_end", async (_event, ctx) => {
+  pi.on("agent_end", async (event, ctx) => {
     const state = getState();
-    // The plan turn finished: the ball is now in the user's court.
-    if (state.phase === "planning") {
-      state.phase = "awaiting_approval";
-    } else if (state.phase === "executing") {
-      state.phase = "idle";
+    if (state.turnRelation === "conversation") return;
+    const phaseFrom = state.phase;
+    const assistant = (event.messages ?? [])
+      .filter((m) => m.role === "assistant")
+      .at(-1);
+    const failed =
+      assistant?.stopReason === "error" || assistant?.stopReason === "aborted";
+    const text =
+      assistant?.content
+        ?.filter?.((c) => c.type === "text")
+        .map((c) => c.text)
+        .join("\n") ?? "";
+    const plan = readPlanReport(text, state.task);
+    if (failed)
+      state.outcome =
+        assistant.stopReason === "aborted" ? "interrupted" : "failed";
+    else if (state.outcome !== "blocked") {
+      if (state.phase === "planning" && plan) {
+        state.phase = "awaiting_approval";
+        state.outcome = "awaiting_approval";
+        if (state.task) {
+          state.task.plan = plan;
+          state.task.planEntryId = ctx?.sessionManager?.getLeafId?.() ?? null;
+        }
+      } else if (state.phase === "executing") {
+        state.phase = "idle";
+        state.outcome = "unverified";
+      } else if (state.phase === "planning") state.outcome = "missing_plan";
     }
+    if (state.lastDecision)
+      await history(state, ctx, "agent_end", "", state.lastDecision, phaseFrom);
+    await persistWorkflow({ pi, state, ctx, packageRoot });
     const cfg = buildEffectiveConfig({
       packageRoot,
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
-    // Persist the awaiting state (or clear it when the strict task is
-    // done/aborted) so a session restart doesn't lose the approval gate.
-    {
-      const sPath = resolveStrictStatePath(cfg, ctx?.cwd ?? process.cwd());
-      if (sPath) {
-        if (state.phase === "awaiting_approval" && state.lastDecision) {
-          saveStrictState(sPath, {
-            cwd: ctx?.cwd ?? process.cwd(),
-            decision: state.lastDecision,
-          }).catch(() => {});
-        } else if (state.phase === "idle") {
-          clearStrictState(sPath).catch(() => {});
-        }
-      }
-    }
-    if (cfg.showStatus !== false && state.lastDecision) {
-      const label =
-        state.phase === "idle" ? state.lastDecision.rigor : state.phase;
-      setStatus(ctx, `policy:${label}`);
-    }
+    if (cfg.showStatus !== false)
+      setStatus(ctx, `policy:${state.phase}/${state.outcome}`);
   });
 }

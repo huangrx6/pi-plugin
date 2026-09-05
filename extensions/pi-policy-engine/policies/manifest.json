@@ -26,6 +26,8 @@
     "concern.security": "policies/concerns/security.md",
     "concern.production": "policies/concerns/production.md",
     "model.minimax-m3": "policies/models/minimax-m3.md",
-    "model.deepseek": "policies/models/deepseek.md"
+    "model.deepseek": "policies/models/deepseek.md",
+    "behavior.comprehensive-review": "policies/behaviors/comprehensive-review.md",
+    "rigor.strict-review": "policies/rigors/strict-review.md"
   }
 }

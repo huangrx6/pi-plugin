@@ -1,7 +1,7 @@
 {
   "name": "pi-policy-engine",
-  "version": "0.25.2",
-  "description": "Task-flow policy router for Pi coding agent: routes prompts to quick/standard/strict workflows and injects execution-discipline constraints into the system prompt.",
+  "version": "0.28.0",
+  "description": "Context-aware task policies for Pi with active-agent or dedicated-model intent recognition, persistent requirements and versioned plan approvals.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -22,6 +22,6 @@
   },
   "scripts": {
     "test": "node --test && node ./scripts/smoke-extension.mjs",
-    "check": "for f in extensions/policy-engine/*.js src/core/*.js; do node --check \"$f\"; done"
+    "check": "set -e; for f in extensions/policy-engine/*.js src/core/*.js scripts/*.mjs; do node --check \"$f\"; done"
   }
 }

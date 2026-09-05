@@ -23,6 +23,14 @@ export function formatHistory(entries, n = 5) {
       `${idx}. [${time}] ${e.source ?? "decide"}  ${e.rigor ?? e.workflow ?? "?"}  (${taskRisk}, conf=${conf})`,
     );
     lines.push(`     prompt: ${e.prompt ?? ""}`);
+    if (e.recognition)
+      lines.push(
+        `     recognition: ${e.recognition.source}/${e.recognition.reason}; ${e.recognition.durationMs ?? 0}ms`,
+      );
+    if (e.schemaVersion >= 2)
+      lines.push(
+        `     ${e.relation ?? e.source}: ${e.phaseFrom ?? "?"} → ${e.phaseTo ?? e.phase ?? "?"}; intent=${e.intent ?? "?"}; result=${e.outcome ?? "?"}; task=${e.taskId ?? "none"}`,
+      );
   }
   return lines.join("\n");
 }
@@ -46,6 +54,7 @@ export function formatDecision(decision, phase) {
     `concerns: ${(decision.concerns ?? []).join(", ") || "none"}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `confidence: ${decision.confidence}`,
+    `recognition: ${decision.recognition?.source ?? "rules"}/${decision.recognition?.reason ?? "legacy"}`,
   ];
   if (Number.isFinite(decision.policyBytes)) {
     const usedKb = Math.round(decision.policyBytes / 102.4) / 10;
@@ -77,12 +86,24 @@ export function formatDecision(decision, phase) {
   return lines.join("\n");
 }
 
-export function formatStatusSummary({ config, phase, model }) {
+export function formatStatusSummary({
+  config,
+  phase,
+  model,
+  outcome,
+  task,
+  onceMode,
+  recognition,
+}) {
   return [
     `mode: ${config.mode ?? "auto"}`,
     `profile: ${config.profile ?? "auto"}`,
     `phase: ${phase}`,
     `awaiting approval: ${phase === "awaiting_approval" ? "yes" : "no"}`,
+    `outcome: ${outcome ?? "unknown"}`,
+    `task: ${task?.id ?? "none"}; plan version: ${task?.planVersion ?? "none"}`,
+    `next-task override: ${onceMode ?? "none"}`,
+    `recognition: ${recognition?.source ?? "none"}/${recognition?.reason ?? "not_run"}`,
     `model: ${model}`,
   ].join("\n");
 }
@@ -198,6 +219,9 @@ export function formatValidation(result) {
 
 export function formatConfig(config) {
   const lines = ["# Resolved policy-engine config", ""];
+  lines.push(`sources: ${JSON.stringify(config._sources ?? {}, null, 2)}`);
+  lines.push(`diagnostics: ${JSON.stringify(config._diagnostics ?? [])}`);
+  lines.push(`modelRules: ${JSON.stringify(config.modelRules ?? [])}`);
   lines.push("routing");
   lines.push(`  mode: ${config.mode ?? "auto"}`);
   lines.push(`  profile: ${config.profile ?? "auto"}`);
@@ -219,6 +243,10 @@ export function formatConfig(config) {
   lines.push("");
   lines.push("semanticFallback");
   const sf = config.semanticFallback ?? {};
+  lines.push(`  source: ${sf.source ?? "endpoint"}`);
+  lines.push(
+    `  strategy: ${sf.strategy ?? "fallback"}; protocol: ${sf.protocol ?? "openai"}; maxContextChars: ${sf.maxContextChars ?? 24000}`,
+  );
   lines.push(`  enabled: ${sf.enabled === true}`);
   if (sf.enabled === true) {
     lines.push(`  endpoint: ${sf.endpoint ?? "(default)"}`);
@@ -247,6 +275,8 @@ export function formatPreview(preview) {
   } = preview;
   const lines = [
     "# Policy preview (dry run; nothing is executed)",
+    `scope: ${preview.scope ?? "new-task"}; semantic network: ${preview.semantic ? "enabled" : "disabled"}`,
+    `recognition: ${decision.recognition?.source ?? "rules"}/${decision.recognition?.reason ?? "legacy"}; relation: ${preview.relation}`,
     "",
     `task: ${decision.taskType}`,
     `risk: ${decision.risk}`,
@@ -256,7 +286,7 @@ export function formatPreview(preview) {
     `concerns: ${(decision.concerns ?? []).join(", ") || "none"}`,
     `rigor: ${decision.rigor}`,
     `flow: ${decision.flow ?? "default"}`,
-    `phase: ${previewPhaseLabel(decision.rigor)}`,
+    `phase: ${preview.phase ?? previewPhaseLabel(decision.rigor)}`,
     `profile: ${decision.profile}`,
     `model policy: ${decision.modelPolicy ?? "default"}`,
     `would require approval: ${wouldRequireApproval ? "yes" : "no"}`,

@@ -3,14 +3,14 @@ import { sanitizeTerminalText, wrapTerminalText } from "./terminal.js";
 
 export const ACTIVITY_TYPE = "policy-engine-activity";
 const rigors = { quick: "轻量流程", standard: "标准流程", strict: "严格流程", off: "已关闭" };
-const tasks = { debugging: "故障排查", coding: "代码修改", documentation: "文档调整", review: "代码审查", research: "调研", architecture: "架构设计" };
+const tasks = { debugging: "故障排查", coding: "代码任务", conversation: "普通对话", documentation: "文档调整", review: "项目审查", research: "调研", architecture: "架构设计" };
 const policies = {
   "core.evidence-priority": "以证据为依据", "core.constraint-retention": "保留用户约束", "core.verification": "验证变更结果",
   "intent.read-only": "仅检查和分析", "intent.mutate": "按授权执行变更", "intent.unclear": "澄清执行意图",
   "behavior.execution-discipline": "持续执行并跟踪结果", "behavior.minimal-change": "控制变更范围",
   "behavior.context-hygiene": "管理上下文证据", "behavior.tool-discipline": "按工具契约执行",
   "rigor.quick": "检查 → 修改 → 验证", "rigor.standard": "明确任务 → 检查 → 计划 → 执行 → 验证",
-  "rigor.strict-plan": "先制定计划并等待审批", "rigor.strict-execute": "按批准的计划分步执行",
+  "rigor.strict-review": "严格只读审查", "rigor.strict-plan": "先制定计划并等待审批", "rigor.strict-execute": "按批准的计划分步执行",
   "flow.debug-first": "先复现和定位原因", "flow.review-first": "优先审查问题与风险", "flow.research-first": "先收集和核对资料",
   "domain.documentation": "文档规范", "domain.database": "数据库变更约束", "domain.kubernetes": "Kubernetes 操作约束",
   "domain.backend": "后端开发约束", "domain.frontend": "前端开发约束", "concern.security": "安全检查要求",
@@ -23,7 +23,7 @@ export function activitySnapshot(decision, phase, injected = "") {
     ? "先生成计划，完成后等待你确认。" : phase === "awaiting_approval"
       ? "等待你批准计划；可以继续提问或修改约束。" : "模型继续处理当前任务，无需额外操作。";
   return deepFreeze({ decision: data, phase, injected, next,
-    summary: injected ? `已注入策略 · ${rigors[data.rigor] ?? data.rigor ?? "未知流程"} · ${tasks[data.taskType] ?? data.taskType ?? "未分类"}` : "本轮未注入策略",
+    summary: injected ? `已注入策略 · ${rigors[data.rigor] ?? data.rigor ?? "未知流程"} · ${tasks[data.taskType] ?? data.taskType ?? "未分类"} · ${{"read-only":"只读",mutate:"修改",unclear:"意图待明确"}[data.executionIntent] ?? "意图待明确"}` : "本轮未注入策略",
     // Exclude reason wording and timestamps: identical applied instructions do
     // not create a new transcript entry on every follow-up.
     fingerprint: createHash("sha256").update(`${phase}\n${injected}`).digest("hex"),
@@ -67,8 +67,8 @@ export function activityRows(activity, expanded, width) {
   });
 }
 
-export function publishActivity(pi, state, ctx, injected) {
-  const snapshot = activitySnapshot(state.lastDecision, state.phase, injected);
+export function publishActivity(pi, state, ctx, injected, decision = state.lastDecision) {
+  const snapshot = activitySnapshot(decision, state.phase, injected);
   const changed = state.lastActivity?.fingerprint !== snapshot.fingerprint;
   state.lastActivity = snapshot;
   if (!changed) return;

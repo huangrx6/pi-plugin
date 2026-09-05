@@ -83,15 +83,19 @@ export function buildSemanticPrompt(prompt, deterministic) {
   });
 }
 
-export function buildSemanticRequestBody(model, userJsonPayload) {
+export function buildSemanticRequestBody(model, userJsonPayload, options = {}) {
   return {
     model,
     messages: [
       { role: "system", content: SCHEMA_INSTRUCTIONS },
       { role: "user", content: userJsonPayload },
     ],
-    temperature: 0,
-    response_format: { type: "json_object" },
+    ...(options.temperature === null
+      ? {}
+      : { temperature: options.temperature ?? 0 }),
+    ...(options.jsonResponse === false
+      ? {}
+      : { response_format: { type: "json_object" } }),
   };
 }
 
@@ -221,6 +225,8 @@ export async function maybeSemanticClassify(
 ) {
   const fb = config?.semanticFallback;
   if (!fb || fb.enabled !== true) return null;
+  if (fb.source === "agent") return null;
+  if (fb.protocol === "anthropic") return null;
   const threshold =
     typeof fb.confidenceThreshold === "number" ? fb.confidenceThreshold : 0.7;
   if (classification.confidence >= threshold) return null;
@@ -244,6 +250,7 @@ export async function maybeSemanticClassify(
     const body = buildSemanticRequestBody(
       model,
       buildSemanticPrompt(prompt, classification),
+      fb,
     );
     const response = await fetcher(endpoint, {
       method: "POST",

@@ -1,6 +1,6 @@
 # Read-Only Execution Intent
 
-The user requested a READ-ONLY task for this turn. The routing decision is binding.
+The classifier inferred a READ-ONLY task for this turn. Follow the user's explicit scope if this inference conflicts with their request; classification does not override user instructions or grant authorization.
 
 Inspect, analyze, research, review, or explain as needed, but do not modify files, configuration, infrastructure, repositories, or external state. Do not run mutating commands.
 

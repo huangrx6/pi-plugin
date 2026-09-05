@@ -1,11 +1,14 @@
 // Runtime state + classification/decision glue.
 // Single instance per extension load; reset on session_start.
 
+import { randomUUID, createHash } from "node:crypto";
+import { validateShape } from "../../src/core/schema.js";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { classifyTask } from "../../src/core/classifier.js";
 import { classifyFollowUp } from "../../src/core/intent.js";
+import { unquotedText } from "../../src/core/language.js";
 import {
   globalConfigFile,
   loadEffectiveConfig,
@@ -13,11 +16,7 @@ import {
   projectConfigFiles,
   projectConfigViolations,
 } from "../../src/core/config.js";
-import {
-  composeAllPolicies,
-  loadManifest,
-  loadProfile,
-} from "../../src/core/loader.js";
+import { loadManifest, loadProfile } from "../../src/core/loader.js";
 import { buildDecision, loadModelRules } from "../../src/core/router.js";
 import {
   resolveHistoryPath,
@@ -27,8 +26,13 @@ import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
 export function createState() {
   return {
+    sessionId: null,
+    task: null,
+    outcome: "idle",
+    lastValidConfig: null,
     runtimeMode: null,
     runtimeProfile: null,
+    runtimeRecognition: null,
     onceMode: null,
     lastDecision: null,
     lastActivity: null,
@@ -59,6 +63,17 @@ function summarizePrompt(prompt) {
 export function recordHistory(state, { source, prompt, decision }) {
   if (!decision) return;
   state.history.push({
+    schemaVersion: 2,
+    extensionVersion: "0.28.0",
+    sessionId: state.sessionId,
+    taskId: state.task?.id,
+    planVersion: state.task?.planVersion,
+    intent: decision.executionIntent,
+    phase: state.phase,
+    outcome: state.outcome,
+    model: state.currentModel,
+    reasons: (decision.reasons ?? []).slice(-20),
+    ...state.recordContext,
     ts: Date.now(),
     source,
     prompt: summarizePrompt(prompt),
@@ -67,6 +82,9 @@ export function recordHistory(state, { source, prompt, decision }) {
     workflow: decision.rigor ?? decision.workflow,
     profile: decision.profile,
     confidence: decision.confidence,
+    recognition: decision.recognition
+      ? { ...decision.recognition, interpretation: undefined }
+      : undefined,
   });
   while (state.history.length > HISTORY_CAP) state.history.shift();
 }
@@ -75,6 +93,7 @@ function stateRuntimeOverrides(state) {
   const out = {};
   if (state.runtimeMode) out.mode = state.runtimeMode;
   if (state.runtimeProfile) out.profile = state.runtimeProfile;
+  if (state.runtimeRecognition) out.semanticFallback = state.runtimeRecognition;
   return out;
 }
 
@@ -85,30 +104,39 @@ function stateRuntimeOverrides(state) {
  * (strictStatePath without cwd), clearing strict-state.json while saves
  * went to strict-state-<hash>.json: a cancelled plan revived on restart.
  */
-export function resolveStrictStatePath(cfg, cwd) {
+export function resolveStrictStatePath(cfg, cwd, sessionId = null) {
   if (!cfg?.historyFile) return null;
   const historyPath = resolveHistoryPath(cfg.historyFile, cwd);
-  return historyPath ? strictStatePath(historyPath, cwd) : null;
+  return historyPath ? strictStatePath(historyPath, cwd, sessionId) : null;
 }
 
 export function buildEffectiveConfig({ packageRoot, cwd, state, raw = false }) {
   // raw = skip runtime normalization: /policy validate must see the actual
   // (possibly invalid) values to report them; every runtime consumer gets
   // the normalized form.
-  return loadEffectiveConfig({
+  const next = loadEffectiveConfig({
     packageRoot,
     cwd,
     runtimeOverrides: stateRuntimeOverrides(state),
     raw,
   });
-}
-
-function resolvePreviewPhase(decision) {
-  if (decision.rigor === "off") return "idle";
-  if (decision.rigor === "strict" && decision.executionIntent !== "read-only") {
-    return "planning";
-  }
-  return "executing";
+  if (raw) return next;
+  if (!next._diagnostics.length)
+    state.lastValidConfig = { cwd, config: structuredClone(next) };
+  else if (state.lastValidConfig?.cwd === cwd)
+    return {
+      ...structuredClone(state.lastValidConfig.config),
+      ...stateRuntimeOverrides(state),
+      semanticFallback: {
+        ...state.lastValidConfig.config.semanticFallback,
+        ...state.runtimeRecognition,
+      },
+      _diagnostics: next._diagnostics,
+      _sources: state.lastValidConfig.config._sources,
+      _attemptedSources: next._sources,
+      _usingLastValid: true,
+    };
+  return next;
 }
 
 /**
@@ -127,12 +155,37 @@ export async function decide({
   model,
   explicitMode = null,
   fetcher,
+  semantic = true,
+  relation = null,
+  interpretation = null,
 }) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
   const routing = loadRoutingConfig(packageRoot);
   let classification = classifyTask(prompt, routing, config.domainHints ?? [], {
     maxDomains: config.maxDomains,
   });
+  if (interpretation) {
+    classification = {
+      ...classification,
+      taskType: interpretation.taskType,
+      executionIntent: interpretation.executionIntent,
+      risk: interpretation.risk,
+      domains: interpretation.domains.slice(0, config.maxDomains),
+      coverage: interpretation.coverage,
+      confidence: null,
+      reasons: [
+        "semantic-primary: contextual interpretation; confidence is not a calibrated probability",
+      ],
+    };
+    if (
+      /(?:^|[，。；,;\n])\s*(?:只分析|只审查|不修改|不要修改|do not modify)\s*(?:$|[，。；,;\n])/i.test(
+        unquotedText(prompt),
+      )
+    )
+      classification.executionIntent = "read-only";
+    if (classification.taskType === "architecture")
+      classification.risk = "high";
+  }
 
   // v0.18 Task Continuity: a bare follow-up ("继续" / "还是不对") carries
   // no instructions of its own — it points at the PREVIOUS task. Inherit
@@ -141,9 +194,13 @@ export async function decide({
   // and never let risk DROP across turns (escalation only). Without this,
   // a bare follow-up after a debugging/database task re-classified as
   // coding/none and drifted the model off its constraints.
-  const last = state.lastDecision;
+  const last = state.task?.workDecision ?? state.lastDecision;
   const followUp = classifyFollowUp(prompt);
-  if (last && last.rigor !== "off" && followUp.type !== "none") {
+  if (
+    last &&
+    last.rigor !== "off" &&
+    (relation ? relation !== "new" : followUp.type !== "none")
+  ) {
     const fresh = classification;
     const RANK = { low: 0, medium: 1, high: 2 };
     // A bare follow-up carries no risk signal of its own — the fresh
@@ -154,7 +211,8 @@ export async function decide({
       r.startsWith("risk:"),
     );
     const risk =
-      freshHasRiskSignal && RANK[fresh.risk] > RANK[last.risk]
+      (interpretation || freshHasRiskSignal) &&
+      RANK[fresh.risk] > RANK[last.risk]
         ? fresh.risk
         : last.risk;
     // Follow-up typing drives intent (v0.20):
@@ -173,9 +231,11 @@ export async function decide({
     ];
     classification = {
       ...fresh,
-      taskType: last.taskType,
+      taskType: interpretation ? fresh.taskType : last.taskType,
       runnerUpTask: fresh.taskType,
-      domains: last.domains ?? [],
+      domains: [
+        ...new Set([...(last.domains ?? []), ...(fresh.domains ?? [])]),
+      ].slice(0, config.maxDomains),
       concerns,
       risk,
       executionIntent,
@@ -190,9 +250,12 @@ export async function decide({
   // Optional semantic fallback (DESIGN §4). Disabled by default. Any
   // failure (network / timeout / schema) returns null and we keep the
   // deterministic result.
-  const merged = await maybeSemanticClassify(prompt, classification, config, {
-    fetcher,
-  });
+  const merged =
+    semantic &&
+    config.semanticFallback?.strategy !== "primary" &&
+    !interpretation
+      ? await maybeSemanticClassify(prompt, classification, config, { fetcher })
+      : null;
   if (merged) classification = merged;
 
   const decision = buildDecision({
@@ -200,8 +263,22 @@ export async function decide({
     mode,
     profile: config.profile ?? "auto",
     model,
-    modelRules: loadModelRules(packageRoot),
+    modelRules: [...(config.modelRules ?? []), ...loadModelRules(packageRoot)],
   });
+  if (
+    semantic &&
+    config.semanticFallback?.enabled &&
+    config.semanticFallback.strategy !== "primary"
+  )
+    decision.recognition = {
+      source: merged ? "model" : "rules",
+      reason: merged
+        ? "legacy_fallback"
+        : classification.confidence >=
+            config.semanticFallback.confidenceThreshold
+          ? "threshold_not_met"
+          : "fallback_unavailable",
+    };
   return { decision, config, classification };
 }
 
@@ -254,7 +331,9 @@ export function mergeRevisionDecision({
     decision.risk =
       RANK[delta.risk] > RANK[previous.risk] ? delta.risk : previous.risk;
     decision.reasons = [
-      ...(previous.reasons ?? []),
+      ...(previous.reasons ?? [])
+        .filter((r) => !r.startsWith("plan-revision:"))
+        .slice(-12),
       `plan-revision: task replaced (${previous.taskType}/${previous.executionIntent} → ${decision.taskType}/${decision.executionIntent}); re-routed fresh, approval still required`,
       ...(delta.reasons ?? []),
     ];
@@ -288,7 +367,9 @@ export function mergeRevisionDecision({
     domains,
     concerns,
     reasons: [
-      ...(previous.reasons ?? []),
+      ...(previous.reasons ?? [])
+        .filter((r) => !r.startsWith("plan-revision:"))
+        .slice(-12),
       `plan-revision: ${notes.length > 0 ? notes.join("; ") : "no routing change"}`,
       ...delta.reasons.filter(
         (r) =>
@@ -301,81 +382,19 @@ export function mergeRevisionDecision({
 }
 
 export function validateConfig({ config, packageRoot, cwd = null }) {
-  const issues = [];
+  const issues = validateShape(config);
+  if (!config || typeof config !== "object" || Array.isArray(config))
+    return { ok: false, issues };
+  config = {
+    ...config,
+    includePolicies: Array.isArray(config.includePolicies)
+      ? config.includePolicies.filter((x) => typeof x === "string")
+      : [],
+    excludePolicies: Array.isArray(config.excludePolicies)
+      ? config.excludePolicies.filter((x) => typeof x === "string")
+      : [],
+  };
   const push = (severity, message) => issues.push({ severity, message });
-
-  // ---- v0.20: schema freeze actually validated ----------------------------
-  // A frozen schema deserves real checks, not just id-reference lookups.
-  const MODES = ["auto", "quick", "standard", "strict", "off"];
-  if (config.mode !== undefined && !MODES.includes(config.mode)) {
-    push("error", `mode: '${config.mode}' is not one of ${MODES.join(" | ")}`);
-  }
-  const PROFILES = [
-    "auto",
-    "coding",
-    "debugging",
-    "review",
-    "research",
-    "architecture",
-    "documentation",
-  ];
-  if (config.profile !== undefined && !PROFILES.includes(config.profile)) {
-    push(
-      "warning",
-      `profile: '${config.profile}' is not a built-in profile (${PROFILES.join(", ")}) — loading falls back to defaults`,
-    );
-  }
-  if (config.maxDomains !== undefined && !(Number(config.maxDomains) > 0)) {
-    push("error", `maxDomains: must be > 0 (got ${config.maxDomains})`);
-  }
-  if (
-    config.policyMaxBytes !== undefined &&
-    !(Number(config.policyMaxBytes) > 0)
-  ) {
-    push("error", `policyMaxBytes: must be > 0 (got ${config.policyMaxBytes})`);
-  }
-  if (
-    config.projectPolicyMaxFiles !== undefined &&
-    !(Number(config.projectPolicyMaxFiles) > 0)
-  ) {
-    push(
-      "error",
-      `projectPolicyMaxFiles: must be > 0 (got ${config.projectPolicyMaxFiles})`,
-    );
-  }
-  const fb = config.semanticFallback;
-  if (fb && fb.enabled === true) {
-    if (typeof fb.endpoint !== "string" || !/^https?:\/\//.test(fb.endpoint)) {
-      push(
-        "error",
-        "semanticFallback.endpoint: must be an http(s) URL when enabled",
-      );
-    }
-    if (typeof fb.model !== "string" || !fb.model) {
-      push(
-        "error",
-        "semanticFallback.model: must be a non-empty string when enabled",
-      );
-    }
-    if (typeof fb.apiKeyEnvVar !== "string" || !fb.apiKeyEnvVar) {
-      push("error", "semanticFallback.apiKeyEnvVar: must be set when enabled");
-    }
-    if (
-      fb.confidenceThreshold !== undefined &&
-      !(fb.confidenceThreshold > 0 && fb.confidenceThreshold < 1)
-    ) {
-      push(
-        "error",
-        `semanticFallback.confidenceThreshold: must be in (0, 1) (got ${fb.confidenceThreshold})`,
-      );
-    }
-    if (fb.timeoutMs !== undefined && !(Number(fb.timeoutMs) > 0)) {
-      push(
-        "error",
-        `semanticFallback.timeoutMs: must be > 0 (got ${fb.timeoutMs})`,
-      );
-    }
-  }
 
   // Broken config JSON must not be silent (v0.20): safeJson swallows parse
   // errors during merging, so surface them here.
@@ -402,14 +421,18 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
   // Reference checks against manifest + core.* + model.*
   const manifest = loadManifest(packageRoot);
   const manifestIds = new Set(Object.keys(manifest?.policies ?? {}));
-  const builtInPrefixes = ["core.", "model."];
-  const isKnownId = (id) =>
-    manifestIds.has(id) || builtInPrefixes.some((p) => id.startsWith(p));
+  const isKnownId = (id) => manifestIds.has(id);
+  for (const rule of Array.isArray(config.modelRules)
+    ? config.modelRules
+    : []) {
+    if (rule?.policy && !isKnownId(rule.policy))
+      push("error", `modelRules: unknown policy ${rule.policy}`);
+  }
   for (const id of config.includePolicies ?? []) {
     if (!isKnownId(id)) {
       push(
         "warning",
-        `includePolicies: '${id}' is not in the package manifest and does not start with 'core.' or 'model.'. It will be silently ignored.`,
+        `includePolicies: '${id}' is not in the package manifest . It will not be loaded.`,
       );
     }
   }
@@ -417,7 +440,7 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
     if (!isKnownId(id)) {
       push(
         "warning",
-        `excludePolicies: '${id}' is not in the package manifest and does not start with 'core.' or 'model.'. It will be silently ignored.`,
+        `excludePolicies: '${id}' is not in the package manifest . It will not be loaded.`,
       );
     }
   }
@@ -444,7 +467,7 @@ export function validateConfig({ config, packageRoot, cwd = null }) {
         if (!isKnownId(id)) {
           push(
             "error",
-            `profile '${profileId}.json': policy '${id}' is not in the manifest and is not a core.*/model.* id`,
+            `profile '${profileId}.json': policy '${id}' is not in the manifest `,
           );
         }
       }
@@ -516,50 +539,78 @@ export function compareDecisions(left, right) {
  *
  * Returns a structured object suitable for `formatPreview` to render.
  */
-export async function preview({ packageRoot, cwd, prompt, model, fetcher }) {
-  // Build a fake state with no overrides so preview always reflects the
-  // resolved config + the prompt, regardless of any in-session overrides.
-  const previewState = createState();
-  const { decision, config, classification } = await decide({
+export async function preview({
+  packageRoot,
+  cwd,
+  prompt,
+  model,
+  fetcher,
+  agentClassifier,
+  state: currentState = null,
+  semantic = false,
+}) {
+  const state = currentState ? structuredClone(currentState) : createState();
+  const { resolveTurn } = await import("./transitions.js");
+  const { buildTurnBlock } = await import("./policy-block.js");
+  const turn = await resolveTurn({
     packageRoot,
     cwd,
     prompt,
-    state: previewState,
+    state,
     model,
     fetcher,
+    agentClassifier,
+    semantic,
   });
-  const phase = resolvePreviewPhase(decision);
-  // v0.17: ONE total budget — built-ins + project combined under
-  // policyMaxBytes (previously each list was capped independently and the
-  // preview only reported the built-in share, hiding up to 2× overflow).
-  const { policies, projectPolicies, truncated, builtInBytes, projectBytes } =
-    composeAllPolicies({ packageRoot, cwd, decision, config, phase });
-  const budget = Number(config.policyMaxBytes ?? 24000);
-  const totalBytes = builtInBytes + projectBytes;
+  const result = turn.inject
+    ? buildTurnBlock({ packageRoot, cwd, turn, model })
+    : {
+        policies: [],
+        projectPolicies: [],
+        truncated: [],
+        builtInBytes: 0,
+        projectBytes: 0,
+        injected: "",
+        blocked: false,
+      };
+  const budget = turn.config.policyMaxBytes;
   return {
-    decision,
-    // Config is returned so callers (e.g. the /policy preview handler's
-    // disk-history append) can read historyFile without a second
-    // buildEffectiveConfig round-trip. v0.9 shipped the caller reading
-    // `result.config?.historyFile` but this field was missing — the preview
-    // path never persisted history. Restored here.
-    config,
-    classification,
-    policies,
-    projectPolicies,
-    truncated,
+    ...turn,
+    ...result,
+    scope: currentState ? "current" : "new-task",
+    semantic,
     wouldRequireApproval:
-      decision.rigor === "strict" && decision.executionIntent !== "read-only",
+      ["planning", "awaiting_approval"].includes(turn.phase) && turn.inject,
     stats: {
-      builtInCount: policies.length,
-      builtInBytes,
-      projectCount: projectPolicies.length,
-      projectBytes,
+      builtInCount: result.policies.length,
+      projectCount: result.projectPolicies.length,
+      builtInBytes: result.builtInBytes,
+      projectBytes: result.projectBytes,
       budget,
       budgetUsedPct: Math.min(
         100,
-        Math.round((totalBytes / Math.max(1, budget)) * 100),
+        Math.round(
+          ((result.builtInBytes + result.projectBytes) / Math.max(1, budget)) *
+            100,
+        ),
       ),
+      injectedBytes: Buffer.byteLength(result.injected),
     },
   };
+}
+
+export function newTask(prompt) {
+  return {
+    id: randomUUID(),
+    planVersion: 1,
+    prompt: summarizePrompt(prompt),
+    goal: prompt,
+    requirements: [],
+    constraintLedger: [],
+    autonomy: false,
+    constraints: [],
+  };
+}
+export function fingerprint(value) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }

@@ -1,3 +1,4 @@
+import { validateShape, DOMAINS } from "./schema.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { globalConfigPath, defaultHistoryFilePath } from "./paths.js";
@@ -73,6 +74,7 @@ const PRIVILEGED_KEYS = [
   "semanticFallback",
   "historyFile",
   "historyMaxEntries",
+  "modelRules",
 ];
 
 const SAFE_PROJECT_KEYS = [
@@ -109,6 +111,7 @@ export function projectConfigViolations(cwd) {
   for (const f of projectConfigFiles(cwd)) {
     if (f.error) continue;
     const raw = safeJson(f.path, {});
+    if (!isPlainObject(raw)) continue;
     for (const key of PRIVILEGED_KEYS) {
       if (key in raw) out.push({ path: f.path, key });
     }
@@ -164,7 +167,7 @@ function deepMerge(base, override) {
 export function mergeConfig(...configs) {
   let out = {};
   for (const cfg of configs) {
-    if (!cfg || typeof cfg !== "object") continue;
+    if (!isPlainObject(cfg)) continue;
     out = deepMerge(out, cfg);
   }
   return out;
@@ -182,8 +185,7 @@ const BUILTIN_PROFILES = [
 const BUILTIN_MODES = ["auto", "quick", "standard", "strict", "off"];
 
 const num = (v, fallback) => {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
+  return Number.isInteger(v) && v > 0 && v <= 1048576 ? v : fallback;
 };
 
 /**
@@ -195,20 +197,63 @@ const num = (v, fallback) => {
  * Invalid values fall back to defaults; valid values pass through.
  */
 export function normalizeEffectiveConfig(cfg) {
-  const out = { ...cfg };
+  const out = structuredClone(cfg ?? {});
   if (!BUILTIN_MODES.includes(out.mode)) out.mode = "auto";
   if (!BUILTIN_PROFILES.includes(out.profile)) out.profile = "auto";
-  out.maxDomains = num(out.maxDomains, 2);
+  out.maxDomains =
+    Number.isInteger(out.maxDomains) &&
+    out.maxDomains > 0 &&
+    out.maxDomains <= 16
+      ? out.maxDomains
+      : 2;
   out.policyMaxBytes = num(out.policyMaxBytes, 24000);
-  out.projectPolicyMaxFiles = num(out.projectPolicyMaxFiles, 12);
+  out.projectPolicyMaxFiles =
+    Number.isInteger(out.projectPolicyMaxFiles) &&
+    out.projectPolicyMaxFiles > 0 &&
+    out.projectPolicyMaxFiles <= 1000
+      ? out.projectPolicyMaxFiles
+      : 12;
   out.projectPolicyMaxBytes = num(out.projectPolicyMaxBytes, 24000);
-  out.historyMaxEntries = num(out.historyMaxEntries, 500);
+  out.historyMaxEntries =
+    Number.isInteger(out.historyMaxEntries) &&
+    out.historyMaxEntries > 0 &&
+    out.historyMaxEntries <= 10000
+      ? out.historyMaxEntries
+      : 500;
+  for (const key of [
+    "domainHints",
+    "includePolicies",
+    "excludePolicies",
+    "projectPolicies",
+  ]) {
+    if (
+      out[key] !== undefined &&
+      (!Array.isArray(out[key]) || out[key].some((v) => typeof v !== "string"))
+    )
+      out[key] = [];
+  }
+  if (out.domainHints)
+    out.domainHints = out.domainHints
+      .filter((v) => DOMAINS.includes(v))
+      .slice(0, out.maxDomains);
+  if (typeof out.showStatus !== "boolean") out.showStatus = true;
+  if (out.historyFile !== null && typeof out.historyFile !== "string")
+    out.historyFile = null;
+  if (validateShape({ modelRules: out.modelRules }).length) out.modelRules = [];
+  if (
+    !out.semanticFallback ||
+    typeof out.semanticFallback !== "object" ||
+    Array.isArray(out.semanticFallback)
+  )
+    out.semanticFallback = { enabled: false };
   const fb = out.semanticFallback;
+  if (fb.enabled !== true) fb.enabled = false;
   if (fb && typeof fb === "object") {
     const t = Number(fb.confidenceThreshold);
     if (!(t > 0 && t < 1)) fb.confidenceThreshold = 0.7;
     const ms = Number(fb.timeoutMs);
-    if (!(ms > 0)) fb.timeoutMs = 4000;
+    if (!(ms > 0 && ms <= 60000)) fb.timeoutMs = 4000;
+    if (validateShape({ semanticFallback: fb }).length) fb.enabled = false;
   }
   return out;
 }
@@ -222,6 +267,15 @@ export function loadEffectiveConfig({
   const defaults = safeJson(join(packageRoot, "config", "defaults.json"), {});
   defaults.historyFile = defaultHistoryFilePath();
   const globalConfig = safeJson(globalConfigPath(), {});
+  // Preserve the meaning of existing endpoint configurations on upgrade.
+  if (
+    isPlainObject(globalConfig?.semanticFallback) &&
+    globalConfig.semanticFallback.source === undefined
+  ) {
+    globalConfig.semanticFallback.source = "endpoint";
+    globalConfig.semanticFallback.strategy ??= "fallback";
+    globalConfig.semanticFallback.timeoutMs ??= 4000;
+  }
   // Project layers are sanitized BEFORE merging — the trust boundary is
   // structural, not advisory (see PRIVILEGED_KEYS).
   const projectLayers = projectConfigFiles(cwd).map((f) =>
@@ -235,7 +289,46 @@ export function loadEffectiveConfig({
   );
   // raw = skip normalization (used by /policy validate so it can report
   // the invalid values instead of the silently-fixed ones).
-  return raw ? merged : normalizeEffectiveConfig(merged);
+  const diagnostics = validateShape(merged);
+  for (const f of [globalConfigFile(), ...projectConfigFiles(cwd)].filter(
+    Boolean,
+  )) {
+    if (!f.error)
+      for (const issue of validateShape(safeJson(f.path, {})))
+        diagnostics.push({ ...issue, message: `${f.path}: ${issue.message}` });
+  }
+  const sources = {};
+  const layers = [
+    { path: join(packageRoot, "config", "defaults.json"), data: defaults },
+    { path: globalConfigPath(), data: globalConfig },
+    ...projectConfigFiles(cwd)
+      .filter((f) => !f.error)
+      .map((f) => ({
+        path: f.path,
+        data: sanitizeProjectConfig(safeJson(f.path, {})),
+      })),
+    { path: "runtime", data: runtimeOverrides },
+  ];
+  const visit = (obj, prefix, source) => {
+    for (const [k, v] of Object.entries(obj ?? {})) {
+      const key = prefix ? `${prefix}.${k}` : k;
+      if (isPlainObject(v)) visit(v, key, source);
+      else sources[key] = source;
+    }
+  };
+  for (const layer of layers) visit(layer.data, "", layer.path);
+  for (const f of [globalConfigFile(), ...projectConfigFiles(cwd)].filter(
+    Boolean,
+  ))
+    if (f.error)
+      diagnostics.push({
+        severity: "error",
+        message: `${f.path}: invalid JSON (${f.error})`,
+      });
+  const out = raw ? merged : normalizeEffectiveConfig(merged);
+  out._diagnostics = diagnostics;
+  out._sources = sources;
+  return out;
 }
 
 export function loadRoutingConfig(packageRoot) {

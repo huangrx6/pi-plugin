@@ -12,6 +12,21 @@ import policyEngine from "../extensions/policy-engine/index.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+function planText(task) {
+  return (
+    "```policy-plan\n" +
+    JSON.stringify({
+      taskId: task.id,
+      planVersion: task.planVersion,
+      goal: task.goal,
+      steps: [
+        { action: "Apply bounded change", verification: "Run targeted checks" },
+      ],
+    }) +
+    "\n```"
+  );
+}
+
 const stateFile = join(
   mkdtempSync(join(tmpdir(), "pi-policy-ss-")),
   "strict-state.json",
@@ -20,9 +35,8 @@ const cwdA = mkdtempSync(join(tmpdir(), "pi-policy-ss-a-"));
 const cwdB = mkdtempSync(join(tmpdir(), "pi-policy-ss-b-"));
 
 test("save/load/clear round-trip (unit, fs mock)", async () => {
-  const { saveStrictState, loadStrictState, clearStrictState } = await import(
-    "../src/core/history-store.js"
-  );
+  const { saveStrictState, loadStrictState, clearStrictState } =
+    await import("../src/core/history-store.js");
   const store = new Map();
   const fs = {
     async readFile(p) {
@@ -59,9 +73,8 @@ test("save/load/clear round-trip (unit, fs mock)", async () => {
 });
 
 test("stale state (over maxAge) is not restored", async () => {
-  const { saveStrictState, loadStrictState } = await import(
-    "../src/core/history-store.js"
-  );
+  const { saveStrictState, loadStrictState } =
+    await import("../src/core/history-store.js");
   const store = new Map();
   const fs = {
     async readFile(p) {
@@ -89,9 +102,8 @@ test("stale state (over maxAge) is not restored", async () => {
 });
 
 test("end-to-end: session restart restores awaiting_approval", async () => {
-  const { saveStrictState, loadStrictState } = await import(
-    "../src/core/history-store.js"
-  );
+  const { saveStrictState, loadStrictState } =
+    await import("../src/core/history-store.js");
   const historyDir = mkdtempSync(join(tmpdir(), "pi-policy-e2e-"));
   const decision = {
     taskType: "architecture",
@@ -168,26 +180,34 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
   // HOME is redirected so the "global" config is a temp file — the project
   // layer can no longer set historyFile (trust boundary), so the E2E uses
   // the global layer the way a real user would.
-  const realHome = process.env.HOME;
-  const home = mkdtempSync(join(tmpdir(), "pi-policy-home-"));
+  const previousAgentDirectory = process.env.PI_CODING_AGENT_DIR;
+  const isolatedAgentDirectory = mkdtempSync(join(tmpdir(), "pi-policy-home-"));
   const repoA = mkdtempSync(join(tmpdir(), "pi-policy-a-"));
   const repoB = mkdtempSync(join(tmpdir(), "pi-policy-b-"));
-  mkdirSync(join(home, ".pi", "agent", "policy-engine"), { recursive: true });
-  process.env.HOME = home;
+  mkdirSync(join(isolatedAgentDirectory, "policy-engine"), { recursive: true });
+  process.env.PI_CODING_AGENT_DIR = isolatedAgentDirectory;
   try {
     writeFileSync(
-      join(home, ".pi", "agent", "policy-engine.json"),
+      join(isolatedAgentDirectory, "policy-engine.json"),
       JSON.stringify({ showStatus: false, historyMaxEntries: 50 }),
     );
     const makeSession = (cwd, model) => {
+      let task;
       const handlers = new Map();
       policyEngine({
+        appendEntry: (type, data) => {
+          if (type === "policy-engine-workflow") task = data.task;
+        },
         on: (n, f) => handlers.set(n, f),
         registerCommand: () => {},
       });
       return {
+        get task() {
+          return task;
+        },
         handlers,
         ctx: {
+          sessionManager: { getSessionId: () => cwd },
           cwd,
           model,
           ui: { notify() {}, setStatus() {} },
@@ -205,7 +225,18 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
       },
       a1.ctx,
     );
-    await a1.handlers.get("agent_end")({}, a1.ctx);
+    await a1.handlers.get("agent_end")(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: planText(a1.task) }],
+            stopReason: "stop",
+          },
+        ],
+      },
+      a1.ctx,
+    );
 
     // Project B: different strict plan (its own namespace file).
     const b1 = makeSession(repoB, { provider: "minimax-cn", id: "MiniMax-M3" });
@@ -214,7 +245,18 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
       { prompt: "重构整个认证体系并实施 jwt 鉴权", systemPrompt: "B" },
       b1.ctx,
     );
-    await b1.handlers.get("agent_end")({}, b1.ctx);
+    await b1.handlers.get("agent_end")(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: planText(b1.task) }],
+            stopReason: "stop",
+          },
+        ],
+      },
+      b1.ctx,
+    );
 
     // Restart in A under a DIFFERENT model: restore must return A's task and
     // recompute the model adaptation (deepseek, not minimax).
@@ -245,8 +287,10 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
       /concern\.security|Concerns: security/,
     );
   } finally {
-    process.env.HOME = realHome;
-    rmSync(home, { recursive: true, force: true });
+    if (previousAgentDirectory === undefined)
+      delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDirectory;
+    rmSync(isolatedAgentDirectory, { recursive: true, force: true });
     rmSync(repoA, { recursive: true, force: true });
     rmSync(repoB, { recursive: true, force: true });
   }
@@ -255,27 +299,37 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
 // ---- v0.23 P0: cancel must clear the NAMESPACED file — no revival ------
 
 test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
-  const realHome = process.env.HOME;
-  const home = mkdtempSync(join(tmpdir(), "pi-policy-home2-"));
+  const previousAgentDirectory = process.env.PI_CODING_AGENT_DIR;
+  const isolatedAgentDirectory = mkdtempSync(
+    join(tmpdir(), "pi-policy-home2-"),
+  );
   const repo = mkdtempSync(join(tmpdir(), "pi-policy-repo2-"));
-  process.env.HOME = home;
+  process.env.PI_CODING_AGENT_DIR = isolatedAgentDirectory;
   try {
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    mkdirSync(isolatedAgentDirectory, { recursive: true });
     writeFileSync(
-      join(home, ".pi", "agent", "policy-engine.json"),
+      join(isolatedAgentDirectory, "policy-engine.json"),
       JSON.stringify({ showStatus: false }),
     );
     const make = (cwd) => {
+      let task;
       const handlers = new Map();
       const commands = new Map();
       policyEngine({
+        appendEntry: (type, data) => {
+          if (type === "policy-engine-workflow") task = data.task;
+        },
         on: (n, f) => handlers.set(n, f),
         registerCommand: (n, d) => commands.set(n, d),
       });
       return {
+        get task() {
+          return task;
+        },
         handlers,
         commands,
         ctx: {
+          sessionManager: { getSessionId: () => cwd },
           cwd,
           model: { provider: "minimax-cn", id: "MiniMax-M3" },
           ui: { notify() {}, setStatus() {} },
@@ -293,7 +347,18 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
       },
       s1.ctx,
     );
-    await s1.handlers.get("agent_end")({}, s1.ctx);
+    await s1.handlers.get("agent_end")(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: planText(s1.task) }],
+            stopReason: "stop",
+          },
+        ],
+      },
+      s1.ctx,
+    );
 
     // Cancel via the command — v0.22 bug: cleared the UN-namespaced path.
     await s1.commands.get("policy").handler("cancel", s1.ctx);
@@ -310,8 +375,10 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
     assert.doesNotMatch(resp.systemPrompt, /## Still awaiting approval/);
     assert.doesNotMatch(resp.systemPrompt, /Phase: awaiting_approval/);
   } finally {
-    process.env.HOME = realHome;
-    rmSync(home, { recursive: true, force: true });
+    if (previousAgentDirectory === undefined)
+      delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDirectory;
+    rmSync(isolatedAgentDirectory, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });
   }
 });
@@ -319,13 +386,15 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
 // ---- v0.23 P0: read-only intent is binding in the runtime block --------
 
 test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", async () => {
-  const realHome = process.env.HOME;
-  const home = mkdtempSync(join(tmpdir(), "pi-policy-home3-"));
-  process.env.HOME = home;
+  const previousAgentDirectory = process.env.PI_CODING_AGENT_DIR;
+  const isolatedAgentDirectory = mkdtempSync(
+    join(tmpdir(), "pi-policy-home3-"),
+  );
+  process.env.PI_CODING_AGENT_DIR = isolatedAgentDirectory;
   try {
-    mkdirSync(join(home, ".pi", "agent"), { recursive: true });
+    mkdirSync(isolatedAgentDirectory, { recursive: true });
     writeFileSync(
-      join(home, ".pi", "agent", "policy-engine.json"),
+      join(isolatedAgentDirectory, "policy-engine.json"),
       JSON.stringify({ showStatus: false }),
     );
     const handlers = new Map();
@@ -370,8 +439,10 @@ test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", as
       /If the task is read-only: do not perform the mutation phase/,
     );
   } finally {
-    process.env.HOME = realHome;
-    rmSync(home, { recursive: true, force: true });
+    if (previousAgentDirectory === undefined)
+      delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previousAgentDirectory;
+    rmSync(isolatedAgentDirectory, { recursive: true, force: true });
   }
 });
 
@@ -407,13 +478,25 @@ test("pruneStrictStates removes only stale namespaced files", async () => {
       stat: async (path) => times.get(String(path)) ?? realFs.stat(path),
     };
 
-    const removed = await pruneStrictStates(join(dir, "history.jsonl"), {}, controlledFs);
+    const removed = await pruneStrictStates(
+      join(dir, "history.jsonl"),
+      {},
+      controlledFs,
+    );
     assert.equal(removed, 2);
     assert.equal(existsSync(stale), false, "stale namespaced removed");
     assert.equal(existsSync(legacy), false, "stale legacy removed");
     assert.equal(existsSync(fresh), true, "fresh namespaced kept");
-    assert.equal(existsSync(birthFresh), true, "fresh creation time protects state");
-    assert.equal(existsSync(mtimeFresh), true, "fresh modification time protects state");
+    assert.equal(
+      existsSync(birthFresh),
+      true,
+      "fresh creation time protects state",
+    );
+    assert.equal(
+      existsSync(mtimeFresh),
+      true,
+      "fresh modification time protects state",
+    );
     assert.equal(existsSync(untouched), true, "non-strict-state kept");
 
     // Missing directory / empty path: best-effort, returns 0.

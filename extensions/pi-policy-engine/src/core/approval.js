@@ -30,6 +30,9 @@
 // Whole-CLAUSE cancellation, anchored: "先别动数据库" (a scoped constraint
 // on part of the plan) must never cancel the whole plan — the v0.21
 // unanchored CANCEL_RE turned every scoped rejection into a full cancel.
+import { unquotedText, isConversation } from "./language.js";
+import { classifyApprovalRequirement } from "./intent.js";
+
 const CANCEL_WHOLE_RE =
   /^(?:先别做了?|先停下来|不做了|算了|放弃(?:这个计划|方案|吧)?|取消(?:这个|整个|该)?(?:计划|方案|任务|吧)?|不批准|不通过|不同意(?:此方案)?|不要动|先别动|别执行|不要执行|先不执行|reject the (?:whole )?plan|cancel (?:this |the )?(?:whole )?plan|drop (?:this |the )?plan|not approved|do not execute|don'?t execute|never mind|stop (?:the plan|everything))$/i;
 
@@ -258,11 +261,12 @@ function classifyApprovalClause(clause) {
  * @returns {"approve"|"revise"|"discuss"|"cancel"|"unknown"}
  */
 export function classifyPlanResponse(prompt) {
-  const text = String(prompt ?? "").trim();
+  if (isConversation(prompt)) return "unknown";
+  const text = unquotedText(prompt).trim();
   if (!text) return "unknown";
 
   const clauses = text
-    .split(/[，。；、！？!?,;\n\r—–]+/)
+    .split(/[，。；、!,;\n\r—–]+/)
     .map((c) => c.trim())
     .filter(Boolean);
 
@@ -290,7 +294,18 @@ export function classifyPlanResponse(prompt) {
       if (!stripped) continue;
       clause = stripped;
     }
-    if (AUTONOMY_GRANT_RE.test(clause)) {
+    if (
+      classifyApprovalRequirement(clause) === "explicit" ||
+      /^(?:不要|不准|禁止|别|不可以|不得)\s*(?:自主|自行|自己|全权)|^(?:do not|don't|never)\s+(?:act autonomously|decide|execute)/i.test(
+        clause,
+      )
+    ) {
+      verdict = "unknown";
+      stickyRevise = true;
+      released = false;
+      continue;
+    }
+    if (isLiveAutonomyClause(clause)) {
       verdict = "approve";
       stickyRevise = false;
       released = true;
@@ -365,4 +380,59 @@ export function classifyPlanResponse(prompt) {
   // anything else ("帮我看看这个") stays unknown and keeps awaiting.
   if (PLAN_CHANGE_RE.test(core)) return "revise";
   return "unknown";
+}
+
+function isLiveAutonomyClause(clause) {
+  if (/[?？]/.test(clause)) return false;
+  if (
+    /^(?:请)?(?:解释|说明|分析|讨论|如果|假如|假设|例如|比如)|是什么意思|为什么|如何|是否|吗$|\b(?:explain|what|why|whether|if)\b/i.test(
+      clause,
+    )
+  )
+    return false;
+  const hit = AUTONOMY_GRANT_RE.exec(clause);
+  if (!hit) return false;
+  const before = clause.slice(0, hit.index);
+  return !/(?:不要|不准|禁止|不可以|不得|别|不能|不|不同意|不允许|不授权|don't|do not|never)\s*$/.test(
+    before,
+  );
+}
+
+export function hasAutonomyGrant(prompt) {
+  return (
+    classifyPlanResponse(prompt) === "approve" &&
+    unquotedText(prompt)
+      .split(/[，。；！？!?,;\n\r]+/)
+      .some(isLiveAutonomyClause)
+  );
+}
+
+// Known scope restrictions may accompany an explicit approval without a new gate.
+// Added work, questions, and plan replacements still use the conservative parser.
+export function resolvePlanResponse(prompt) {
+  const verdict = classifyPlanResponse(prompt);
+  const autonomy = hasAutonomyGrant(prompt);
+  if (verdict !== "revise") return { verdict, autonomy, constraints: [] };
+  let approved = false;
+  const constraints = [];
+  for (const part of unquotedText(prompt)
+    .split(/[，。；,;\n\r]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    if (classifyPlanResponse(part) === "approve") {
+      approved = true;
+      continue;
+    }
+    const restriction = part.replace(/^(?:但是|但|不过|but)\s*/i, "");
+    if (
+      /^(?:(?:不要|别|禁止|不准)(?:改|动|碰|重构|部署|删除|迁移)[\p{L}\p{N}\s_.\/-]*|保持[\p{L}\p{N}\s_.\/-]*(?:兼容|不变)|(?:do not|don't) (?:touch|change|modify|refactor|deploy|delete|migrate) [\w\s./-]+|keep [\w\s./-]+ (?:compatible|unchanged))$/iu.test(
+        restriction,
+      )
+    )
+      constraints.push(restriction);
+    else return { verdict, autonomy, constraints: [] };
+  }
+  return approved && constraints.length
+    ? { verdict: "approve", autonomy: false, constraints }
+    : { verdict, autonomy, constraints: [] };
 }

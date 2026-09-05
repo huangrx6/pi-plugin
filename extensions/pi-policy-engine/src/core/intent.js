@@ -24,6 +24,7 @@
 // "unclear" deliberately does NOT release strict execution.
 
 import { findTerms } from "./matcher.js";
+import { unquotedText } from "./language.js";
 
 const MUTATION_VERBS = [
         // EN
@@ -128,6 +129,7 @@ const AMBIGUOUS_VERBS = [
 
 const NEGATORS = [
         // ZH
+        "不",
         "不要",
         "先别",
         "别",
@@ -170,7 +172,7 @@ const CLAUSE_SPLIT_RE =
         /[，。；、！？!?,;\n\r]+|\s+(?:然后|接着|再|and then|but)\s+/i;
 
 function splitClauses(text) {
-        return String(text ?? "")
+        return unquotedText(text)
                 .split(CLAUSE_SPLIT_RE)
                 .map((c) => c.trim())
                 .filter(Boolean);
@@ -255,6 +257,11 @@ function modality(clause, lower, hit) {
         if (isPastNarration(lower, hit)) return "dead";
         if (ADVISORY_HEAD_RE.test(clause.trim())) return "advisory";
         if (ADVISORY_BEFORE_RE.test(lower.slice(0, hit.idx))) return "advisory";
+        if (/^(?:什么|哪些|是否)/.test(lower.slice(hit.end).trim())) return "advisory";
+        // Inspection verbs govern their object, including named mutation paths.
+        const before = lower.slice(0, hit.idx);
+        if (/^(?:请|帮我|麻烦|先|只|全面|全局|你)?\s*(?:检查|审查|评审|分析|评估|梳理|inspect\b|review\b|analy[sz]e\b|audit\b)/i.test(before) &&
+            !/(?:并|然后|接着|再|顺便|直接|以及|and then|and also|then)\s*$/.test(before)) return "advisory";
         if (isAdvisoryNoun(lower, hit)) {
                 return COMMUNICATION_RE.test(clause) ? "advisory" : "dead";
         }
@@ -612,7 +619,7 @@ const FRAME_ACTIONS = [
                         "implement",
                 ],
         },
-        { id: "review", terms: ["审查", "评审", "review", "reviewing"] },
+        { id: "review", terms: ["审查", "评审", "检查", "review", "reviewing", "inspect"] },
         {
                 id: "research",
                 terms: [
@@ -664,6 +671,7 @@ export function extractIntentFrame(prompt) {
                         // anchors task routing even when the intent is read-only.
                         if (isPastNarration(lower, hit)) continue;
                         if (isAdvisoryNoun(lower, hit)) continue;
+                        if (modality(clause, lower, hit) === "advisory" && id !== "review" && id !== "research" && id !== "explain") continue;
                         candidates.push({
                                 action: id,
                                 targetHint:

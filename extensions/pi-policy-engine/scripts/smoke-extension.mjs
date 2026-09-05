@@ -9,14 +9,21 @@ import policyEngine from "../extensions/policy-engine/index.js";
 // from a temp dir guarantees no real session's persisted awaiting plan
 // leaks into the smoke run (or vice versa).
 const smokeCwd = mkdtempSync(join(tmpdir(), "pi-policy-smoke-"));
+process.env.PI_CODING_AGENT_DIR = join(smokeCwd, "agent-data");
 
 const handlers = new Map();
 const commands = new Map();
 const activityEntries = [];
 const entryRenderers = new Map();
+let currentTask;
 const pi = {
-  appendEntry(type, data) { activityEntries.push({ type, data }); },
-  registerEntryRenderer(type, render) { entryRenderers.set(type, render); },
+  appendEntry(type, data) {
+    if (type === "policy-engine-workflow") currentTask = data.task;
+    if (type === "policy-engine-activity") activityEntries.push({ type, data });
+  },
+  registerEntryRenderer(type, render) {
+    entryRenderers.set(type, render);
+  },
   on(name, fn) {
     handlers.set(name, fn);
   },
@@ -59,11 +66,38 @@ const quick = await handlers.get("before_agent_start")(
 );
 assert.match(quick.systemPrompt, /Rigor: quick/);
 assert.match(quick.systemPrompt, /MiniMax M3 Adaptation/);
-assert.equal(activityEntries[0].data.injected, quick.systemPrompt.slice("BASE".length).trim());
+assert.equal(
+  activityEntries[0].data.injected,
+  quick.systemPrompt.slice("BASE".length).trim(),
+);
 assert.ok(entryRenderers.has("policy-engine-activity"));
 const firstSnapshot = JSON.stringify(activityEntries[0].data);
 
-await handlers.get("agent_end")({}, ctx);
+await handlers.get("agent_end")(
+  {
+    messages: [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "```policy-plan\n" +
+              JSON.stringify({
+                taskId: currentTask?.id,
+                planVersion: currentTask?.planVersion,
+                goal: "Smoke plan",
+                steps: [{ action: "Apply change", verification: "Run checks" }],
+              }) +
+              "\n```",
+          },
+        ],
+        stopReason: "stop",
+      },
+    ],
+  },
+  ctx,
+);
 
 // Task Continuity (v0.18): a bare follow-up inherits the previous task.
 // After the quick documentation task, "继续" must stay documentation —
@@ -78,7 +112,31 @@ const followUp = await handlers.get("before_agent_start")(
 assert.match(followUp.systemPrompt, /Task type: documentation/);
 assert.match(followUp.systemPrompt, /Rigor: quick/);
 
-await handlers.get("agent_end")({}, ctx);
+await handlers.get("agent_end")(
+  {
+    messages: [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "```policy-plan\n" +
+              JSON.stringify({
+                taskId: currentTask?.id,
+                planVersion: currentTask?.planVersion,
+                goal: "Smoke plan",
+                steps: [{ action: "Apply change", verification: "Run checks" }],
+              }) +
+              "\n```",
+          },
+        ],
+        stopReason: "stop",
+      },
+    ],
+  },
+  ctx,
+);
 
 // Strict workflow: PLAN-ONLY, model is instructed to stop and ask.
 const strict = await handlers.get("before_agent_start")(
@@ -95,7 +153,31 @@ assert.match(strict.systemPrompt, /PLAN-ONLY/);
 // The plan turn ends: planning -> awaiting_approval (real pi fires
 // agent_end here; the smoke must mirror that or the next prompt would be
 // treated as a brand-new task).
-await handlers.get("agent_end")({}, ctx);
+await handlers.get("agent_end")(
+  {
+    messages: [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text:
+              "```policy-plan\n" +
+              JSON.stringify({
+                taskId: currentTask?.id,
+                planVersion: currentTask?.planVersion,
+                goal: "Smoke plan",
+                steps: [{ action: "Apply change", verification: "Run checks" }],
+              }) +
+              "\n```",
+          },
+        ],
+        stopReason: "stop",
+      },
+    ],
+  },
+  ctx,
+);
 
 // Non-approval question about the plan: discuss — answer, stay awaiting.
 const planFollowUp = await handlers.get("before_agent_start")(
@@ -129,7 +211,11 @@ assert.equal(
 assert.equal(classifyPlanResponse("为什么这么设计？"), "discuss");
 assert.equal(classifyPlanResponse("先别做了"), "cancel");
 
-assert.equal(JSON.stringify(activityEntries[0].data), firstSnapshot, "later turns must not mutate an earlier explanation");
+assert.equal(
+  JSON.stringify(activityEntries[0].data),
+  firstSnapshot,
+  "later turns must not mutate an earlier explanation",
+);
 await commands.get("policy").handler("why", ctx);
 assert.ok(notices.some((n) => String(n.message).includes("严格流程")));
 

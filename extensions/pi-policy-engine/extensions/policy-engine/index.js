@@ -26,8 +26,9 @@ export default function policyEngine(pi) {
   const state = createState();
   pi.registerEntryRenderer?.(ACTIVITY_TYPE, (entry, options, theme) => ({
     render(width) {
-      return activityRows(entry.data, options.expanded, width)
-        .map(row => theme.fg(row.tone, row.text));
+      return activityRows(entry.data, options.expanded, width).map((row) =>
+        theme.fg(row.tone, row.text),
+      );
     },
     invalidate() {},
   }));
@@ -36,6 +37,7 @@ export default function policyEngine(pi) {
     description:
       "查看本次策略行为、实际注入的要求与当前流程；设置模式和配置档。",
     handler: createCommandHandler({
+      pi,
       packageRoot: PACKAGE_ROOT,
       getState: () => state,
     }),

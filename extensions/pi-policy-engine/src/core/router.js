@@ -90,7 +90,8 @@ export function chooseRigor(classification, requestedMode = "auto") {
   // be lifted per-prompt too: "不用等我确认，直接执行" classifies null and
   // the pinned mode applies again. Only /policy off disables the engine
   // entirely and wins over everything.
-  if (requestedMode === "off") return "off";
+  if (requestedMode === "off" || classification.taskType === "conversation")
+    return "off";
 
   if (
     classification.approvalRequired === "explicit" &&
@@ -110,6 +111,7 @@ export function chooseRigor(classification, requestedMode = "auto") {
   // standard (or quick) read-only flow. "unclear" keeps full rigor: we can't
   // prove it won't mutate.
   if (classification.executionIntent === "read-only") {
+    if (classification.coverage === "comprehensive") return "standard";
     if (classification.risk === "high") return "standard";
     return classification.taskType === "research" ||
       classification.taskType === "review"
@@ -144,6 +146,7 @@ export function buildDecision({
 
   return {
     taskType: classification.taskType,
+    coverage: classification.coverage ?? "focused",
     risk: classification.risk,
     confidence: classification.confidence,
     executionIntent: classification.executionIntent,

@@ -13,10 +13,17 @@
   "domainHints": [],
   "semanticFallback": {
     "enabled": false,
+    "source": "agent",
+    "strategy": "primary",
+    "protocol": "openai",
+    "maxContextChars": 24000,
     "endpoint": "https://api.openai.com/v1/chat/completions",
     "model": "gpt-4o-mini",
     "apiKeyEnvVar": "OPENAI_API_KEY",
     "confidenceThreshold": 0.7,
-    "timeoutMs": 4000
-  }
+    "timeoutMs": 15000,
+    "jsonResponse": true,
+    "temperature": 0
+  },
+  "modelRules": []
 }

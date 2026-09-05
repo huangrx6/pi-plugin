@@ -117,8 +117,7 @@ export async function clearHistory(filePath, fs = null) {
 
 /**
  * Read up to `limit` most-recent entries from a JSONL file. Returns [] if
- * the file is missing or unreadable. Requires Node 20+ for Array.prototype.
- * toReversed (matches the package's Node 20 baseline).
+ * the file is missing or unreadable.
  */
 export async function readHistory(filePath, limit = 50, fs = null) {
   if (!filePath || limit <= 0) return [];
@@ -141,8 +140,8 @@ export async function readHistory(filePath, limit = 50, fs = null) {
       // Skip malformed lines (don't crash the session).
     }
   }
-  // toReversed() returns a new array without mutating `out` (Node 20+).
-  return out.toReversed();
+  // Reverse the locally owned result array into chronological order.
+  return out.reverse();
 }
 
 // ---------------------------------------------------------------------------
@@ -165,13 +164,16 @@ export async function readHistory(filePath, limit = 50, fs = null) {
  * restore (verified: A saves, B saves, A can no longer restore). The
  * loadStrictState cwd check remains as a second layer.
  */
-export function strictStatePath(historyFilePath, cwd = null) {
+export function strictStatePath(historyFilePath, cwd = null, sessionId = null) {
   if (typeof historyFilePath !== "string" || !historyFilePath) return null;
   const dir = dirname(historyFilePath);
   if (typeof cwd !== "string" || !cwd) {
     return join(dir, "strict-state.json"); // caller without cwd: legacy name
   }
-  const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 16);
+  const hash = createHash("sha256")
+    .update(sessionId ? `${cwd}\0${sessionId}` : cwd)
+    .digest("hex")
+    .slice(0, 16);
   return join(dir, `strict-state-${hash}.json`);
 }
 
@@ -191,6 +193,9 @@ const STRICT_DECISION_FIELDS = [
   "flow",
   "profile",
   "reasons",
+  "coverage",
+  "executionTiming",
+  "approvalRequired",
 ];
 
 export async function saveStrictState(filePath, state, fs = null) {
@@ -200,7 +205,9 @@ export async function saveStrictState(filePath, state, fs = null) {
   const decision = {};
   for (const k of STRICT_DECISION_FIELDS) decision[k] = state.decision?.[k];
   const payload = {
-    version: 1,
+    version: state.sessionId ? 2 : 1,
+    sessionId: state.sessionId,
+    task: state.task,
     cwd: state.cwd,
     ts: Date.now(),
     phase: "awaiting_approval",
@@ -212,7 +219,7 @@ export async function saveStrictState(filePath, state, fs = null) {
     } catch {
       // mkdir failure falls through to writeFile, which reports it.
     }
-    await lib.writeFile(filePath, JSON.stringify(payload) + "\n", {
+    await atomicWrite(lib, filePath, JSON.stringify(payload) + "\n", {
       encoding: "utf8",
       mode: 0o600,
     });
@@ -229,7 +236,7 @@ export async function saveStrictState(filePath, state, fs = null) {
  */
 export async function loadStrictState(
   filePath,
-  { cwd, maxAgeMs = 7 * 24 * 3600 * 1000 } = {},
+  { cwd, sessionId, maxAgeMs = 7 * 24 * 3600 * 1000 } = {},
   fs = null,
 ) {
   if (!filePath) return null;
@@ -242,11 +249,22 @@ export async function loadStrictState(
   }
   try {
     const parsed = JSON.parse(text);
-    if (parsed?.version !== 1) return null;
+    if (![1, 2].includes(parsed?.version)) return null;
+    if (
+      sessionId &&
+      (parsed.version !== 2 ||
+        parsed.sessionId !== sessionId ||
+        !parsed.task?.id)
+    )
+      return null;
     if (parsed?.phase !== "awaiting_approval") return null;
     if (!parsed?.decision?.rigor) return null;
     if (typeof cwd === "string" && parsed.cwd !== cwd) return null;
-    if (typeof parsed?.ts === "number" && Date.now() - parsed.ts > maxAgeMs) {
+    if (
+      !Number.isFinite(parsed?.ts) ||
+      parsed.ts > Date.now() + 60000 ||
+      Date.now() - parsed.ts > maxAgeMs
+    ) {
       return null;
     }
     // v0.21: strip legacy modelPolicy (v0.20 files persisted it); it is
@@ -254,7 +272,11 @@ export async function loadStrictState(
     if (parsed.decision && "modelPolicy" in parsed.decision) {
       delete parsed.decision.modelPolicy;
     }
-    return { phase: "awaiting_approval", decision: parsed.decision };
+    return {
+      phase: "awaiting_approval",
+      decision: parsed.decision,
+      ...(parsed.task ? { task: parsed.task } : {}),
+    };
   } catch {
     return null;
   }
@@ -264,7 +286,13 @@ export async function clearStrictState(filePath, fs = null) {
   if (!filePath) return { ok: false, reason: "missing path" };
   const lib = fs ?? (await import("node:fs/promises"));
   try {
-    await lib.writeFile(filePath, "", { encoding: "utf8", mode: 0o600 });
+    if (typeof lib.unlink === "function") {
+      try {
+        await lib.unlink(filePath);
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    } else await lib.writeFile(filePath, "", { encoding: "utf8", mode: 0o600 });
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: err?.message ?? String(err) };
@@ -317,4 +345,17 @@ export async function pruneStrictStates(
     }
   }
   return removed;
+}
+
+async function atomicWrite(lib, filePath, data, options) {
+  if (typeof lib.rename !== "function")
+    return lib.writeFile(filePath, data, options);
+  const { randomUUID } = await import("node:crypto");
+  const temporary = `${filePath}.${randomUUID()}.tmp`;
+  try {
+    await lib.writeFile(temporary, data, options);
+    await lib.rename(temporary, filePath);
+  } finally {
+    await lib.unlink(temporary).catch(() => {});
+  }
 }

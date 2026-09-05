@@ -28,6 +28,7 @@ const STRONG_SCORE = 2;
 const WEAK_SCORE = 0.5;
 const TRIGGER_SCORE = 1.0;
 
+import { isConversation } from "./language.js";
 import { matchSignalGroups, matchedTerms, toSignalGroups } from "./matcher.js";
 import { extractExecutionMeta, extractIntentFrame } from "./intent.js";
 
@@ -118,6 +119,18 @@ function scoreTask(text, terms, frame) {
 }
 
 export function classifyTask(prompt, routing, domainHints = [], options = {}) {
+  if (isConversation(prompt))
+    return {
+      taskType: "conversation",
+      risk: "low",
+      confidence: 1,
+      executionIntent: "read-only",
+      executionTiming: "now",
+      approvalRequired: null,
+      domains: [],
+      concerns: [],
+      reasons: ["message: ordinary conversation"],
+    };
   const maxDomains = Math.max(1, Number(options.maxDomains ?? 2));
   const text = normalize(prompt);
   const reasons = [];
@@ -233,7 +246,9 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   const mediumMatches = matchedTerms(text, routing.mediumRisk ?? []);
   const simpleMatches = matchedTerms(text, routing.simpleHints ?? []);
   const meta = extractExecutionMeta(prompt);
-  const { executionIntent, approvalRequired } = meta;
+  let { executionIntent, approvalRequired } = meta;
+  if (taskType === "review" && executionIntent === "unclear")
+    executionIntent = "read-only";
 
   let risk = "medium";
   if (highMatches.length > 0) {
@@ -300,6 +315,12 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
 
   return {
     taskType,
+    coverage:
+      /全面|全局|完整|每个阶段|端到端|comprehensive|end.to.end|full review/i.test(
+        text,
+      )
+        ? "comprehensive"
+        : "focused",
     runnerUpTask: ranked[1]?.[0],
     domains: [...domains],
     concerns,

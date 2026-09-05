@@ -248,6 +248,8 @@ export function composePolicies({
   // model.minimax-* is dropped before they are. Full order:
   //   core > project > rigor/flow > concern > domain > profile > model
   const ordered = [
+    `intent.${decision.executionIntent === "read-only" ? "read-only" : decision.executionIntent === "mutate" ? "mutate" : "unclear"}`,
+    ...(decision.rigor === "strict" ? [strictPolicyId(decision, phase)] : []),
     "core.evidence-priority",
     "core.constraint-retention",
     "core.verification",
@@ -264,13 +266,13 @@ export function composePolicies({
   // v0.19 flow/rigor split: flow (how to work) derives from the task type,
   // rigor (how strict) from risk/intent. Profiles carry behaviors only.
   if (decision.flow) ordered.push(`flow.${decision.flow}`);
+  if (decision.coverage === "comprehensive")
+    ordered.push("behavior.comprehensive-review");
   if (decision.rigor === "quick") ordered.push("rigor.quick");
   if (decision.rigor === "standard") ordered.push("rigor.standard");
   if (decision.rigor === "strict") {
     ordered.push("behavior.tool-discipline");
-    ordered.push(
-      phase === "planning" ? "rigor.strict-plan" : "rigor.strict-execute",
-    );
+    ordered.push(strictPolicyId(decision, phase));
   }
   // Concerns (v0.18): cross-cutting policies load alongside domains and
   // never compete for domain slots.
@@ -426,4 +428,9 @@ export function renderPolicyBlock({
     );
   }
   return chunks.join("\n");
+}
+
+export function strictPolicyId(decision, phase) {
+  if (decision.executionIntent === "read-only") return "rigor.strict-review";
+  return phase === "executing" ? "rigor.strict-execute" : "rigor.strict-plan";
 }
