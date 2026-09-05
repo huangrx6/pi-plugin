@@ -46,12 +46,17 @@ export function formatHistory(entries, n = 5) {
     lines.push(
       `${idx}. [${time}] ${e.source ?? "decide"}  ${e.rigor ?? e.workflow ?? "?"}  (${taskRisk}, conf=${conf})  [v${e.extensionVersion ?? "旧版未标注"}]`,
     );
-    lines.push(`     prompt: ${e.prompt ?? ""}`);
-    if (e.recognition)
+    const phaseOnly = e.source === "agent_end";
+    if (!phaseOnly || e.prompt) lines.push(`     prompt: ${e.prompt ?? ""}`);
+    if (!phaseOnly && e.recognition)
       lines.push(
         `     recognition: ${formatRecognitionDiagnostics(e.recognition)}`,
       );
-    if (e.recognition?.reason !== "contextual" && e.recognition?.responsePreview)
+    if (
+      !phaseOnly &&
+      e.recognition?.reason !== "contextual" &&
+      e.recognition?.responsePreview
+    )
       lines.push(`     response preview: ${e.recognition.responsePreview}`);
     if (e.schemaVersion >= 2)
       lines.push(

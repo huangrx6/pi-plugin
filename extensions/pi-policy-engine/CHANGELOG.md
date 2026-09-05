@@ -4,6 +4,7 @@
 
 - Show the executing extension version in activity details, status output and the configuration check panel so a long-lived Pi session cannot be mistaken for the package version currently installed on disk.
 - Label every routing-history row with the version that produced it; legacy rows remain explicit instead of silently appearing to come from the current runtime.
+- Render `agent_end` as a phase/outcome audit row without repeating the preceding prompt, recognition failure and response preview as though the model had been called again.
 
 ## 0.33.2 - 2026-09-06
 

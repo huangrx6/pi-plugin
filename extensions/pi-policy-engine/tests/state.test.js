@@ -372,6 +372,32 @@ test("status names the version of the code loaded into Pi", () => {
   assert.match(out, /^runtime version: 0\.33\.3$/m);
 });
 
+test("agent_end history is a phase record, not a second recognition attempt", () => {
+  const out = formatHistory([
+    {
+      ts: 1_700_000_000_000,
+      source: "agent_end",
+      extensionVersion: "0.33.3",
+      prompt: "",
+      workflow: "off",
+      recognition: {
+        source: "agent",
+        reason: "invalid_json",
+        attempts: 2,
+        responsePreview: "not json",
+      },
+      schemaVersion: 2,
+      phaseFrom: "idle",
+      phaseTo: "idle",
+      outcome: "blocked",
+    },
+  ]);
+  assert.doesNotMatch(out, /prompt:/);
+  assert.doesNotMatch(out, /recognition:/);
+  assert.doesNotMatch(out, /response preview:/);
+  assert.match(out, /agent_end: idle → idle/);
+});
+
 test("formatValidation: ok / warnings / errors / pluralization", () => {
   assert.match(formatValidation({ ok: true, issues: [] }), /# Validation: OK/);
   assert.match(formatValidation({ ok: true, issues: [] }), /No issues found/);
