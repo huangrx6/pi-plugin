@@ -35,7 +35,7 @@ export default function policyEngine(pi) {
 
   pi.registerCommand("policy", {
     description:
-      "查看本次策略行为、实际注入的要求与当前流程；设置模式和配置档。",
+      "查看策略行为；在一级面板选择自动处理、谨慎处理或关闭策略。",
     handler: createCommandHandler({
       pi,
       packageRoot: PACKAGE_ROOT,

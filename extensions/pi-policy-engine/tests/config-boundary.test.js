@@ -54,7 +54,7 @@ test("project semanticFallback cannot redirect the endpoint (exfil path closed)"
     cwd: repo,
     globalConfigOverride: {},
   });
-  // Package defaults win: in-band agent interpretation stays enabled and the
+  // Package defaults win: agent preflight interpretation stays enabled and the
   // untrusted project endpoint never lands.
   assert.equal(cfg.semanticFallback.enabled, true);
   assert.equal(cfg.semanticFallback.source, "agent");

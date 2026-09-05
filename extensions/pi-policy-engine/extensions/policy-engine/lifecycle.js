@@ -16,6 +16,7 @@ import {
   pruneStrictStates,
 } from "../../src/core/history-store.js";
 import { cleanModel, notify, setStatus } from "./helpers.js";
+import { createAgentClassifier } from "./agent-classifier.js";
 import { buildTurnBlock } from "./policy-block.js";
 import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
 import { readPlanReport } from "../../src/core/task-contract.js";
@@ -120,12 +121,38 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     const phaseFrom = state.phase;
     const prompt = String(event.prompt ?? "");
     state.currentModel = cleanModel(ctx?.model ?? state.currentModel);
+    const previewConfig = buildEffectiveConfig({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      state,
+    });
+    const agentRecognition =
+      previewConfig.semanticFallback?.enabled &&
+      previewConfig.semanticFallback?.strategy === "primary" &&
+      previewConfig.semanticFallback?.source === "agent";
+    if (agentRecognition) setStatus(ctx, "policy:意图识别中…");
+    const conversation = (ctx?.sessionManager?.getBranch?.() ?? [])
+      .filter((entry) => entry?.type === "message" && entry.message)
+      .slice(-24)
+      .map((entry) => ({
+        role: entry.message.role,
+        content:
+          typeof entry.message.content === "string"
+            ? entry.message.content.slice(0, 6000)
+            : entry.message.content
+                ?.filter?.((part) => part?.type === "text")
+                .map((part) => part.text)
+                .join("\n")
+                .slice(0, 6000) ?? "",
+      }));
     const turn = await resolveTurn({
       packageRoot,
       cwd: ctx?.cwd ?? process.cwd(),
       prompt,
       state,
       model: state.currentModel,
+      agentClassifier: agentRecognition ? createAgentClassifier(ctx) : null,
+      conversation,
     });
     const built = turn.inject
       ? buildTurnBlock({
@@ -144,6 +171,17 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
           : turn.inject
             ? "in_progress"
             : "idle";
+    if (agentRecognition && turn.decision?.recognition?.reason === "contextual") {
+      const rigorLabel = {
+        quick: "轻量流程",
+        standard: "标准流程",
+        strict: "严格流程",
+        off: "已关闭",
+      }[turn.decision.rigor] ?? "模型选择流程";
+      setStatus(ctx, `policy:已识别 · ${rigorLabel}`);
+    }
+    else if (agentRecognition)
+      setStatus(ctx, "policy:意图识别失败，已回退");
     if (turn.config._diagnostics.length)
       notify(
         ctx,

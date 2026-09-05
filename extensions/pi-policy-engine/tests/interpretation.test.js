@@ -204,7 +204,7 @@ test("semantic configuration rejects invalid strategy, protocol, and context bud
   );
 });
 
-test("agent source delegates interpretation to the current turn without an extra request", async () => {
+test("agent source uses the host model for a validated preflight interpretation", async () => {
   const cfg = config({
     source: "agent",
     apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
@@ -215,11 +215,20 @@ test("agent source delegates interpretation to the current turn without an extra
     state,
     config: cfg,
     currentModel: { provider: "host", id: "model" },
+    agentClassifier: {
+      model: "host/model",
+      complete: async ({ systemPrompt, payload, signal }) => {
+        assert.match(systemPrompt, /Return JSON only/);
+        assert.equal(JSON.parse(payload).message, "继续");
+        assert.ok(signal);
+        return JSON.stringify(valid);
+      },
+    },
     fetcher: () => assert.fail("must not call endpoint"),
   });
   assert.equal(result.source, "agent");
-  assert.equal(result.reason, "in_band");
-  assert.equal(result.transport, "current_turn");
+  assert.equal(result.reason, "contextual");
+  assert.equal(result.transport, "host");
   assert.equal(result.model, "host/model");
-  assert.equal(result.durationMs, 0);
+  assert.equal(result.interpretation.relation, "continue");
 });

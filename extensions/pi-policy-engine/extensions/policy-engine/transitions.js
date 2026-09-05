@@ -61,6 +61,8 @@ export async function resolveTurn({
   state,
   model,
   fetcher,
+  agentClassifier = null,
+  conversation = [],
   semantic = true,
 }) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
@@ -73,6 +75,8 @@ export async function resolveTurn({
           config,
           fetcher,
           currentModel: model,
+          agentClassifier,
+          conversation,
         })
       : {
           source: "rules",
@@ -84,10 +88,10 @@ export async function resolveTurn({
   const isContinuationPhrase = classifyFollowUp(prompt).type !== "none";
   const recoverFromConversation =
     recognition.source === "agent" &&
-    recognition.reason === "in_band" &&
+    recognition.reason === "contextual" &&
     !state.task &&
-    relation === "response" &&
-    isContinuationPhrase;
+    ["continue", "response", "uncertain"].includes(relation) &&
+    (isContinuationPhrase || relation === "continue");
   if (recoverFromConversation) relation = "uncertain";
   // The user's explicit response to a pending plan outranks a model's task split.
   const localApproval = resolvePlanResponse(prompt);
@@ -285,8 +289,24 @@ export async function resolveTurn({
     interpretation: interpreted,
     explicitMode: mode,
   });
-  if (recognition.source === "agent" && recognition.reason === "in_band")
-    decision.intentPolicy = "contextual";
+  const preflightFailed =
+    recognition.source === "agent" && recognition.reason !== "contextual";
+  if (preflightFailed) {
+    decision.taskType = "unknown";
+    decision.risk = "unknown";
+    decision.executionIntent = "unclear";
+    decision.executionTiming = "now";
+    decision.approvalRequired = "unknown";
+    decision.domains = [];
+    decision.concerns = [];
+    decision.rigor = "off";
+    decision.flow = null;
+    decision.profile = "auto";
+    decision.modelPolicy = null;
+    decision.preflightBlocked = true;
+    decision.reasons = [`agent-preflight:${recognition.reason}`];
+    state.phase = "idle";
+  }
   if (relation === "uncertain") decision.executionIntent = "unclear";
   if (relation === "discuss") decision.executionIntent = "read-only";
   decision.recognition ??= recognition;
@@ -300,19 +320,25 @@ export async function resolveTurn({
     state.task.autonomy = false;
     delete state.task.approvedVersion;
   }
-  if (decision.taskType === "review" && decision.executionIntent === "unclear")
+  if (
+    !preflightFailed &&
+    decision.taskType === "review" &&
+    decision.executionIntent === "unclear"
+  )
     decision.executionIntent = "read-only";
-  decision.rigor = chooseRigor(
-    { ...classification, executionIntent: decision.executionIntent },
-    mode,
-  );
-  state.phase =
-    decision.rigor === "strict" &&
-    decision.executionIntent !== "read-only" &&
-    !state.task.autonomy &&
-    state.task.approvedVersion !== state.task.planVersion
-      ? "planning"
-      : "executing";
+  if (!preflightFailed) {
+    decision.rigor = chooseRigor(
+      { ...classification, executionIntent: decision.executionIntent },
+      mode,
+    );
+    state.phase =
+      decision.rigor === "strict" &&
+      decision.executionIntent !== "read-only" &&
+      !state.task.autonomy &&
+      state.task.approvedVersion !== state.task.planVersion
+        ? "planning"
+        : "executing";
+  }
   if (state.task.autonomy && state.phase === "executing") {
     state.task.approvedVersion = state.task.planVersion;
     note =

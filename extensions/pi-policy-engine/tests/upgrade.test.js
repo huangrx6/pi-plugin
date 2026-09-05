@@ -56,6 +56,7 @@ function session(cwd, sessionId = "session-a", entries = []) {
   const state = createState();
   const handlers = new Map();
   const notices = [];
+  const statuses = [];
   const ctx = {
     cwd,
     model: { provider: "deepseek", id: "chat" },
@@ -64,7 +65,10 @@ function session(cwd, sessionId = "session-a", entries = []) {
       getBranch: () => entries,
       getLeafId: () => entries.at(-1)?.id ?? null,
     },
-    ui: { notify: (m) => notices.push(m), setStatus() {} },
+    ui: {
+      notify: (m) => notices.push(m),
+      setStatus: (_key, value) => statuses.push(value),
+    },
   };
   const pi = {
     on: (n, f) => handlers.set(n, f),
@@ -86,6 +90,7 @@ function session(cwd, sessionId = "session-a", entries = []) {
     state,
     entries,
     notices,
+    statuses,
     ctx,
     command,
     async start() {
@@ -810,7 +815,7 @@ test("same-task constraints do not revoke explicit autonomy", async (t) => {
   assert.ok(s.state.task.constraints.includes("必须保持旧接口"));
 });
 
-test("agent recognition runs in-band without delaying on a second model call", async (t) => {
+test("agent recognition preflight selects the strategy and reports loading status", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
     semanticFallback: {
@@ -829,43 +834,60 @@ test("agent recognition runs in-band without delaying on a second model call", a
     baseUrl: "https://provider.invalid",
   };
   s.ctx.model = first;
+  let calls = 0;
   s.ctx.modelRegistry = {
-    complete: async () => assert.fail("must not start a second model call"),
+    complete: async () => {
+      calls++;
+      return {
+        stopReason: "stop",
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              relation: "new",
+              taskType: calls === 1 ? "debugging" : "review",
+              executionIntent: calls === 1 ? "mutate" : "read-only",
+              risk: calls === 1 ? "medium" : "low",
+              domains: [],
+              coverage: "focused",
+              constraints: [],
+            }),
+          },
+        ],
+      };
+    },
   };
   await s.start();
-  const out = await s.turn("继续");
-  assert.match(out.systemPrompt, /Current Agent Context Interpretation/);
-  assert.match(out.systemPrompt, /Current conversation recovery/);
-  assert.doesNotMatch(out.systemPrompt, /"goal":"继续"/);
-  assert.equal(s.state.task.contextRecovery, true);
-  assert.equal(s.state.lastDecision.intentPolicy, "contextual");
-  assert.equal(s.state.lastDecision.recognition.transport, "current_turn");
-  assert.equal(s.state.lastDecision.recognition.durationMs, 0);
+  const out = await s.turn("修复 parser");
+  assert.equal(calls, 1);
+  assert.match(out.systemPrompt, /Policy: intent\.mutate/);
+  assert.match(out.systemPrompt, /Policy: flow\.debug-first/);
+  assert.equal(s.state.lastDecision.recognition.source, "agent");
+  assert.equal(s.state.lastDecision.recognition.reason, "contextual");
+  assert.equal(s.state.lastDecision.recognition.transport, "host");
   assert.equal(
     s.state.lastDecision.recognition.model,
     "session-provider/first",
   );
-  assert.ok(
-    s.entries.some(
-      (entry) =>
-        entry.customType === "policy-engine-activity" &&
-        entry.data.summary.includes("当前模型结合对话处理"),
-    ),
-  );
+  assert.ok(s.statuses.includes("policy:意图识别中…"));
+  assert.ok(s.statuses.some((value) => value.startsWith("policy:已识别")));
   await s.end();
   s.ctx.model = {
     provider: "another-provider",
     id: "second",
     api: "another-api",
   };
-  await s.turn("继续处理当前问题");
+  await s.turn("审查当前代码");
+  assert.equal(calls, 2);
+  assert.equal(s.state.lastDecision.taskType, "review");
+  assert.equal(s.state.lastDecision.executionIntent, "read-only");
   assert.equal(
     s.state.lastDecision.recognition.model,
     "another-provider/second",
   );
 });
 
-test("agent semantic preview remains local and never falls through to an endpoint", async (t) => {
+test("agent semantic preview reports that a host model is required", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
     semanticFallback: {
@@ -883,7 +905,26 @@ test("agent semantic preview remains local and never falls through to an endpoin
     semantic: true,
     fetcher: () => assert.fail("must not switch providers"),
   });
-  assert.equal(p.decision.recognition.reason, "in_band");
-  assert.equal(p.decision.intentPolicy, "contextual");
-  assert.match(p.injected, /Current Agent Context Interpretation/);
+  assert.equal(p.decision.recognition.reason, "agent_unavailable");
+  assert.doesNotMatch(p.injected, /Current Agent Context Interpretation/);
+});
+
+test("failed agent preflight blocks policy execution instead of silently routing", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({
+    semanticFallback: { source: "agent", enabled: true, strategy: "primary" },
+  });
+  const s = session(cwd);
+  s.ctx.modelRegistry = {
+    complete: async () => {
+      throw new Error("temporary model failure");
+    },
+  };
+  await s.start();
+  const out = await s.turn("修改 parser");
+  assert.equal(s.state.lastDecision.preflightBlocked, true);
+  assert.match(out.systemPrompt, /Intent preflight blocked/);
+  assert.equal(s.state.lastDecision.rigor, "off");
+  assert.ok(s.statuses.includes("policy:意图识别中…"));
+  assert.ok(s.statuses.includes("policy:意图识别失败，已回退"));
 });

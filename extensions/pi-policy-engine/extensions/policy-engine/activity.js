@@ -50,9 +50,9 @@ const policies = {
 
 export function activitySnapshot(decision, phase, injected = "") {
   const data = structuredClone(decision ?? { rigor: "off" });
-  const inBand =
+  const modelRecognition =
     data.recognition?.source === "agent" &&
-    data.recognition?.reason === "in_band";
+    data.recognition?.reason === "contextual";
   const next = !injected
     ? "本轮没有追加策略指令。"
     : phase === "planning"
@@ -66,8 +66,8 @@ export function activitySnapshot(decision, phase, injected = "") {
     injected,
     next,
     summary: injected
-      ? inBand
-        ? `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "自动流程"} · 当前模型结合对话处理`
+      ? modelRecognition
+        ? `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "模型选择流程"} · 当前模型已识别并选择策略`
         : `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "自动流程"} · ${{ "read-only": "只读", mutate: "修改", unclear: "需要澄清" }[data.executionIntent] ?? "需要澄清"}`
       : "本轮未注入策略",
     // Exclude reason wording and timestamps: identical applied instructions do
@@ -94,8 +94,9 @@ export function activityText(activity) {
   return sanitizeTerminalText(
     [
       activity.summary,
-      d.recognition?.reason === "in_band"
-        ? `判断方式：当前模型使用完整对话理解本轮要求；规则标签仅用于选择基础策略。`
+      d.recognition?.source === "agent" &&
+      d.recognition?.reason === "contextual"
+        ? `判断方式：当前模型使用完整对话完成意图识别，并据此选择本轮策略。`
         : `判断方式：识别为${tasks[d.taskType] ?? d.taskType ?? "未分类"}；风险 ${d.risk ?? "未知"}。`,
       ...(d.reasons?.length
         ? ["触发依据：", ...d.reasons.map((reason) => `  ${reason}`)]

@@ -29,9 +29,10 @@ coverage: focused|comprehensive. constraints: at most 32 exact nonempty quotes f
 Use the goal and requirements to resolve references, additions, corrections and long continuations. A new unrelated review must not inherit a pending modification plan. Greetings mixed with work are not conversation.
 Never return approval or autonomy. You interpret work; the host owns authorization. If task relation or intent cannot be resolved, return uncertain or unclear rather than guessing.`;
 
-export function interpretationContext(state, prompt) {
+export function interpretationContext(state, prompt, conversation = []) {
   return {
     message: prompt,
+    conversation: conversation.slice(-24),
     currentTask: state.task
       ? {
           id: state.task.id,
@@ -121,6 +122,8 @@ export async function interpretTask({
   config,
   fetcher = globalThis.fetch,
   currentModel,
+  agentClassifier = null,
+  conversation = [],
 }) {
   const fb = config.semanticFallback ?? {};
   const fallback = (reason) => ({
@@ -130,32 +133,33 @@ export async function interpretTask({
   });
   if (!fb.enabled || fb.strategy !== "primary") return fallback("disabled");
   const useAgent = fb.source === "agent";
-  // The active agent already receives the complete conversation. Calling it
-  // once here would block before Pi renders the submitted user message and
-  // would still lack host conversation context. Mark the decision as
-  // contextual and let the normal agent call interpret it in-band.
-  if (useAgent)
-    return {
-      source: "agent",
-      reason: "in_band",
-      interpretation: null,
-      model: currentModel
-        ? `${currentModel.provider ?? "unknown"}/${currentModel.id ?? "unknown"}`
-        : undefined,
-      transport: "current_turn",
-      durationMs: 0,
-    };
+  if (useAgent && !agentClassifier) return fallback("agent_unavailable");
   const apiKey =
     !useAgent && fb.apiKeyEnvVar ? process.env[fb.apiKeyEnvVar] : null;
   if (!useAgent && fb.apiKeyEnvVar && !apiKey) return fallback("missing_key");
   if (!useAgent && (!fb.endpoint || !fb.model || typeof fetcher !== "function"))
     return fallback("missing_configuration");
-  const payload = JSON.stringify(interpretationContext(state, prompt));
-  if (payload.length > (fb.maxContextChars ?? 24000))
+  const maxContextChars = fb.maxContextChars ?? 24000;
+  let boundedConversation = conversation.slice(-12).map((entry) => ({
+    role: entry.role,
+    content: String(entry.content ?? "").slice(-1800),
+  }));
+  let payload = JSON.stringify(
+    interpretationContext(state, prompt, boundedConversation),
+  );
+  while (payload.length > maxContextChars && boundedConversation.length > 0) {
+    boundedConversation = boundedConversation.slice(1);
+    payload = JSON.stringify(
+      interpretationContext(state, prompt, boundedConversation),
+    );
+  }
+  if (payload.length > maxContextChars)
     return {
-      ...fallback("context_too_large"),
+      ...(useAgent
+        ? { source: "agent", reason: "context_too_large", interpretation: null }
+        : fallback("context_too_large")),
       contextChars: payload.length,
-      limit: fb.maxContextChars ?? 24000,
+      limit: maxContextChars,
     };
   const anthropic = fb.protocol === "anthropic";
   const body = anthropic
@@ -230,7 +234,11 @@ export async function interpretTask({
         }
         const interpretation = validateInterpretation(parsed, prompt);
         return interpretation
-          ? { source: "model", reason: "contextual", interpretation }
+          ? {
+              source: useAgent ? "agent" : "model",
+              reason: "contextual",
+              interpretation,
+            }
           : fallback("invalid_schema");
       } catch {
         return fallback(
@@ -238,10 +246,13 @@ export async function interpretTask({
         );
       }
     })();
+    const result = await Promise.race([request, timeout]);
     return {
-      ...(await Promise.race([request, timeout])),
+      ...(useAgent && result.source === "rules"
+        ? { ...result, source: "agent" }
+        : result),
       model: useAgent ? agentClassifier.model : fb.model,
-      transport: useAgent ? "agent" : "endpoint",
+      transport: useAgent ? "host" : "endpoint",
       protocol: useAgent ? "host" : (fb.protocol ?? "openai"),
       durationMs: Date.now() - started,
       contextChars: payload.length,
