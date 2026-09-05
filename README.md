@@ -31,19 +31,19 @@ pi install git:github.com/huangrx6/pi-plugin
 
 | 扩展 | 实际职责 |
 | --- | --- |
-| `pi-skill-inject` | 在请求中加载技能，保留用户原文，展示可展开的加载记录。 |
-| `pi-policy-engine` | 按任务选择流程与执行约束，说明触发原因及实际注入内容。 |
-| `pi-auto-compact` | 上下文达到阈值时请求 Pi 原生压缩，并继续被中断的任务。 |
-| `pi-mode-switcher` | 按 ask / smart / full 模式决定工具调用是否需要批准。 |
-| `pi-todo` | 持久化当前工作区的任务，通过可滚动任务窗口完成筛选、详情与状态操作。 |
+| [`pi-skill-inject`](extensions/pi-skill-inject/README.md) | 在请求中加载技能，保留用户原文，展示可展开的加载记录。 |
+| [`pi-policy-engine`](extensions/pi-policy-engine/README.md) | 按任务选择流程与执行约束，说明触发原因及实际注入内容。 |
+| [`pi-auto-compact`](extensions/pi-auto-compact/README.md) | 上下文达到阈值时请求 Pi 原生压缩，并继续被中断的任务。 |
+| [`pi-mode-switcher`](extensions/pi-mode-switcher/README.md) | 按 ask / smart / full 模式决定工具调用是否需要批准。 |
+| [`pi-todo`](extensions/pi-todo/README.md) | 持久化当前工作区的任务，通过可滚动任务窗口完成筛选、详情与状态操作。 |
 
 ### 状态与展示
 
 | 扩展 | 实际职责 |
 | --- | --- |
-| `pi-quota-status` | 查询已适配服务的订阅窗口、账户余额或 API Key 消费上限。 |
-| `pi-notify` | 根据最终运行结果发送终端通知，提供发送测试与环境诊断。 |
-| `pi-footer-composer` | 提供紧凑、完整和 Pi 原生三种 Footer 显示方式。 |
+| [`pi-quota-status`](extensions/pi-quota-status/README.md) | 查询已适配服务的订阅窗口、账户余额或 API Key 消费上限。 |
+| [`pi-notify`](extensions/pi-notify/README.md) | 根据最终运行结果发送终端通知，提供发送测试与环境诊断。 |
+| [`pi-footer-composer`](extensions/pi-footer-composer/README.md) | 提供紧凑、完整和 Pi 原生三种 Footer 显示方式。 |
 
 这些分组帮助选择安装范围，不表示包之间存在依赖。
 

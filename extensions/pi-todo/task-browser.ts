@@ -1,5 +1,12 @@
 import { formatTaskRow, sanitizeTerminalText, truncateToWidth, visibleWidth } from "./format.ts";
-import { classifyTask, projectActiveView, projectAll, projectArchived, projectCompleted } from "./projection.ts";
+import {
+  classifyTask,
+  projectActiveView,
+  projectAll,
+  projectArchived,
+  projectCompleted,
+  projectHistory,
+} from "./projection.ts";
 import { formatTaskDetailRich } from "./task-detail-format.ts";
 import { taskActions } from "./task-actions.ts";
 import { buildDependencyPresentation } from "./read-model.ts";
@@ -9,6 +16,7 @@ export type TaskBrowserView =
   | "current"
   | "ready"
   | "blocked"
+  | "history"
   | "completed"
   | "archived"
   | "all";
@@ -57,17 +65,17 @@ type BrowserAction = {
 
 const PRIMARY_VIEWS: readonly TaskBrowserView[] = [
   "current",
-  "completed",
+  "history",
   "archived",
-  "all",
 ];
 
 const VIEW_LABEL: Record<TaskBrowserView, string> = {
   current: "当前",
   ready: "可开始",
   blocked: "被阻塞",
+  history: "历史",
   completed: "已完成",
-  archived: "已归档",
+  archived: "归档",
   all: "全部",
 };
 
@@ -91,6 +99,8 @@ function entriesFor(state: TaskState, view: TaskBrowserView): BrowserEntry[] {
       return active.ready.map((task) => ({ task, role: "ready" as const }));
     case "blocked":
       return active.blocked.map((task) => ({ task, role: "blocked" as const }));
+    case "history":
+      return projectHistory(state).map((task) => ({ task, role: roleFor(state, task) }));
     case "completed":
       return projectCompleted(state).map((task) => ({ task, role: "completed" as const }));
     case "archived":
@@ -197,14 +207,22 @@ export class TaskBrowserComponent {
 
   private frame(width: number, title: string, body: string[], footer: string): string[] {
     const inner = Math.max(16, width - 2);
-    const safeTitle = truncateToWidth(` ${title} `, Math.max(1, inner - 3));
-    const border = (text: string): string => this.theme.fg("border", text);
-    const surface = (text: string): string => this.theme.bg("customMessageBg", text);
-    const top = `${border("╭─")}${this.theme.fg("accent", safeTitle)}${border(`${"─".repeat(Math.max(0, inner - 1 - visibleWidth(safeTitle)))}╮`)}`;
+    const horizontalPadding = inner >= 24 ? 2 : 1;
+    const contentWidth = Math.max(1, inner - horizontalPadding * 2);
+    const safeTitle = truncateToWidth(title, contentWidth);
+    const border = (text: string): string => this.theme.fg("borderMuted", text);
+    const surface = (text: string): string => this.theme.bg("toolPendingBg", text);
+    const row = (line: string): string => surface(
+      `${border("│")}${" ".repeat(horizontalPadding)}${padToWidth(line, contentWidth)}${" ".repeat(horizontalPadding)}${border("│")}`,
+    );
+    const rule = surface(border(`├${"─".repeat(inner)}┤`));
     return [
-      surface(top),
-      ...body.map((line) => surface(`${border("│")}${padToWidth(line, inner)}${border("│")}`)),
-      surface(`${border("│")}${padToWidth(this.theme.fg("dim", footer), inner)}${border("│")}`),
+      surface(border(`╭${"─".repeat(inner)}╮`)),
+      row(this.theme.fg("accent", safeTitle)),
+      rule,
+      ...body.map(row),
+      rule,
+      row(this.theme.fg("dim", footer)),
       surface(border(`╰${"─".repeat(inner)}╯`)),
     ];
   }
@@ -215,6 +233,7 @@ export class TaskBrowserComponent {
       current: active.counts.active,
       ready: active.ready.length,
       blocked: active.blocked.length,
+      history: projectHistory(this.state).length,
       completed: projectCompleted(this.state).length,
       archived: projectArchived(this.state).length,
       all: projectAll(this.state).length,
@@ -225,8 +244,10 @@ export class TaskBrowserComponent {
     const counts = this.counts();
     return PRIMARY_VIEWS.map((view) => {
       const label = `${VIEW_LABEL[view]} ${counts[view]}`;
-      return view === this.session.view ? this.theme.fg("accent", `[${label}]`) : this.theme.fg("dim", label);
-    }).join("  ");
+      return view === this.session.view
+        ? this.theme.fg("accent", `● ${label}`)
+        : this.theme.fg("dim", `  ${label}`);
+    }).join("    ");
   }
 
   private ensureSelection(entries: readonly BrowserEntry[]): number {
@@ -247,7 +268,7 @@ export class TaskBrowserComponent {
   }
 
   private visibleRows(entryCount: number): number {
-    const chrome = 7;
+    const chrome = 11;
     return Math.max(1, Math.min(14, Math.max(1, this.terminalBudget() - chrome), Math.max(1, entryCount)));
   }
 
@@ -260,16 +281,16 @@ export class TaskBrowserComponent {
   }
 
   private renderList(width: number): string[] {
-    const inner = width - 2;
+    const inner = Math.max(1, width - 6);
     const entries = filteredEntries(this.state, this.session);
     const selected = this.ensureSelection(entries);
     const visibleRows = this.visibleRows(entries.length);
     this.keepVisible(selected, visibleRows, entries.length);
-    const body: string[] = [this.tabs()];
+    const body: string[] = [this.tabs(), ""];
     const searchLabel = this.mode === "search" ? "搜索" : "筛选";
     const query = this.session.query || (this.mode === "search" ? "输入名称或 #编号" : "按 / 搜索");
     body.push(`${this.theme.fg("dim", `${searchLabel}  `)}${query}`);
-    body.push(this.theme.fg("dim", "─".repeat(Math.max(1, inner))));
+    body.push("");
 
     if (entries.length === 0) {
       body.push(this.theme.fg("dim", this.session.query ? "没有匹配的任务" : "此视图暂无任务"));
@@ -284,7 +305,8 @@ export class TaskBrowserComponent {
             ? buildDependencyPresentation(this.state, entry.task.id)
             : undefined,
         });
-        body.push(marker + (index === selected ? this.theme.fg("text", row) : this.theme.fg("muted", row)));
+        const line = marker + (index === selected ? this.theme.fg("text", row) : this.theme.fg("muted", row));
+        body.push(index === selected ? this.theme.bg("selectedBg", padToWidth(line, inner)) : line);
       }
     }
 
@@ -295,7 +317,7 @@ export class TaskBrowserComponent {
     body.push(notice
       ? this.theme.fg(notice.level === "error" ? "error" : "success", notice.text)
       : this.theme.fg("dim", range));
-    return this.frame(width, `任务 · ${VIEW_LABEL[this.session.view]}`, body, "↑↓ 移动  Enter 详情  Tab 视图  / 搜索  n 新增  Esc 关闭");
+    return this.frame(width, `任务  ·  ${VIEW_LABEL[this.session.view]}`, body, "↑↓ 移动  ·  Enter 详情  ·  Tab 切换  ·  / 搜索  ·  N 新建  ·  Esc 关闭");
   }
 
   private renderDetail(width: number): string[] {
@@ -307,7 +329,7 @@ export class TaskBrowserComponent {
       this.session.notice = { text: `任务 #${id ?? "?"} 不存在`, level: "error" };
       return this.renderList(width);
     }
-    const inner = width - 2;
+    const inner = Math.max(1, width - 6);
     const actions = actionRows(this.state, id);
     this.actionIndex = Math.max(0, Math.min(this.actionIndex, Math.max(0, actions.length - 1)));
     const detailLines = formatTaskDetailRich(this.state, id, Math.max(10, inner));
@@ -320,20 +342,21 @@ export class TaskBrowserComponent {
     if (detailLines.length > detailBudget) {
       body.push(this.theme.fg("dim", `${this.detailOffset + 1}-${Math.min(detailLines.length, this.detailOffset + detailBudget)}/${detailLines.length}`));
     }
-    body.push(this.theme.fg("dim", "─".repeat(Math.max(1, inner))));
+    body.push("");
     for (let index = 0; index < actions.length; index += 1) {
       const action = actions[index] as BrowserAction;
       const marker = index === this.actionIndex ? this.theme.fg("accent", "› ") : "  ";
-      body.push(`${marker}${index === this.actionIndex ? this.theme.fg("text", action.label) : this.theme.fg("muted", action.label)}`);
+      const line = `${marker}${index === this.actionIndex ? this.theme.fg("text", action.label) : this.theme.fg("muted", action.label)}`;
+      body.push(index === this.actionIndex ? this.theme.bg("selectedBg", padToWidth(line, inner)) : line);
     }
-    return this.frame(width, `任务 #${id}`, body, "↑↓ 选择操作  PgUp/PgDn 阅读  Enter 执行  Esc 返回");
+    return this.frame(width, `任务  ·  #${id}`, body, "↑↓ 选择  ·  PgUp/PgDn 阅读  ·  Enter 执行  ·  Esc 返回");
   }
 
   private renderInput(width: number): string[] {
     const editing = this.mode === "edit";
     const title = editing ? `修改任务 #${this.session.detailId ?? ""}` : "新增任务";
     const value = this.inputValue || this.theme.fg("dim", "输入任务名称…");
-    return this.frame(width, title, ["", `  ${value}`, ""], "Enter 保存  Esc 返回");
+    return this.frame(width, title, ["", value, ""], "Enter 保存  ·  Esc 返回");
   }
 
   private selectBy(delta: number): void {

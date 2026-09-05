@@ -45,6 +45,7 @@ import {
  projectArchived,
  projectClosed,
  projectCompleted,
+ projectHistory,
 } from "./projection.ts";
 import { buildDependencyPresentation } from "./read-model.ts";
 import { TodoOverlay } from "./overlay.ts";
@@ -152,7 +153,7 @@ function renderDefault(state: TaskState, width: number): string[] {
  const depsMap = buildBlockedDepsMap(state, view.blocked);
  // P4-C1: default /todos is a bounded overview with per-section
  // budgets and explicit "+N more <role>" drill-down hints. Section
- // drill-downs (/todos ready / blocked / completed / archived)
+ // drill-downs (/todos ready / blocked / history / completed / archived)
  // remain full-list via renderReady / renderBlocked / etc.
  return formatBoundedOverview(view, {
   width,
@@ -177,6 +178,15 @@ function renderCompleted(state: TaskState, width: number): string[] {
  const tasks = projectCompleted(state);
  if (tasks.length === 0) return ["No completed todos."];
  return formatTasksList(tasks, "completed", width);
+}
+
+function renderHistory(state: TaskState, width: number): string[] {
+ const tasks = projectHistory(state);
+ if (tasks.length === 0) return ["No task history."];
+ return tasks.map((task) => formatTaskRow(task, {
+  role: task.closedAt === undefined ? "completed" : "closed",
+  width,
+ }));
 }
 
 function renderArchived(state: TaskState, width: number): string[] {
@@ -254,7 +264,7 @@ function renderAll(state: TaskState, width: number): string[] {
 }
 
 function renderUnknown(): string[] {
- return ["Usage: /todos [ready|blocked|completed|archived|all|<id>]"];
+ return ["Usage: /todos [ready|blocked|history|completed|archived|all|<id>]"];
 }
 
 function buildBlockedDepsMap(
@@ -575,6 +585,9 @@ async function runReadCommand(
   case "blocked":
    lines = renderBlocked(state, DEFAULT_WIDTH);
    break;
+  case "history":
+   lines = renderHistory(state, DEFAULT_WIDTH);
+   break;
   case "completed":
    lines = renderCompleted(state, DEFAULT_WIDTH);
    break;
@@ -612,6 +625,7 @@ interface TaskWindowUi {
    overlayOptions?: {
     anchor?: string;
     width?: string | number;
+    minWidth?: number;
     maxHeight?: string | number;
     margin?: number;
    };
@@ -836,9 +850,10 @@ export default function factory(
       overlay: true,
       overlayOptions: {
        anchor: "center",
-       width: "90%",
-       maxHeight: "85%",
-       margin: 1,
+       width: 104,
+       minWidth: 52,
+       maxHeight: "82%",
+       margin: 2,
       },
      },
     ) as TaskBrowserIntent;
@@ -1046,6 +1061,7 @@ export default function factory(
     parsed.command === "default" ||
     parsed.command === "ready" ||
     parsed.command === "blocked" ||
+    parsed.command === "history" ||
     parsed.command === "completed" ||
     parsed.command === "archived" ||
     parsed.command === "all"

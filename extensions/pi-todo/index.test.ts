@@ -87,6 +87,10 @@ function buildTestTask(
 		...(overrides.archivedAt !== undefined && {
 			archivedAt: overrides.archivedAt,
 		}),
+		...(overrides.closedAt !== undefined && { closedAt: overrides.closedAt }),
+		...(overrides.closedReason !== undefined && {
+			closedReason: overrides.closedReason,
+		}),
 		...(overrides.description !== undefined && {
 			description: overrides.description,
 		}),
@@ -438,6 +442,10 @@ function buildTask(
 		...(overrides.archivedAt !== undefined && {
 			archivedAt: overrides.archivedAt,
 		}),
+		...(overrides.closedAt !== undefined && { closedAt: overrides.closedAt }),
+		...(overrides.closedReason !== undefined && {
+			closedReason: overrides.closedReason,
+		}),
 		...(overrides.description !== undefined && {
 			description: overrides.description,
 		}),
@@ -655,7 +663,7 @@ describe("/todos command", () => {
 		assert.match(out, /Completed\./);
 	});
 
-	// ── /todos ready / blocked / completed / archived ──────────────────────
+	// ── /todos ready / blocked / history / completed / archived ────────────
 
 	it("ready: lists pending tasks with deps satisfied", async () => {
 		seedTestState(
@@ -691,6 +699,19 @@ describe("/todos command", () => {
 		const out = r.notices[0]?.message ?? "";
 		assert.match(out, /✓ #1/);
 		assert.doesNotMatch(out, /#2/); // archived completed NOT in this view
+	});
+
+	it("history: lists visible completed and deliberately closed tasks", async () => {
+		seedTestState(
+			buildTask({ id: 1, subject: "done", status: "completed", updatedAt: 10 }),
+			buildTask({ id: 2, subject: "stopped", status: "pending", closedAt: 20, updatedAt: 20 }),
+			buildTask({ id: 3, subject: "archived", status: "completed", archivedAt: 30, updatedAt: 30 }),
+		);
+		const r = await callTodos("history");
+		const out = r.notices[0]?.message ?? "";
+		assert.match(out, /· #2/);
+		assert.match(out, /✓ #1/);
+		assert.doesNotMatch(out, /#3/);
 	});
 
 	it("archived: lists all archived tasks with · icon", async () => {

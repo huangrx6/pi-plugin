@@ -72,18 +72,14 @@ test("large task lists stay inside the terminal and keep the selection visible",
   assert.ok(lines.every((line) => visibleWidth(line) === 72));
 });
 
-test("the task window paints every cell with the extension surface background", () => {
+test("the task window paints the card surface and gives the selected row its own layer", () => {
   const state = manyTasks(2);
   const session: TaskBrowserSession = { view: "current", query: "" };
-  const backgrounds: string[] = [];
   const browser = new TaskBrowserComponent(
     { terminal: { rows: 24 }, requestRender: () => {} },
     {
       fg: (_color, text) => text,
-      bg: (color, text) => {
-        backgrounds.push(color);
-        return text;
-      },
+      bg: (color, text) => `<bg:${color}>${text}</bg>`,
     },
     bindings,
     state,
@@ -92,8 +88,8 @@ test("the task window paints every cell with the extension surface background", 
   );
 
   const lines = browser.render(72);
-  assert.equal(backgrounds.length, lines.length);
-  assert.deepEqual(new Set(backgrounds), new Set(["customMessageBg"]));
+  assert.ok(lines.every((line) => line.includes("<bg:toolPendingBg>")));
+  assert.ok(lines.some((line) => line.includes("<bg:selectedBg>")));
 });
 
 test("search filters in place and never renders terminal control payloads", () => {
@@ -137,9 +133,9 @@ test("detail actions and task creation return structured intents", () => {
   assert.deepEqual(intents[1], { kind: "create", subject: "补充回归测试" });
 });
 
-test("completed, archived and all are first-class views", () => {
+test("primary views combine completed and deliberately closed tasks in history", () => {
   const state: TaskState = {
-    nextId: 4,
+    nextId: 5,
     tasks: [
       { id: 1, subject: "当前", status: "pending", createdAt: 1, updatedAt: 1 },
       {
@@ -157,21 +153,30 @@ test("completed, archived and all are first-class views", () => {
         createdAt: 3,
         updatedAt: 3,
       },
+      {
+        id: 4,
+        subject: "主动结束",
+        status: "pending",
+        closedAt: 4,
+        createdAt: 4,
+        updatedAt: 4,
+      },
     ],
   };
-  const session: TaskBrowserSession = { view: "completed", query: "" };
+  const session: TaskBrowserSession = { view: "current", query: "" };
   const browser = build(state, session);
-  assert.ok(browser.render(72).some((line) => line.includes("#2")));
-  assert.ok(!browser.render(72).some((line) => line.includes("#3 归档")));
+
+  browser.handleInput("\t");
+  assert.equal(session.view, "history");
+  const history = browser.render(72).join("\n");
+  assert.match(history, /#2/);
+  assert.match(history, /#4/);
+  assert.doesNotMatch(history, /#3/);
 
   browser.handleInput("\t");
   assert.equal(session.view, "archived");
   assert.ok(browser.render(72).some((line) => line.includes("#3")));
 
   browser.handleInput("\t");
-  assert.equal(session.view, "all");
-  const all = browser.render(72).join("\n");
-  assert.match(all, /#1/);
-  assert.match(all, /#2/);
-  assert.match(all, /#3/);
+  assert.equal(session.view, "current");
 });

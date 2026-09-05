@@ -28,6 +28,7 @@ import {
   projectAll,
   projectArchived,
   projectCompleted,
+  projectHistory,
   selectAllTaskIds,
   selectArchivedTaskIds,
   selectCompletedTaskIds,
@@ -362,6 +363,27 @@ describe("projectCompleted", () => {
       out.map((t) => t.id),
       [2, 1, 3],
     );
+  });
+});
+
+describe("projectHistory", () => {
+  it("combines visible completed and closed outcomes in update order", () => {
+    const state = mkState(
+      mkTask({ id: 1, status: "completed", updatedAt: 100 }),
+      mkTask({ id: 2, status: "pending", closedAt: 200, updatedAt: 200 }),
+      mkTask({ id: 3, status: "completed", archivedAt: 300, updatedAt: 300 }),
+      mkTask({ id: 4, status: "pending", updatedAt: 400 }),
+    );
+
+    assert.deepEqual(projectHistory(state).map((task) => task.id), [2, 1]);
+  });
+
+  it("does not duplicate malformed legacy records carrying both outcomes", () => {
+    const state = mkState(
+      mkTask({ id: 1, status: "completed", closedAt: 100, updatedAt: 100 }),
+    );
+
+    assert.deepEqual(projectHistory(state).map((task) => task.id), [1]);
   });
 });
 

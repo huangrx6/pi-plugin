@@ -18,6 +18,7 @@ export type TodosCommand =
  | { command: "detail"; taskId: number }
  | { command: "ready" }
  | { command: "blocked" }
+ | { command: "history" }
  | { command: "completed" }
  | { command: "archived" }
  | { command: "all" }
@@ -36,6 +37,8 @@ export function parseTodosCommand(raw: unknown): TodosCommand {
    return { command: "ready" };
   case "blocked":
    return { command: "blocked" };
+  case "history":
+   return { command: "history" };
   case "completed":
    return { command: "completed" };
   case "archived":

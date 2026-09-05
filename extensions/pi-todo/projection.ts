@@ -207,6 +207,23 @@ export function projectClosed(state: TaskState): Task[] {
  return out;
 }
 
+/**
+ * Visible tasks whose work has reached an explicit outcome.
+ *
+ * Completion means the acceptance condition was met; closing means the work
+ * was deliberately stopped without making that claim. The task browser puts
+ * both outcomes in one history surface while preserving their distinct row
+ * roles and actions.
+ */
+export function projectHistory(state: TaskState): Task[] {
+ const byId = new Map<TaskId, Task>();
+ for (const task of projectCompleted(state)) byId.set(task.id, task);
+ for (const task of projectClosed(state)) byId.set(task.id, task);
+ const out = [...byId.values()];
+ out.sort(compareCompleted);
+ return out;
+}
+
 // ── Pure id-only canonical queries (P1-A shared with B3) ──────────────────────
 //
 // STRUCTURALLY DERIVED from projectCompleted / projectArchived / projectAll.

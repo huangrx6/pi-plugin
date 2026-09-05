@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0 - 2026-09-06
+
+- Replace the daily completed/archived/all tab set with current/history/archive; history combines verified completion and deliberate close while retaining their distinct meanings and actions.
+- Keep completed and all as direct expert views instead of occupying the primary Tab cycle, and add `/todos history` for the combined outcome view.
+- Constrain the centered task window to 104 columns with larger terminal margins, quieter borders, consistent inner spacing, and a dedicated selected-row background.
+- Use Pi's theme-aware neutral status surface instead of the purple custom-message surface; document that per-overlay transparency and blur are not available in the terminal renderer.
+
 ## 0.10.1 - 2026-09-06
 
 - Expose explicit close and model-review actions for every unfinished active task, including pending and blocked tasks; continue remains specific to in-progress tasks.
