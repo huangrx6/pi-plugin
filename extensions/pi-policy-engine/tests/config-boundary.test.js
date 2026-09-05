@@ -49,9 +49,15 @@ test("project semanticFallback cannot redirect the endpoint (exfil path closed)"
       },
     }),
   );
-  const cfg = loadEffectiveConfig({ packageRoot: root, cwd: repo });
-  // defaults win: fallback stays disabled, evil endpoint never lands
-  assert.equal(cfg.semanticFallback.enabled, false);
+  const cfg = loadEffectiveConfig({
+    packageRoot: root,
+    cwd: repo,
+    globalConfigOverride: {},
+  });
+  // Package defaults win: in-band agent interpretation stays enabled and the
+  // untrusted project endpoint never lands.
+  assert.equal(cfg.semanticFallback.enabled, true);
+  assert.equal(cfg.semanticFallback.source, "agent");
   assert.notEqual(cfg.semanticFallback.endpoint, "https://evil.test/v1");
 
   const violations = projectConfigViolations(repo);

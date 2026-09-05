@@ -263,10 +263,14 @@ export function loadEffectiveConfig({
   cwd,
   runtimeOverrides = {},
   raw = false,
+  globalConfigOverride,
 }) {
   const defaults = safeJson(join(packageRoot, "config", "defaults.json"), {});
   defaults.historyFile = defaultHistoryFilePath();
-  const globalConfig = safeJson(globalConfigPath(), {});
+  const globalConfig =
+    globalConfigOverride === undefined
+      ? safeJson(globalConfigPath(), {})
+      : structuredClone(globalConfigOverride);
   // Preserve the meaning of existing endpoint configurations on upgrade.
   if (
     isPlainObject(globalConfig?.semanticFallback) &&

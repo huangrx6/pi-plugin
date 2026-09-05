@@ -1,7 +1,7 @@
 {
   "name": "pi-policy-engine",
-  "version": "0.28.0",
-  "description": "Context-aware task policies for Pi with active-agent or dedicated-model intent recognition, persistent requirements and versioned plan approvals.",
+  "version": "0.29.0",
+  "description": "Context-aware task policies for Pi with in-band intent understanding, a simple persistent control panel and versioned plan approvals.",
   "type": "module",
   "license": "MIT",
   "engines": {

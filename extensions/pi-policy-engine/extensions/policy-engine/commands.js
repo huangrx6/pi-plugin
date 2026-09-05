@@ -5,7 +5,7 @@
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
 import { saveSelections } from "../../src/core/config-writer.js";
-import { createAgentClassifier } from "./agent-classifier.js";
+import { globalConfigPath } from "../../src/core/paths.js";
 import { persistWorkflow } from "./workflow-store.js";
 import { activityText, phaseText } from "./activity.js";
 import { sanitizeTerminalText } from "./terminal.js";
@@ -72,106 +72,54 @@ const PROFILE_OPTIONS = [
 
 const VALID_MODES = new Set(MODE_OPTIONS.map((o) => o.key));
 
-const RECOGNITION_OPTIONS = [
-  {
-    key: "agent",
-    description: "复用当前 agent 模型与认证；每个任务回合额外调用一次模型",
-  },
-  {
-    key: "endpoint",
-    description: "使用全局配置的独立识别接口；适合固定低成本模型",
-  },
-  {
-    key: "fallback",
-    description: "先用规则，仅在低置信度时调用独立接口（旧兼容模式）",
-  },
-  { key: "off", description: "关闭模型识别，只使用本地规则；不产生模型调用" },
-];
-
-const COMMAND_HELP = `# Policy 命令说明
-
-/policy
-  打开可选择面板；日常操作优先使用这个入口。
-
-/policy recognition agent
-  复用当前 agent 模型识别任务意图；只改变当前运行，额外消耗一次模型调用。
-
-/policy recognition endpoint
-  使用全局配置的独立识别接口；接口、模型和凭证引用来自全局 config.json。
-
-/policy recognition fallback|off
-  fallback 仅在规则低置信度时请求独立接口；off 完全使用本地规则。
-
-/policy save global|project
-  global 保存模式、配置档和识别方式；project 只保存项目允许的模式与配置档。
-
-/policy task | approve | new | cancel
-  查看任务账本；批准当前版本计划；结束关联并让下一条成为新任务；取消待审批计划。
-
-/policy auto|quick|standard|strict|off
-  设置当前运行的策略严格度。off 同时清除当前任务状态。
-
-/policy once <mode>
-  仅让下一个新任务使用指定严格度；当前任务续作不会消耗它。
-
-/policy profile <name>
-  选择行为策略集合，不改变任务意图、严格度或执行权限。
-
-/policy preview [--new] [--semantic] <prompt>
-  预览策略，不推进任务；默认不调用模型，--semantic 才允许模型识别。
-
-/policy diff <A> || <B>
-  比较两条请求的离线路由结果。
-
-/policy why | injected | status | config | validate | history [N]
-  查看触发原因、注入原文、运行状态、有效配置、校验结果和最近历史。
-
-/policy reset
-  清除当前运行覆盖和任务状态，重新使用文件配置。`;
-
-function selectOptionLabel(options) {
-  // ui.select renders ONE OPTION PER LINE from a string[]. The previous
-  // implementation joined everything into a single "\n"-separated string,
-  // which the select widget iterated character-by-character (one glyph
-  // per row) — pass an array of per-option labels instead.
-  return options.map((o) => `${o.key} — ${o.description}`);
-}
-
-function parseSelectedKey(choice) {
-  if (!choice) return null;
-  // ctx.ui.select returns the display label (or the value when the
-  // presentation doesn't differ); pick the leading key token.
-  const text = String(choice).trim();
-  return text.split(/\s+/)[0]?.toLowerCase() ?? null;
-}
-
-async function pickOne(ctx, title, options) {
-  // ctx.ui.select signature varies across pi versions: some return the
-  // selected value directly, others return the index, others return the
-  // option object. Try select first; fall back to confirm() with a
-  // numbered list if select isn't available or returns garbage.
-  if (typeof ctx?.ui?.select !== "function") return null;
-  try {
-    const choice = await ctx.ui.select(title, selectOptionLabel(options));
-    if (typeof choice === "string") return parseSelectedKey(choice);
-    if (
-      choice &&
-      typeof choice === "object" &&
-      typeof choice.key === "string"
-    ) {
-      return choice.key;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Build the /policy command handler. Dependencies are injected so this module
  * has no import side effects on pi (and is trivial to unit-test).
  */
-export function createCommandHandler({ packageRoot, getState, pi }) {
+export function createCommandHandler({
+  packageRoot,
+  getState,
+  pi,
+  saveConfig = saveSelections,
+}) {
+  async function applyGlobalPreset(state, ctx, mode) {
+    state.runtimeMode = mode;
+    state.onceMode = null;
+    if (mode !== "off")
+      state.runtimeRecognition = {
+        enabled: true,
+        strategy: "primary",
+        source: "agent",
+      };
+    if (mode === "off") {
+      state.phase = "idle";
+      state.task = null;
+      state.lastDecision = null;
+      state.lastPrompt = null;
+    }
+    try {
+      const path = await saveConfig({
+        cwd: ctx?.cwd ?? process.cwd(),
+        scope: "global",
+        mode,
+        recognition: mode === "off" ? null : state.runtimeRecognition,
+      });
+      notify(
+        ctx,
+        mode === "off"
+          ? `策略已关闭并保存。配置：${path}`
+          : `${mode === "strict" ? "谨慎处理" : "自动处理"}已启用并保存；当前模型将在正常回答中结合完整对话判断意图，不增加前置等待。配置：${path}`,
+        "success",
+      );
+    } catch (error) {
+      notify(
+        ctx,
+        `设置已在当前运行生效，但保存失败：${error.message}`,
+        "warning",
+      );
+    }
+  }
+
   async function policyCommand(args, ctx) {
     const state = getState();
     const trimmed = String(args ?? "").trim();
@@ -188,27 +136,60 @@ export function createCommandHandler({ packageRoot, getState, pi }) {
       const title = sanitizeTerminalText(
         `${state.lastActivity?.summary ?? "策略 · 尚未处理请求"}\n${phaseText(state.phase)}`,
       );
-      const choice = await ctx.ui.select(title, [
-        "本次行为 — 原因、已注入要求、下一步",
-        "任务与审批 — 查看账本、批准计划、开始新任务或取消计划",
-        "设置与保存 — 调整模式、识别模型、配置档及持久化范围",
-        "诊断 — 查看注入原文、状态、配置、校验与历史",
-        "命令说明 — 查看全部文本命令、作用和注意事项",
-      ]);
-      if (choice?.startsWith("本次行为"))
+      const options = [
+        "查看本次状态 — 当前流程、判断方式和下一步",
+        "自动处理（推荐）— 当前模型结合完整对话判断；选中后立即保存",
+        "谨慎处理 — 所有修改先给计划再等待确认；选中后立即保存",
+        "检查配置 — 显示个人配置位置并校验是否有效",
+      ];
+      if (state.phase === "awaiting_approval" && state.task?.plan)
+        options.splice(1, 0, "批准当前计划 — 只批准当前任务的当前计划版本");
+      if (state.task)
+        options.splice(
+          options.length - 1,
+          0,
+          "结束当前任务 — 清除任务关联；下一条请求重新开始",
+        );
+      options.push("关闭策略 — 停止策略注入并立即保存");
+      const choice = await ctx.ui.select(title, options);
+      if (choice?.startsWith("查看本次状态"))
         notify(
           ctx,
           activityText(state.lastActivity) +
             `\n当前：${phaseText(state.phase)}`,
           "info",
         );
-      if (choice?.startsWith("任务与审批"))
-        await runTaskSelector(state, ctx, policyCommand);
-      if (choice?.startsWith("设置与保存"))
-        await runSettingsSelector(state, ctx, policyCommand, packageRoot);
-      if (choice?.startsWith("诊断"))
-        await runDiagnosticsSelector(ctx, policyCommand);
-      if (choice?.startsWith("命令说明")) notify(ctx, COMMAND_HELP, "info");
+      if (choice?.startsWith("批准当前计划"))
+        await policyCommand("approve", ctx);
+      if (choice?.startsWith("自动处理"))
+        await applyGlobalPreset(state, ctx, "auto");
+      if (choice?.startsWith("谨慎处理"))
+        await applyGlobalPreset(state, ctx, "strict");
+      if (choice?.startsWith("结束当前任务")) await policyCommand("new", ctx);
+      if (choice?.startsWith("检查配置")) {
+        const cfg = buildEffectiveConfig({
+          packageRoot,
+          cwd: ctx?.cwd ?? process.cwd(),
+          state,
+        });
+        const checked = validateConfig({
+          config: buildEffectiveConfig({
+            packageRoot,
+            cwd: ctx?.cwd ?? process.cwd(),
+            state,
+            raw: true,
+          }),
+          packageRoot,
+          cwd: ctx?.cwd ?? process.cwd(),
+        });
+        notify(
+          ctx,
+          `个人配置：${globalConfigPath()}\n当前模式：${cfg.mode}；意图理解：${cfg.semanticFallback?.enabled ? "当前模型（同一次回答）" : "本地规则"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
+          checked.ok ? "info" : "warning",
+        );
+      }
+      if (choice?.startsWith("关闭策略"))
+        await applyGlobalPreset(state, ctx, "off");
       return;
     }
 
@@ -256,7 +237,7 @@ export function createCommandHandler({ packageRoot, getState, pi }) {
               : { enabled: true, strategy: selected };
       notify(
         ctx,
-        `识别模式：${selected}。agent 复用当前模型，endpoint 使用独立接口；/policy save global 可保存。`,
+        `识别模式：${selected}。日常设置请使用 /policy 一级面板，选择后会立即保存。`,
         "success",
       );
       return;
@@ -378,7 +359,6 @@ export function createCommandHandler({ packageRoot, getState, pi }) {
           packageRoot,
           state: newTaskPreview ? null : state,
           semantic: semanticPreview,
-          agentClassifier: createAgentClassifier(ctx),
           cwd: ctx?.cwd ?? process.cwd(),
           prompt: rawPrompt,
           model: ctx?.model ?? state.currentModel,
@@ -586,7 +566,7 @@ export function createCommandHandler({ packageRoot, getState, pi }) {
 
     notify(
       ctx,
-      "Usage: /policy [recognition agent|endpoint|fallback|off|task|approve|new|auto|quick|standard|strict|off|once <mode>|profile <name>|save global|project|preview <prompt...>|diff <promptA> || <promptB>|history [N|clear-disk]|config|validate|status|why|injected|cancel|reset]",
+      "使用 /policy 打开操作面板。高级诊断保留：/policy why|injected|status|config|validate|history|preview|diff|reset",
       "info",
     );
   }
@@ -615,105 +595,4 @@ export function createCommandHandler({ packageRoot, getState, pi }) {
       await persistWorkflow({ pi, state, ctx, packageRoot });
     }
   };
-}
-
-/**
- * Interactive picker: walk through mode / profile in order, persist
- * any choices the user makes, fall back to notify() messages if the picker
- * UI is unavailable.
- */
-async function runTaskSelector(state, ctx, runCommand) {
-  const choice = await ctx.ui.select("任务与审批", [
-    "查看任务账本 — 目标、要求、约束来源、计划及授权版本",
-    "批准当前计划 — 只批准当前任务的当前计划版本",
-    "开始新任务 — 清除当前任务关联；下一条请求重新识别",
-    "取消待审批计划 — 清除当前任务及待审批状态",
-  ]);
-  if (choice?.startsWith("查看任务账本")) await runCommand("task", ctx);
-  if (choice?.startsWith("批准当前计划")) await runCommand("approve", ctx);
-  if (choice?.startsWith("开始新任务")) await runCommand("new", ctx);
-  if (choice?.startsWith("取消待审批计划")) await runCommand("cancel", ctx);
-}
-
-async function runDiagnosticsSelector(ctx, runCommand) {
-  const choice = await ctx.ui.select("策略诊断 · 只读操作", [
-    "注入原文 — 查看最近实际追加给模型的完整指令",
-    "运行状态 — 当前任务阶段、模型和最近识别来源",
-    "有效配置 — 查看配置合并结果、来源及识别参数",
-    "校验配置 — 检查结构、策略引用和项目配置边界",
-    "最近历史 — 查看最近 5 条路由与阶段记录",
-  ]);
-  if (choice?.startsWith("注入原文")) await runCommand("injected", ctx);
-  if (choice?.startsWith("运行状态")) await runCommand("status", ctx);
-  if (choice?.startsWith("有效配置")) await runCommand("config", ctx);
-  if (choice?.startsWith("校验配置")) await runCommand("validate", ctx);
-  if (choice?.startsWith("最近历史")) await runCommand("history 5", ctx);
-}
-
-async function runSettingsSelector(state, ctx, runCommand, packageRoot) {
-  const config = buildEffectiveConfig({
-    packageRoot,
-    cwd: ctx?.cwd ?? process.cwd(),
-    state,
-  });
-  const recognition = config.semanticFallback?.enabled
-    ? config.semanticFallback.source === "agent"
-      ? "agent"
-      : config.semanticFallback.strategy === "fallback"
-        ? "fallback"
-        : "endpoint"
-    : "off";
-  const choice = await ctx.ui.select("策略设置", [
-    `模式 — 当前 ${config.mode}; 控制策略深度和审批流程`,
-    `单次模式 — 当前 ${state.onceMode ?? "无"}; 仅作用于下一个新任务`,
-    `意图识别 — 当前 ${recognition}; 选择当前模型、独立接口或本地规则`,
-    `配置档 — 当前 ${config.profile}; 选择行为策略，不改变授权`,
-    "保存到全局 — 保存当前选择，重启和其他项目继续使用",
-    "保存到项目 — 只保存模式和配置档到当前项目，不保存模型接口",
-  ]);
-  if (choice?.startsWith("模式")) {
-    const mode = await pickOne(
-      ctx,
-      `选择模式 · 当前 ${state.runtimeMode ?? "auto"}`,
-      MODE_OPTIONS,
-    );
-    if (!mode) return;
-    state.runtimeMode = mode;
-    state.onceMode = null;
-    if (mode === "off") {
-      state.phase = "idle";
-      state.task = null;
-      state.lastDecision = null;
-      state.lastPrompt = null;
-    }
-    notify(ctx, `策略模式已设为 ${mode}。`, "success");
-    return;
-  }
-  if (choice?.startsWith("单次模式")) {
-    const mode = await pickOne(ctx, "选择下一个新任务的单次模式", MODE_OPTIONS);
-    if (mode) await runCommand(`once ${mode}`, ctx);
-    return;
-  }
-  if (choice?.startsWith("意图识别")) {
-    const selected = await pickOne(
-      ctx,
-      `选择识别方式 · 当前 ${recognition}`,
-      RECOGNITION_OPTIONS,
-    );
-    if (selected) await runCommand(`recognition ${selected}`, ctx);
-    return;
-  }
-  if (choice?.startsWith("配置档")) {
-    const profile = await pickOne(
-      ctx,
-      `选择配置档 · 当前 ${state.runtimeProfile ?? "auto"}`,
-      PROFILE_OPTIONS,
-    );
-    if (!profile) return;
-    state.runtimeProfile = profile;
-    notify(ctx, `策略配置档已设为 ${profile}。`, "success");
-    return;
-  }
-  if (choice?.startsWith("保存到全局")) await runCommand("save global", ctx);
-  if (choice?.startsWith("保存到项目")) await runCommand("save project", ctx);
 }

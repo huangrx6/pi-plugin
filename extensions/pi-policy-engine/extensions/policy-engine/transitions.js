@@ -61,14 +61,19 @@ export async function resolveTurn({
   state,
   model,
   fetcher,
-  agentClassifier,
   semantic = true,
 }) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
   let mode = config.mode;
   const recognition =
     semantic && mode !== "off"
-      ? await interpretTask({ prompt, state, config, fetcher, agentClassifier })
+      ? await interpretTask({
+          prompt,
+          state,
+          config,
+          fetcher,
+          currentModel: model,
+        })
       : {
           source: "rules",
           reason: semantic ? "off" : "preview_offline",
@@ -76,6 +81,14 @@ export async function resolveTurn({
         };
   const interpreted = recognition.interpretation;
   let relation = interpreted?.relation ?? taskRelation(prompt);
+  const isContinuationPhrase = classifyFollowUp(prompt).type !== "none";
+  const recoverFromConversation =
+    recognition.source === "agent" &&
+    recognition.reason === "in_band" &&
+    !state.task &&
+    relation === "response" &&
+    isContinuationPhrase;
+  if (recoverFromConversation) relation = "uncertain";
   // The user's explicit response to a pending plan outranks a model's task split.
   const localApproval = resolvePlanResponse(prompt);
   if (
@@ -253,6 +266,7 @@ export async function resolveTurn({
   }
   const followUp = !!state.task && relation !== "new";
   if (!state.task) state.task = newTask(prompt);
+  if (recoverFromConversation) state.task.contextRecovery = true;
   if (relation === "revise") {
     state.task.planVersion++;
     delete state.task.approvedVersion;
@@ -271,6 +285,8 @@ export async function resolveTurn({
     interpretation: interpreted,
     explicitMode: mode,
   });
+  if (recognition.source === "agent" && recognition.reason === "in_band")
+    decision.intentPolicy = "contextual";
   if (relation === "uncertain") decision.executionIntent = "unclear";
   if (relation === "discuss") decision.executionIntent = "read-only";
   decision.recognition ??= recognition;

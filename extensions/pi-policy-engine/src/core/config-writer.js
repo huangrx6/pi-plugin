@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { extensionDirectory, globalConfigPath } from "./paths.js";
 import { validateShape } from "./schema.js";
 
-// Only settings explicitly selected in the UI are persisted by /policy save.
+// Persist only explicitly selected settings; unrelated global configuration is preserved.
 export async function saveSelections({
   cwd,
   scope,

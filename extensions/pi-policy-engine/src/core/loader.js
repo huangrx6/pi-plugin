@@ -247,8 +247,18 @@ export function composePolicies({
   // specific and more binding than generic model adaptation, so
   // model.minimax-* is dropped before they are. Full order:
   //   core > project > rigor/flow > concern > domain > profile > model
+  const intentPolicy = `intent.${
+    decision.executionIntent === "read-only"
+      ? "read-only"
+      : decision.executionIntent === "mutate"
+        ? "mutate"
+        : "unclear"
+  }`;
+  const contextualPolicy =
+    decision.intentPolicy === "contextual" ? "intent.contextual" : null;
   const ordered = [
-    `intent.${decision.executionIntent === "read-only" ? "read-only" : decision.executionIntent === "mutate" ? "mutate" : "unclear"}`,
+    ...(contextualPolicy ? [contextualPolicy] : []),
+    intentPolicy,
     ...(decision.rigor === "strict" ? [strictPolicyId(decision, phase)] : []),
     "core.evidence-priority",
     "core.constraint-retention",
@@ -260,9 +270,7 @@ export function composePolicies({
   // v0.23 P0: the execution intent is a HARD BOUNDARY in the runtime —
   // quick/standard flows are intent-neutral, and intent.read-only forbids
   // mutation outright. Rigor decides depth, never whether to mutate.
-  ordered.push(
-    `intent.${decision.executionIntent === "read-only" ? "read-only" : decision.executionIntent === "mutate" ? "mutate" : "unclear"}`,
-  );
+  ordered.push(intentPolicy);
   // v0.19 flow/rigor split: flow (how to work) derives from the task type,
   // rigor (how strict) from risk/intent. Profiles carry behaviors only.
   if (decision.flow) ordered.push(`flow.${decision.flow}`);

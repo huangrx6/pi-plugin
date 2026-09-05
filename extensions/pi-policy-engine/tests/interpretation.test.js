@@ -204,7 +204,7 @@ test("semantic configuration rejects invalid strategy, protocol, and context bud
   );
 });
 
-test("agent calls share response validation and the deadline", async () => {
+test("agent source delegates interpretation to the current turn without an extra request", async () => {
   const cfg = config({
     source: "agent",
     apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
@@ -214,32 +214,12 @@ test("agent calls share response validation and the deadline", async () => {
     prompt: "继续",
     state,
     config: cfg,
-    agentClassifier: {
-      model: "host/model",
-      complete: async () => JSON.stringify(valid),
-    },
+    currentModel: { provider: "host", id: "model" },
     fetcher: () => assert.fail("must not call endpoint"),
   });
-  assert.equal(result.source, "model");
-  assert.equal(result.protocol, "host");
-  const invalid = await interpretTask({
-    prompt: "继续",
-    state,
-    config: cfg,
-    agentClassifier: {
-      model: "host/model",
-      complete: async () => JSON.stringify({ ...valid, approved: true }),
-    },
-  });
-  assert.equal(invalid.reason, "invalid_schema");
-  const slow = await interpretTask({
-    prompt: "继续",
-    state,
-    config: cfg,
-    agentClassifier: {
-      model: "host/model",
-      complete: () => new Promise(() => {}),
-    },
-  });
-  assert.equal(slow.reason, "timeout");
+  assert.equal(result.source, "agent");
+  assert.equal(result.reason, "in_band");
+  assert.equal(result.transport, "current_turn");
+  assert.equal(result.model, "host/model");
+  assert.equal(result.durationMs, 0);
 });

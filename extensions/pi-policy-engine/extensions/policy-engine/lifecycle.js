@@ -19,7 +19,6 @@ import { cleanModel, notify, setStatus } from "./helpers.js";
 import { buildTurnBlock } from "./policy-block.js";
 import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
 import { readPlanReport } from "../../src/core/task-contract.js";
-import { createAgentClassifier } from "./agent-classifier.js";
 
 export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
   async function restore(_event, ctx) {
@@ -127,7 +126,6 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       prompt,
       state,
       model: state.currentModel,
-      agentClassifier: createAgentClassifier(ctx),
     });
     const built = turn.inject
       ? buildTurnBlock({

@@ -98,7 +98,7 @@ test("all command notifications strip terminal control sequences", () => {
   assert.equal(messages[0], "safe red");
 });
 
-test("interactive settings change one setting at a time", async () => {
+test("single-level panel applies and saves the recommended preset", async () => {
   const state = {
     runtimeMode: null,
     runtimeProfile: null,
@@ -107,37 +107,45 @@ test("interactive settings change one setting at a time", async () => {
     phase: "idle",
     lastActivity: { summary: "策略\x1b]2;bad\x07", injected: "" },
   };
-  const selections = [
-    "设置与保存 — 调整模式、识别模型、配置档及持久化范围",
-    "模式 — 当前 auto; 控制策略深度和审批流程",
-    "quick — 快速检查、修改并验证",
-  ];
+  const selection =
+    "自动处理（推荐）— 当前模型结合完整对话判断；选中后立即保存";
   const notifications = [];
   const titles = [];
+  const saves = [];
   const handler = createCommandHandler({
     packageRoot: process.cwd(),
     getState: () => state,
+    saveConfig: async (value) => {
+      saves.push(value);
+      return "/agent/extensions-data/pi-policy-engine/config.json";
+    },
   });
   await handler("", {
     ui: {
-      select: async (title) => {
+      select: async (title, options) => {
         titles.push(title);
-        return selections.shift();
+        assert.ok(options.includes(selection));
+        assert.ok(options.every((option) => option.includes("—")));
+        return selection;
       },
       notify: (message) => notifications.push(message),
     },
   });
-  assert.equal(state.runtimeMode, "quick");
-  assert.equal(
-    state.runtimeProfile,
-    null,
-    "changing mode must not force a profile prompt",
-  );
-  assert.match(notifications.at(-1), /策略模式已设为 quick/);
+  assert.equal(state.runtimeMode, "auto");
+  assert.deepEqual(state.runtimeRecognition, {
+    enabled: true,
+    strategy: "primary",
+    source: "agent",
+  });
+  assert.equal(saves.length, 1);
+  assert.equal(saves[0].scope, "global");
+  assert.equal(saves[0].mode, "auto");
+  assert.equal(saves[0].recognition.source, "agent");
+  assert.match(notifications.at(-1), /已启用并保存/);
   assert.ok(titles.every((title) => !title.includes("\x1b")));
 });
 
-test("interactive recognition panel explains and applies the active agent model", async () => {
+test("single-level panel exposes only everyday actions", async () => {
   const state = {
     runtimeMode: null,
     runtimeProfile: null,
@@ -147,13 +155,7 @@ test("interactive recognition panel explains and applies the active agent model"
     task: null,
     lastActivity: null,
   };
-  const selections = [
-    "设置与保存 — 调整模式、识别模型、配置档及持久化范围",
-    "意图识别 — 当前 off; 选择当前模型、独立接口或本地规则",
-    "agent — 复用当前 agent 模型与认证；每个任务回合额外调用一次模型",
-  ];
   const optionLists = [];
-  const messages = [];
   const handler = createCommandHandler({
     packageRoot: process.cwd(),
     getState: () => state,
@@ -162,67 +164,20 @@ test("interactive recognition panel explains and applies the active agent model"
     ui: {
       select: async (_title, options) => {
         optionLists.push(options);
-        return selections.shift();
+        return undefined;
       },
-      notify: (message) => messages.push(message),
+      notify() {},
     },
   });
-  assert.deepEqual(state.runtimeRecognition, {
-    enabled: true,
-    strategy: "primary",
-    source: "agent",
-  });
+  assert.equal(optionLists.length, 1);
+  assert.equal(optionLists[0].length, 5);
+  assert.ok(optionLists[0].some((option) => option.startsWith("自动处理")));
+  assert.ok(optionLists[0].some((option) => option.startsWith("谨慎处理")));
+  assert.ok(optionLists[0].some((option) => option.startsWith("检查配置")));
+  assert.ok(optionLists[0].some((option) => option.startsWith("关闭策略")));
   assert.ok(
-    optionLists[2].some((option) => option.includes("额外调用一次模型")),
+    optionLists[0].every((option) => !/单次模式|配置档|保存到/.test(option)),
   );
-  assert.ok(optionLists[2].some((option) => option.includes("不产生模型调用")));
-  assert.match(messages.at(-1), /agent 复用当前模型/);
-});
-
-test("interactive panels expose task actions, diagnostics and annotated command help", async () => {
-  for (const [main, submenu, expected] of [
-    [
-      "任务与审批 — 查看账本、批准计划、开始新任务或取消计划",
-      "查看任务账本 — 目标、要求、约束来源、计划及授权版本",
-      /task/,
-    ],
-    [
-      "诊断 — 查看注入原文、状态、配置、校验与历史",
-      "运行状态 — 当前任务阶段、模型和最近识别来源",
-      /recognition:/,
-    ],
-    [
-      "命令说明 — 查看全部文本命令、作用和注意事项",
-      null,
-      /\/policy recognition agent/,
-    ],
-  ]) {
-    const state = {
-      runtimeMode: null,
-      runtimeProfile: null,
-      runtimeRecognition: null,
-      onceMode: null,
-      phase: "idle",
-      outcome: "idle",
-      task: null,
-      history: [],
-      currentModel: null,
-      lastActivity: null,
-    };
-    const selections = submenu ? [main, submenu] : [main];
-    const messages = [];
-    const handler = createCommandHandler({
-      packageRoot: process.cwd(),
-      getState: () => state,
-    });
-    await handler("", {
-      ui: {
-        select: async () => selections.shift(),
-        notify: (message) => messages.push(message),
-      },
-    });
-    assert.match(messages.at(-1), expected);
-  }
 });
 
 test("resuming restores the visible branch explanation and ignores malformed records", () => {

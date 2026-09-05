@@ -26,7 +26,10 @@ export function buildTurnBlock({ packageRoot, cwd, turn, model }) {
   decision.droppedProjectPolicies = composed.projectSkipped;
   decision.policyBytes = composed.builtInBytes + composed.projectBytes;
   decision.policyBudget = config.policyMaxBytes;
-  const required = [`intent.${decision.executionIntent ?? "unclear"}`];
+  const required = [
+    ...(decision.intentPolicy === "contextual" ? ["intent.contextual"] : []),
+    `intent.${decision.executionIntent ?? "unclear"}`,
+  ];
   if (decision.rigor === "strict")
     required.push(strictPolicyId(decision, phase));
   const blocked = required.some((id) => !decision.loadedPolicies.includes(id));

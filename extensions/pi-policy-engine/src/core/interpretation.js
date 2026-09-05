@@ -120,7 +120,7 @@ export async function interpretTask({
   state,
   config,
   fetcher = globalThis.fetch,
-  agentClassifier,
+  currentModel,
 }) {
   const fb = config.semanticFallback ?? {};
   const fallback = (reason) => ({
@@ -130,7 +130,21 @@ export async function interpretTask({
   });
   if (!fb.enabled || fb.strategy !== "primary") return fallback("disabled");
   const useAgent = fb.source === "agent";
-  if (useAgent && !agentClassifier) return fallback("agent_model_unavailable");
+  // The active agent already receives the complete conversation. Calling it
+  // once here would block before Pi renders the submitted user message and
+  // would still lack host conversation context. Mark the decision as
+  // contextual and let the normal agent call interpret it in-band.
+  if (useAgent)
+    return {
+      source: "agent",
+      reason: "in_band",
+      interpretation: null,
+      model: currentModel
+        ? `${currentModel.provider ?? "unknown"}/${currentModel.id ?? "unknown"}`
+        : undefined,
+      transport: "current_turn",
+      durationMs: 0,
+    };
   const apiKey =
     !useAgent && fb.apiKeyEnvVar ? process.env[fb.apiKeyEnvVar] : null;
   if (!useAgent && fb.apiKeyEnvVar && !apiKey) return fallback("missing_key");

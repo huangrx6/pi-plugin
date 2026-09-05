@@ -7,6 +7,7 @@
     "intent.read-only": "policies/intents/read-only.md",
     "intent.mutate": "policies/intents/mutate.md",
     "intent.unclear": "policies/intents/unclear.md",
+    "intent.contextual": "policies/intents/contextual.md",
     "behavior.execution-discipline": "policies/behaviors/execution-discipline.md",
     "behavior.minimal-change": "policies/behaviors/minimal-change.md",
     "behavior.context-hygiene": "policies/behaviors/context-hygiene.md",

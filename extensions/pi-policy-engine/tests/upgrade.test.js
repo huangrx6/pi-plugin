@@ -810,10 +810,18 @@ test("same-task constraints do not revoke explicit autonomy", async (t) => {
   assert.ok(s.state.task.constraints.includes("必须保持旧接口"));
 });
 
-test("agent recognition uses the current complete model without separate API configuration", async (t) => {
-  const { cwd } = fixture(t);
+test("agent recognition runs in-band without delaying on a second model call", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({
+    semanticFallback: {
+      source: "agent",
+      enabled: true,
+      strategy: "primary",
+      endpoint: "https://must-not-call.invalid",
+      apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
+    },
+  });
   const s = session(cwd);
-  const calls = [];
   const first = {
     provider: "session-provider",
     id: "first",
@@ -822,37 +830,27 @@ test("agent recognition uses the current complete model without separate API con
   };
   s.ctx.model = first;
   s.ctx.modelRegistry = {
-    complete: async (model, context, options) => {
-      calls.push({ model, context, options });
-      assert.equal(context.messages.length, 1);
-      assert.equal(context.tools, undefined);
-      return {
-        stopReason: "stop",
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(
-              interpretation({
-                taskType: "review",
-                executionIntent: "read-only",
-              }),
-            ),
-          },
-        ],
-      };
-    },
+    complete: async () => assert.fail("must not start a second model call"),
   };
   await s.start();
-  await s.command("recognition agent", s.ctx);
-  await s.turn("全面审查当前项目");
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].model, first);
-  assert.equal(calls[0].options.apiKey, undefined);
-  assert.ok(calls[0].options.signal);
-  assert.equal(s.state.lastDecision.recognition.transport, "agent");
+  const out = await s.turn("继续");
+  assert.match(out.systemPrompt, /Current Agent Context Interpretation/);
+  assert.match(out.systemPrompt, /Current conversation recovery/);
+  assert.doesNotMatch(out.systemPrompt, /"goal":"继续"/);
+  assert.equal(s.state.task.contextRecovery, true);
+  assert.equal(s.state.lastDecision.intentPolicy, "contextual");
+  assert.equal(s.state.lastDecision.recognition.transport, "current_turn");
+  assert.equal(s.state.lastDecision.recognition.durationMs, 0);
   assert.equal(
     s.state.lastDecision.recognition.model,
     "session-provider/first",
+  );
+  assert.ok(
+    s.entries.some(
+      (entry) =>
+        entry.customType === "policy-engine-activity" &&
+        entry.data.summary.includes("当前模型结合对话处理"),
+    ),
   );
   await s.end();
   s.ctx.model = {
@@ -860,39 +858,14 @@ test("agent recognition uses the current complete model without separate API con
     id: "second",
     api: "another-api",
   };
-  await s.turn("审查另一个函数");
-  assert.equal(calls[1].model, s.ctx.model);
+  await s.turn("继续处理当前问题");
   assert.equal(
     s.state.lastDecision.recognition.model,
     "another-provider/second",
   );
-  await s.command("save global", s.ctx);
-  const cfg = buildEffectiveConfig({ packageRoot, cwd, state: createState() });
-  assert.equal(cfg.semanticFallback.source, "agent");
 });
 
-test("agent preview is offline by default and explicitly enabled preview uses host adapter", async (t) => {
-  const { cwd } = fixture(t);
-  const s = session(cwd);
-  let calls = 0;
-  s.ctx.modelRegistry = {
-    complete: async () => {
-      calls++;
-      return {
-        content: [{ type: "text", text: JSON.stringify(interpretation()) }],
-      };
-    },
-  };
-  await s.start();
-  await s.command("recognition agent", s.ctx);
-  await s.command("preview 实现新功能", s.ctx);
-  assert.equal(calls, 0);
-  await s.command("preview --semantic 实现新功能", s.ctx);
-  assert.equal(calls, 1);
-  assert.equal(s.state.task, null);
-});
-
-test("unsupported host degrades visibly without falling through to the configured endpoint", async (t) => {
+test("agent semantic preview remains local and never falls through to an endpoint", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
     semanticFallback: {
@@ -910,5 +883,7 @@ test("unsupported host degrades visibly without falling through to the configure
     semantic: true,
     fetcher: () => assert.fail("must not switch providers"),
   });
-  assert.equal(p.decision.recognition.reason, "agent_model_unavailable");
+  assert.equal(p.decision.recognition.reason, "in_band");
+  assert.equal(p.decision.intentPolicy, "contextual");
+  assert.match(p.injected, /Current Agent Context Interpretation/);
 });
