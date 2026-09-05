@@ -1,4 +1,4 @@
-# Design — pi-policy-engine 0.30.0
+# Design — pi-policy-engine 0.31.0
 
 ## Responsibility
 
@@ -17,7 +17,7 @@ input + current conversation
 
 `transitions.js::resolveTurn` owns the transition decision. `policy-block.js` composes and renders it. The lifecycle applies these functions to live state; preview applies them to a cloned state. Preview defaults to no semantic network call. `--new` discards current runtime/task context for the preview; `--semantic` permits the configured opt-in classifier.
 
-Model preflight interpretation produces one authoritative relationship, task, intent, risk, domain and coverage result before the normal turn. The default agent source calls the host's active model through `modelRegistry.complete`, using a bounded conversation payload and no tools. The validated result selects the corresponding intent, flow, rigor, profile and domain policies. Deterministic keyword classification is retained only as an emergency fallback when the configured model cannot be called or returns invalid output; it is not used when preflight succeeds. Uncertainty cannot grant mutation or approval.
+Model preflight interpretation produces one authoritative relationship, task, intent, risk, domain and coverage result before the normal turn. The default agent source calls the host's active model through `modelRegistry.complete`, using a bounded conversation payload and no tools. The validated result selects the corresponding intent, flow, rigor, profile and domain policies. A host model failure or invalid result blocks the turn; it never silently routes through the old keyword rules. The deterministic path remains only for compatibility with hosts that do not expose the current-agent model API. Uncertainty cannot grant mutation or approval.
 
 ## Intent and authorization
 
@@ -71,7 +71,7 @@ Global `modelRules` precede package rules. Matching is exact provider plus exact
 
 ## Model interpretation boundary
 
-For agent source, `interpretation.js` sends a bounded conversation and task snapshot to the active host model before policy composition. `validateInterpretation` accepts only the declared route schema; the result is then used to select policies. `before_agent_start` exposes the preflight state through `ctx.ui.setStatus`. For endpoint source, the module serializes the latest message, goal, retained requirements/constraints, plan and phase into a bounded data-only request. The global-only endpoint and environment-variable reference form the network trust boundary. Existing source-less semantic configurations preserve endpoint behavior.
+For agent source, `interpretation.js` sends a bounded conversation and task snapshot to the active host model during Pi's `context` hook, after the user message has been emitted and the host Working row has started. `validateInterpretation` accepts only the declared route schema; the result is then used to select policies. The selected block is appended to the provider payload in `before_provider_request`, so it is sent to the model without becoming a synthetic session message. `setWorkingMessage` labels the host-owned spinner during preflight. For endpoint source, the module serializes the latest message, goal, retained requirements/constraints, plan and phase into a bounded data-only request. The global-only endpoint and environment-variable reference form the network trust boundary. Existing source-less semantic configurations preserve endpoint behavior.
 
 Primary results must have exactly the specified fields, valid task/relation/intent/risk/coverage enums, known domains and bounded constraint quotations present in unquoted current user text. Extra authorization fields invalidate the response. The model can correct rule classification, but cannot write task IDs, approved versions or autonomy. Direct user approval requirements remain authoritative. Natural-language approvals still use the conservative local parser; `/policy approve` is the explicit alternative. Risk cannot decrease during a continuing task; architecture retains its high-risk floor. A model's result has no fabricated confidence probability.
 
@@ -89,4 +89,4 @@ If required policies are missing, excluded or cannot fit, the turn is marked blo
 
 Tests use OS temporary directories. The smoke entry point isolates both cwd and `PI_CODING_AGENT_DIR`; asynchronous writes complete before cleanup. Regression scenarios include greetings, fresh reviews after pending debugging, negated/quoted autonomy, narrowing approvals, restart/fork/tree navigation, missing plans, errors, model changes, damaged configuration, preview parity and insufficient budgets.
 
-Version 0.30.0 changes current-agent recognition to a validated model preflight with visible loading status. Existing history stays readable, and endpoint configurations remain compatible. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
+Version 0.31.0 moves current-agent recognition into Pi's message-first `context` lifecycle and uses the built-in Working spinner for feedback. Existing history stays readable, and endpoint configurations remain compatible. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
