@@ -1,4 +1,4 @@
-# Design — pi-policy-engine 0.33.0
+# Design — pi-policy-engine 0.33.2
 
 ## Responsibility
 
@@ -57,7 +57,7 @@ Workflow writes use a temporary file and rename; clearing removes the matching s
 
 ## Diagnostics
 
-Every live decision, including pending-plan responses, records relationship, intent, phase before/after, outcome, task/version/session, current model, recognition source/reason/model/latency, configuration fingerprint, injection fingerprint, actual injected bytes and a short prompt excerpt. Round end records its phase/outcome separately. The activity card retains the exact appended text and an immutable decision snapshot; identical injected text and phase do not produce duplicate activity cards.
+Every live decision, including pending-plan responses, records relationship, intent, phase before/after, outcome, task/version/session, current model, recognition source/reason/model/latency, configuration fingerprint, injection fingerprint, actual injected bytes and a short prompt excerpt. Failed recognition also records its attempt count, parser/schema stage, response length and a bounded response preview. Round end records its phase/outcome separately. The activity card retains the exact appended text and an immutable decision snapshot; identical injected text and phase do not produce duplicate activity cards.
 
 The current snapshot keeps routing state. JSONL keeps diagnostic events. Neither is a vector database or a learned classifier. No operational state is inferred from semantic similarity.
 
@@ -77,7 +77,7 @@ For agent source, `interpretation.js` sends a bounded conversation and task snap
 
 Primary results must have exactly the specified fields, valid task/relation/intent/risk/coverage enums, known domains and bounded constraint quotations present in unquoted current user text. Extra authorization fields invalidate the response. The model result selects the live route, but cannot write task IDs, approved versions or autonomy. Direct user approval requirements remain authoritative. Natural-language approvals still use the conservative local parser; `/policy approve` is the explicit alternative. Risk cannot decrease during a continuing task; architecture retains its high-risk floor. A model's result has no fabricated confidence probability.
 
-For endpoint source, the deadline covers transport and JSON parsing even when an injected transport ignores abort. HTTP errors, malformed JSON/schema, missing keys and network failure return diagnostic codes without response bodies or secrets. Oversized serialized context blocks the live turn without silently dropping constraints. No retries occur. Agent source and ordinary offline previews make no network call.
+For endpoint source, the deadline covers transport, JSON parsing and any repair attempt even when an injected transport ignores abort. Invalid JSON or schema output receives one format-repair attempt through the same source; transport failures are not retried. HTTP errors, malformed JSON/schema, missing keys and network failure return diagnostic codes without credentials or transport error bodies. A failed model response contributes only a bounded preview to the private history. Oversized serialized context skips live policy selection without silently dropping constraints. Agent source reuses the host model; ordinary offline previews make no network call.
 
 The classification result remains fallible, and injected behavior does not enforce tool permissions. Mock protocol tests establish data flow and transition invariants, not model accuracy. Real-model evaluation must measure task misassociation, constraint retention, false approval waits, latency/cost and outcomes before enabling classification by default or claiming provider-specific prompt efficacy.
 
@@ -91,4 +91,4 @@ If required policies are missing, excluded or cannot fit, the turn is marked blo
 
 Tests use OS temporary directories. The smoke entry point isolates both cwd and `PI_CODING_AGENT_DIR`; asynchronous writes complete before cleanup. Regression scenarios include greetings, fresh reviews after pending debugging, negated/quoted autonomy, narrowing approvals, restart/fork/tree navigation, missing plans, errors, model changes, damaged configuration, preview parity and insufficient budgets.
 
-Version 0.33.0 removes obsolete legacy config/state reads, the unused one-shot/profile/save command paths and silent live rule fallback. Automatic routing now treats unclear or broad mutation work as standard depth, while high-risk mutation remains strict; task profiles were tightened for architecture, documentation, review and research. Version 0.32.0 adds interrupted-task policy reuse on explicit continuation commands. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
+Version 0.33.2 adds bounded repair and observable parser/schema diagnostics for malformed model responses. Version 0.33.0 removes obsolete legacy config/state reads, the unused one-shot/profile/save command paths and silent live rule fallback. Automatic routing treats unclear or broad mutation work as standard depth, while high-risk mutation remains strict; task profiles are tightened for architecture, documentation, review and research. Version 0.32.0 adds interrupted-task policy reuse on explicit continuation commands. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.

@@ -88,7 +88,11 @@ export function chooseRigor(classification, requestedMode = "auto") {
   // never authorization. The automatic matrix is intentionally small:
   // uncertainty and broad work get a standard workflow; high-risk mutation
   // gets strict; focused low-risk work gets quick.
-  if (requestedMode === "off" || classification.taskType === "conversation")
+  if (
+    requestedMode === "off" ||
+    (classification.taskType === "conversation" &&
+      classification.executionIntent === "read-only")
+  )
     return "off";
 
   if (

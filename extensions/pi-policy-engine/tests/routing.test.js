@@ -153,6 +153,33 @@ test("workflow routing matrix", () => {
   );
 });
 
+test("an underspecified conversational result keeps a clarification policy", () => {
+  assert.equal(
+    chooseRigor(
+      {
+        taskType: "conversation",
+        executionIntent: "unclear",
+        risk: "low",
+        coverage: "focused",
+      },
+      "auto",
+    ),
+    "standard",
+  );
+  assert.equal(
+    chooseRigor(
+      {
+        taskType: "conversation",
+        executionIntent: "read-only",
+        risk: "low",
+        coverage: "focused",
+      },
+      "auto",
+    ),
+    "off",
+  );
+});
+
 test("preview() end-to-end: strict PG migration", async () => {
   const result = await preview({
     packageRoot: root,

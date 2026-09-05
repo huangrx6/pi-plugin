@@ -328,6 +328,34 @@ test("formatHistory: empty, limit, ordering, numbering", () => {
   assert.match(fallback, /last 3 of 3/);
 });
 
+test("formatHistory includes recognition failure diagnostics", () => {
+  const out = formatHistory([
+    {
+      ts: 1_700_000_000_000,
+      source: "decide",
+      prompt: "进行关闭",
+      task: "unknown",
+      risk: "unknown",
+      workflow: "off",
+      recognition: {
+        source: "agent",
+        reason: "invalid_json",
+        attempts: 2,
+        initialFailure: "invalid_json",
+        initialParseIssue: "malformed_json_object",
+        parseIssue: "no_json_object",
+        responseChars: 17,
+        responsePreview: "plain explanation",
+        durationMs: 2400,
+      },
+    },
+  ]);
+  assert.match(out, /attempts=2/);
+  assert.match(out, /first=invalid_json\/malformed_json_object/);
+  assert.match(out, /final=no_json_object/);
+  assert.match(out, /response preview: plain explanation/);
+});
+
 test("formatValidation: ok / warnings / errors / pluralization", () => {
   assert.match(formatValidation({ ok: true, issues: [] }), /# Validation: OK/);
   assert.match(formatValidation({ ok: true, issues: [] }), /No issues found/);

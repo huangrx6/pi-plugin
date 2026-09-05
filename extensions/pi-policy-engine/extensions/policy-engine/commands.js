@@ -139,7 +139,7 @@ export function createCommandHandler({
         });
         notify(
           ctx,
-          `个人配置：${globalConfigPath()}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（Working 阶段前置识别）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
+          `个人配置：${globalConfigPath()}\n识别日志：${cfg.historyFile ? resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd()) : "未启用"}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（Working 阶段前置识别）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
           checked.ok ? "info" : "warning",
         );
       }

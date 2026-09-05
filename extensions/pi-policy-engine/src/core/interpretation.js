@@ -29,6 +29,9 @@ coverage: focused|comprehensive. constraints: at most 32 exact nonempty quotes f
 Use the goal and requirements to resolve references, additions, corrections and long continuations. A new unrelated review must not inherit a pending modification plan. Greetings mixed with work are not conversation.
 Never return approval or autonomy. You interpret work; the host owns authorization. If task relation or intent cannot be resolved, return uncertain or unclear rather than guessing.`;
 
+const REPAIR_INSTRUCTIONS = `${INSTRUCTIONS}
+The previous response did not satisfy the required JSON contract. Repair its format or schema using the supplied original input. Return one JSON object only. Do not explain the repair and do not wrap it in Markdown.`;
+
 export function interpretationContext(state, prompt, conversation = []) {
   return {
     message: prompt,
@@ -56,16 +59,19 @@ export function interpretationContext(state, prompt, conversation = []) {
   };
 }
 
-export function validateInterpretation(value, prompt) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  if (
-    !RELATIONS.includes(value.relation) ||
-    !TASKS.includes(value.taskType) ||
-    !["read-only", "mutate", "unclear"].includes(value.executionIntent) ||
-    !["low", "medium", "high"].includes(value.risk) ||
-    !["focused", "comprehensive"].includes(value.coverage)
-  )
-    return null;
+function inspectInterpretation(value, prompt) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return { value: null, issue: "response_not_object" };
+  if (!RELATIONS.includes(value.relation))
+    return { value: null, issue: "invalid_relation" };
+  if (!TASKS.includes(value.taskType))
+    return { value: null, issue: "invalid_task_type" };
+  if (!["read-only", "mutate", "unclear"].includes(value.executionIntent))
+    return { value: null, issue: "invalid_execution_intent" };
+  if (!["low", "medium", "high"].includes(value.risk))
+    return { value: null, issue: "invalid_risk" };
+  if (!["focused", "comprehensive"].includes(value.coverage))
+    return { value: null, issue: "invalid_coverage" };
   if (
     Object.keys(value).some(
       (k) =>
@@ -80,12 +86,12 @@ export function validateInterpretation(value, prompt) {
         ].includes(k),
     )
   )
-    return null;
+    return { value: null, issue: "unknown_fields" };
   if (
     !Array.isArray(value.domains) ||
     value.domains.some((d) => !DOMAINS.includes(d))
   )
-    return null;
+    return { value: null, issue: "invalid_domains" };
   const live = unquotedText(prompt);
   if (
     !Array.isArray(value.constraints) ||
@@ -98,51 +104,93 @@ export function validateInterpretation(value, prompt) {
         !live.includes(c),
     )
   )
-    return null;
-  if (
-    (value.relation === "conversation") !==
-    (value.taskType === "conversation")
-  )
-    return null;
+    return { value: null, issue: "invalid_constraints" };
+  if (value.relation === "conversation" && value.taskType !== "conversation")
+    return { value: null, issue: "invalid_relation_task_pair" };
   if (
     value.taskType === "conversation" &&
+    !["conversation", "uncertain"].includes(value.relation)
+  )
+    return { value: null, issue: "invalid_relation_task_pair" };
+  if (
+    value.relation === "conversation" &&
     value.executionIntent !== "read-only"
   )
-    return null;
+    return { value: null, issue: "invalid_conversation_intent" };
+  if (
+    value.relation === "uncertain" &&
+    value.taskType === "conversation" &&
+    value.executionIntent !== "unclear"
+  )
+    return { value: null, issue: "invalid_uncertain_intent" };
   return {
-    ...value,
-    domains: [...new Set(value.domains)],
-    constraints: [...new Set(value.constraints)],
+    value: {
+      ...value,
+      domains: [...new Set(value.domains)],
+      constraints: [...new Set(value.constraints)],
+    },
+    issue: null,
   };
 }
 
-/**
- * Parse one JSON value from a model response without accepting ambiguous
- * output. Models occasionally wrap an otherwise valid object in a Markdown
- * fence or a short explanatory sentence even when instructed to return JSON
- * only. Accept those common wrappers, but reject output containing multiple
- * top-level objects so the selected interpretation is always deterministic.
- */
-export function parseRecognitionResponse(content) {
-  if (typeof content !== "string") return null;
+export function validateInterpretation(value, prompt) {
+  return inspectInterpretation(value, prompt).value;
+}
+
+function responsePreview(text) {
+  return String(text ?? "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
+function inspectRecognitionResponse(content) {
+  if (typeof content !== "string")
+    return {
+      parsed: null,
+      diagnostics: { parseIssue: "non_text_response", responseChars: 0 },
+    };
   const text = content.replace(/^\uFEFF/, "").trim();
-  if (!text) return null;
+  const base = {
+    responseChars: content.length,
+    responsePreview: responsePreview(content),
+  };
+  if (!text)
+    return {
+      parsed: null,
+      diagnostics: { ...base, parseIssue: "empty_response" },
+    };
   try {
-    return { value: JSON.parse(text), format: "json" };
+    return {
+      parsed: { value: JSON.parse(text), format: "json" },
+      diagnostics: base,
+    };
   } catch {
     // Continue with bounded wrapper recovery.
   }
 
-  const fenced = text.match(/^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/i);
-  if (fenced) {
+  const fences = [
+    ...text.matchAll(/```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```/gi),
+  ];
+  const outsideFence =
+    fences.length === 1 ? text.replace(fences[0][0], "") : text;
+  if (fences.length === 1 && !/[{}]/.test(outsideFence)) {
     try {
-      return { value: JSON.parse(fenced[1].trim()), format: "markdown_fence" };
+      return {
+        parsed: {
+          value: JSON.parse(fences[0][1].trim()),
+          format: "markdown_fence",
+        },
+        diagnostics: { ...base, fenceCount: 1 },
+      };
     } catch {
-      return null;
+      // A malformed fence may still contain a later valid object.
     }
   }
 
   const objects = [];
+  let invalidObjects = 0;
   let start = -1;
   let depth = 0;
   let quoted = false;
@@ -169,13 +217,42 @@ export function parseRecognitionResponse(content) {
       try {
         objects.push(JSON.parse(candidate));
       } catch {
-        return null;
+        invalidObjects++;
       }
       start = -1;
     }
   }
-  if (start >= 0 || objects.length !== 1) return null;
-  return { value: objects[0], format: "embedded_json" };
+  const diagnostics = {
+    ...base,
+    fenceCount: fences.length,
+    jsonCandidates: objects.length,
+    invalidJsonCandidates: invalidObjects,
+    parseIssue:
+      objects.length > 1
+        ? "multiple_json_objects"
+        : start >= 0
+          ? "incomplete_json_object"
+          : invalidObjects > 0
+            ? "malformed_json_object"
+            : "no_json_object",
+  };
+  if (start < 0 && objects.length === 1)
+    return {
+      parsed: { value: objects[0], format: "embedded_json" },
+      diagnostics,
+    };
+  return { parsed: null, diagnostics };
+}
+
+/**
+ * Parse one JSON value from a model response without accepting ambiguous
+ * output. Models occasionally wrap an otherwise valid object in a Markdown
+ * fence or a short explanatory sentence even when instructed to return JSON
+ * only. Accept those common wrappers, but reject output containing multiple
+ * top-level objects so the selected interpretation is always deterministic.
+ */
+export function parseRecognitionResponse(content) {
+  return inspectRecognitionResponse(content).parsed;
 }
 
 export async function interpretTask({
@@ -188,10 +265,11 @@ export async function interpretTask({
   conversation = [],
 }) {
   const recognitionConfig = config.recognition ?? {};
-  const failure = (reason) => ({
+  const failure = (reason, details = {}) => ({
     source: recognitionConfig.source === "agent" ? "agent" : "endpoint",
     reason,
     interpretation: null,
+    ...details,
   });
   if (!recognitionConfig.enabled) return failure("disabled");
   const useAgent = recognitionConfig.source === "agent";
@@ -252,25 +330,38 @@ export async function interpretTask({
   if (recognitionConfig.temperature !== null)
     body.temperature = recognitionConfig.temperature ?? 0;
   const controller = new AbortController();
+  const attemptDiagnostics = {};
   let timer;
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
-      resolve(failure("timeout"));
+      resolve(failure("timeout", attemptDiagnostics));
     }, recognitionConfig.timeoutMs ?? 4000);
   });
   const started = Date.now();
   try {
     const request = (async () => {
       try {
-        let content;
-        if (useAgent) {
-          content = await agentClassifier.complete({
-            systemPrompt: INSTRUCTIONS,
-            payload,
-            signal: controller.signal,
-          });
-        } else {
+        const complete = async (systemPrompt, requestPayload) => {
+          if (useAgent)
+            return agentClassifier.complete({
+              systemPrompt,
+              payload: requestPayload,
+              signal: controller.signal,
+            });
+          const requestBody = anthropic
+            ? {
+                ...body,
+                system: systemPrompt,
+                messages: [{ role: "user", content: requestPayload }],
+              }
+            : {
+                ...body,
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: requestPayload },
+                ],
+              };
           const response = await fetcher(recognitionConfig.endpoint, {
             method: "POST",
             signal: controller.signal,
@@ -284,33 +375,83 @@ export async function interpretTask({
                   : { authorization: `Bearer ${apiKey}` }
                 : {}),
             },
-            body: JSON.stringify(body),
+            body: JSON.stringify(requestBody),
           });
-          if (!response?.ok) return failure("http_error");
+          if (!response?.ok) return { failure: "http_error" };
           const data = await response.json();
-          content = anthropic
+          return anthropic
             ? data?.content
                 ?.filter((c) => c.type === "text")
                 .map((c) => c.text)
                 .join("")
             : data?.choices?.[0]?.message?.content;
-        }
-        if (typeof content !== "string" || content.length > 64000)
-          return failure("invalid_response");
-        const parsed = parseRecognitionResponse(content);
-        if (!parsed) return failure("invalid_json");
-        const interpretation = validateInterpretation(parsed.value, prompt);
-        return interpretation
-          ? {
-              source: useAgent ? "agent" : "model",
-              reason: "contextual",
-              interpretation,
-              responseFormat: parsed.format,
-            }
-          : failure("invalid_schema");
+        };
+
+        const assess = (content) => {
+          if (content?.failure) return failure(content.failure);
+          if (typeof content !== "string" || content.length > 64000)
+            return failure("invalid_response", {
+              responseChars:
+                typeof content === "string" ? content.length : undefined,
+            });
+          const inspected = inspectRecognitionResponse(content);
+          if (!inspected.parsed)
+            return failure("invalid_json", inspected.diagnostics);
+          const validated = inspectInterpretation(
+            inspected.parsed.value,
+            prompt,
+          );
+          return validated.value
+            ? {
+                source: useAgent ? "agent" : "model",
+                reason: "contextual",
+                interpretation: validated.value,
+                responseFormat: inspected.parsed.format,
+                responseChars: inspected.diagnostics.responseChars,
+              }
+            : failure("invalid_schema", {
+                responseFormat: inspected.parsed.format,
+                responseChars: inspected.diagnostics.responseChars,
+                responsePreview: inspected.diagnostics.responsePreview,
+                schemaIssue: validated.issue,
+              });
+        };
+
+        attemptDiagnostics.attempts = 1;
+        const firstContent = await complete(INSTRUCTIONS, payload);
+        const first = assess(firstContent);
+        if (!["invalid_json", "invalid_schema"].includes(first.reason))
+          return { ...first, attempts: 1 };
+
+        attemptDiagnostics.attempts = 2;
+        attemptDiagnostics.initialFailure = first.reason;
+        attemptDiagnostics.initialParseIssue = first.parseIssue;
+        attemptDiagnostics.initialSchemaIssue = first.schemaIssue;
+
+        const repairPayload = JSON.stringify({
+          originalInput: JSON.parse(payload),
+          invalidResponse:
+            typeof firstContent === "string"
+              ? firstContent.slice(0, 32000)
+              : null,
+        });
+        const repaired = assess(
+          await complete(REPAIR_INSTRUCTIONS, repairPayload),
+        );
+        if (repaired.reason === "contextual")
+          return {
+            ...repaired,
+            responseFormat: `repaired_${repaired.responseFormat}`,
+            ...attemptDiagnostics,
+          };
+        return {
+          ...repaired,
+          ...attemptDiagnostics,
+        };
       } catch {
         return failure(
           controller.signal.aborted ? "timeout" : "request_failed",
+          attemptDiagnostics,
         );
       }
     })();

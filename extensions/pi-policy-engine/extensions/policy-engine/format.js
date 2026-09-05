@@ -1,5 +1,27 @@
 // Human-readable formatters for decisions and status rows. Pure functions;
 // consumed by commands.js and lifecycle.js.
+export function formatRecognitionDiagnostics(recognition) {
+  if (!recognition) return "none/not_run";
+  const parts = [`${recognition.source ?? "none"}/${recognition.reason ?? "not_run"}`];
+  if (recognition.attempts) parts.push(`attempts=${recognition.attempts}`);
+  if (recognition.initialFailure) {
+    const initialDetail =
+      recognition.initialParseIssue ?? recognition.initialSchemaIssue;
+    parts.push(
+      `first=${recognition.initialFailure}${initialDetail ? `/${initialDetail}` : ""}`,
+    );
+  }
+  const finalDetail = recognition.parseIssue ?? recognition.schemaIssue;
+  if (finalDetail) parts.push(`final=${finalDetail}`);
+  if (recognition.responseFormat)
+    parts.push(`format=${recognition.responseFormat}`);
+  if (Number.isFinite(recognition.responseChars))
+    parts.push(`response=${recognition.responseChars} chars`);
+  if (Number.isFinite(recognition.durationMs))
+    parts.push(`${recognition.durationMs}ms`);
+  return parts.join("; ");
+}
+
 export function formatHistory(entries, n = 5) {
   if (!entries || entries.length === 0) {
     return "No routing history yet. Use /policy preview <prompt> to dry-run, or send a prompt to record one.";
@@ -25,8 +47,10 @@ export function formatHistory(entries, n = 5) {
     lines.push(`     prompt: ${e.prompt ?? ""}`);
     if (e.recognition)
       lines.push(
-        `     recognition: ${e.recognition.source}/${e.recognition.reason}; ${e.recognition.durationMs ?? 0}ms`,
+        `     recognition: ${formatRecognitionDiagnostics(e.recognition)}`,
       );
+    if (e.recognition?.reason !== "contextual" && e.recognition?.responsePreview)
+      lines.push(`     response preview: ${e.recognition.responsePreview}`);
     if (e.schemaVersion >= 2)
       lines.push(
         `     ${e.relation ?? e.source}: ${e.phaseFrom ?? "?"} → ${e.phaseTo ?? e.phase ?? "?"}; intent=${e.intent ?? "?"}; result=${e.outcome ?? "?"}; task=${e.taskId ?? "none"}`,
@@ -101,7 +125,7 @@ export function formatStatusSummary({
     `awaiting approval: ${phase === "awaiting_approval" ? "yes" : "no"}`,
     `outcome: ${outcome ?? "unknown"}`,
     `task: ${task?.id ?? "none"}; plan version: ${task?.planVersion ?? "none"}`,
-    `recognition: ${recognition?.source ?? "none"}/${recognition?.reason ?? "not_run"}`,
+    `recognition: ${formatRecognitionDiagnostics(recognition)}`,
     `model: ${model}`,
   ].join("\n");
 }

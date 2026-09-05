@@ -811,6 +811,39 @@ test("agent recognition preflight selects policies in Pi's Working state", async
   );
 });
 
+test("an uncertain conversational classification asks for clarity without reporting failure", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({ recognition: { source: "agent", enabled: true } });
+  const s = session(cwd);
+  s.ctx.modelRegistry = {
+    complete: async () => ({
+      stopReason: "stop",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            relation: "uncertain",
+            taskType: "conversation",
+            executionIntent: "unclear",
+            risk: "low",
+            domains: [],
+            coverage: "focused",
+            constraints: ["进行关闭"],
+          }),
+        },
+      ],
+    }),
+  };
+  await s.start();
+  const out = await s.turn("进行关闭");
+  assert.equal(s.state.lastDecision.preflightBlocked, undefined);
+  assert.equal(s.state.lastDecision.recognition.reason, "contextual");
+  assert.equal(s.state.lastDecision.rigor, "standard");
+  assert.equal(s.state.lastDecision.executionIntent, "unclear");
+  assert.match(out.systemPrompt, /Policy: intent\.unclear/);
+  assert.doesNotMatch(out.systemPrompt, /Intent preflight blocked/);
+});
+
 test("interrupted continuation recognizes intent and reuses an unchanged policy", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({

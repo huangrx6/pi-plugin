@@ -100,7 +100,7 @@ pi install "$PWD"
 
 设置 `PI_CODING_AGENT_DIR` 后，全局配置与数据固定使用该目录下的 `extensions-data/pi-policy-engine/`；运行时不再读取旧的散落配置或状态目录。显式配置的 `historyFile` 优先。
 
-在面板选择自动、谨慎或关闭后，会立即原子写入全局个人配置。`/policy config` 显示合并值及来源，结构错误由 `/policy validate` 报告；运行中配置损坏时保留最后有效配置并提示。路由历史默认写入 `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`，其中包含最多 80 字符的输入摘要及任务、会话、阶段、模型和指纹信息。正常恢复优先使用同会话当前分支的工作流记录，并核对计划条目；磁盘后备状态按项目和会话隔离，最多恢复 7 天内记录。过期或旧格式审批状态会被忽略，不参与新会话恢复。对话中的活动卡片和工作流记录不进入模型上下文。
+在面板选择自动、谨慎或关闭后，会立即原子写入全局个人配置。`/policy config` 显示合并值及来源，结构错误由 `/policy validate` 报告；运行中配置损坏时保留最后有效配置并提示。路由历史默认写入 `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`，其中包含最多 80 字符的输入摘要及任务、会话、阶段、模型和指纹信息。识别失败还会记录尝试次数、解析或结构校验阶段、响应长度和最多 240 字符的响应预览；`/policy history [N]` 可直接查看，面板中的“检查配置”会显示实际日志路径。正常恢复优先使用同会话当前分支的工作流记录，并核对计划条目；磁盘后备状态按项目和会话隔离，最多恢复 7 天内记录。过期或旧格式审批状态会被忽略，不参与新会话恢复。对话中的活动卡片和工作流记录不进入模型上下文。
 
 安装目录中的 `config/defaults.json` 是随代码发布的内置默认值，不保存用户选择。个人配置固定写入 `<agent-dir>/extensions-data/pi-policy-engine/config.json`；默认 `<agent-dir>` 为 `~/.pi/agent`，因此通常路径是 `~/.pi/agent/extensions-data/pi-policy-engine/config.json`。设置 `PI_CODING_AGENT_DIR` 时，路径跟随该目录。
 
@@ -147,7 +147,7 @@ pi install "$PWD"
 - Anthropic 原生 Messages 使用 `protocol: "anthropic"` 和完整 `/v1/messages` 地址，密钥环境变量由你指定。
 - 本地无认证接口可设置 `apiKeyEnvVar: null`。不支持 JSON 格式或 temperature 的服务分别设置 `jsonResponse: false`、`temperature: null`。
 
-只有 `endpoint` 来源会把当前任务摘要发送给所配服务；它不发送仓库文件、工具输出、其他会话或完整聊天记录。任务要求原文可能含有用户输入的敏感内容。请求不重试；缺密钥、超时、非法 JSON、枚举错误或上下文超限时会阻止本轮策略执行，并记录原因，避免在没有有效意图结果时继续路由。
+只有 `endpoint` 来源会把当前任务摘要发送给所配服务；它不发送仓库文件、工具输出、其他会话或完整聊天记录。任务要求原文可能含有用户输入的敏感内容。JSON 或结构校验失败时，会在同一总时限内使用相同来源做一次仅修复格式的调用；网络错误、缺密钥、超时和上下文超限不重试。最终仍不合格时，本轮不加载任务策略，并给主模型追加停止执行与请用户重试的要求。插件通过提示约束主模型，不拦截工具调用。
 
 独立 endpoint 是高级配置能力，不出现在日常面板。可以用 `/policy preview --semantic <请求>` 验证，普通预览不联网；密钥值不写入诊断。
 

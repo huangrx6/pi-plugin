@@ -116,6 +116,7 @@ test("recognition accepts one validated object with common model wrappers", asyn
     [`\uFEFF${json}`, "json"],
     [`\`\`\`json\n${json}\n\`\`\``, "markdown_fence"],
     [`识别结果如下：\n${json}`, "embedded_json"],
+    [`示例格式 {not-json}\n最终结果：${json}`, "embedded_json"],
   ]) {
     const result = await interpretTask({
       prompt: "继续",
@@ -134,8 +135,55 @@ test("recognition accepts one validated object with common model wrappers", asyn
 test("wrapper recovery rejects ambiguous or malformed model output", () => {
   const json = JSON.stringify(valid);
   assert.equal(parseRecognitionResponse(`${json}\n${json}`), null);
+  assert.equal(
+    parseRecognitionResponse(`\`\`\`json\n${json}\n\`\`\`\n${json}`),
+    null,
+  );
   assert.equal(parseRecognitionResponse(`before {not-json} after`), null);
   assert.equal(parseRecognitionResponse("plain explanation"), null);
+});
+
+test("invalid model output gets one bounded format repair attempt", async () => {
+  const calls = [];
+  const result = await interpretTask({
+    prompt: "进行关闭",
+    state,
+    config: config({ source: "agent", timeoutMs: 100 }),
+    agentClassifier: {
+      model: "host/model",
+      complete: async ({ systemPrompt, payload }) => {
+        calls.push({ systemPrompt, payload: JSON.parse(payload) });
+        return calls.length === 1 ? "I cannot format this {yet}" : JSON.stringify(valid);
+      },
+    },
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls[1].payload.originalInput);
+  assert.equal(calls[1].payload.invalidResponse, "I cannot format this {yet}");
+  assert.equal(result.reason, "contextual");
+  assert.equal(result.attempts, 2);
+  assert.equal(result.initialFailure, "invalid_json");
+  assert.equal(result.initialParseIssue, "malformed_json_object");
+  assert.equal(result.responseFormat, "repaired_json");
+});
+
+test("failed repair records actionable parse diagnostics without throwing", async () => {
+  const result = await interpretTask({
+    prompt: "进行关闭",
+    state,
+    config: config({ source: "agent", timeoutMs: 100 }),
+    agentClassifier: {
+      model: "host/model",
+      complete: async () => "plain explanation",
+    },
+  });
+  assert.equal(result.reason, "invalid_json");
+  assert.equal(result.attempts, 2);
+  assert.equal(result.initialFailure, "invalid_json");
+  assert.equal(result.initialParseIssue, "no_json_object");
+  assert.equal(result.parseIssue, "no_json_object");
+  assert.equal(result.responseChars, "plain explanation".length);
+  assert.equal(result.responsePreview, "plain explanation");
 });
 
 test("deadline works when a transport ignores AbortSignal", async () => {
@@ -146,6 +194,26 @@ test("deadline works when a transport ignores AbortSignal", async () => {
     fetcher: () => new Promise(() => {}),
   });
   assert.equal(r.reason, "timeout");
+});
+
+test("deadline during repair preserves the first failure diagnostics", async () => {
+  let calls = 0;
+  const r = await interpretTask({
+    prompt: "进行关闭",
+    state,
+    config: config({ source: "agent", timeoutMs: 15 }),
+    agentClassifier: {
+      model: "host/model",
+      complete: async () => {
+        calls++;
+        return calls === 1 ? "not json" : new Promise(() => {});
+      },
+    },
+  });
+  assert.equal(r.reason, "timeout");
+  assert.equal(r.attempts, 2);
+  assert.equal(r.initialFailure, "invalid_json");
+  assert.equal(r.initialParseIssue, "no_json_object");
 });
 
 test("disabled, missing key and oversized context make no network request", async () => {
@@ -190,6 +258,30 @@ test("response schema rejects fabricated constraints, quoted examples, grants an
       { ...valid, constraints: ["保持兼容"] },
       "继续，保持兼容",
     ),
+  );
+  assert.ok(
+    validateInterpretation(
+      {
+        ...valid,
+        relation: "uncertain",
+        taskType: "conversation",
+        executionIntent: "unclear",
+        constraints: ["进行关闭"],
+      },
+      "进行关闭",
+    ),
+  );
+  assert.equal(
+    validateInterpretation(
+      {
+        ...valid,
+        relation: "uncertain",
+        taskType: "conversation",
+        executionIntent: "read-only",
+      },
+      "进行关闭",
+    ),
+    null,
   );
 });
 

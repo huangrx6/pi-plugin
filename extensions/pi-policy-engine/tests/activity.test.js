@@ -89,6 +89,38 @@ test("activity rows use theme roles for hierarchy and warnings", () => {
   assert.doesNotThrow(() => activityRows({}, true, 8));
 });
 
+test("failed recognition explains the real boundary and parser diagnostics", () => {
+  const activity = activitySnapshot(
+    {
+      preflightBlocked: true,
+      rigor: "off",
+      recognition: {
+        source: "agent",
+        reason: "invalid_json",
+        attempts: 2,
+        initialFailure: "invalid_json",
+        initialParseIssue: "malformed_json_object",
+        parseIssue: "no_json_object",
+        responseChars: 17,
+        responsePreview: "plain explanation",
+        durationMs: 2400,
+      },
+      loadedPolicies: ["intent.unclear"],
+      reasons: ["recognition-preflight:invalid_json"],
+    },
+    "idle",
+    "instructions",
+  );
+  const text = activityText(activity);
+  assert.match(activity.summary, /本轮未加载任务策略/);
+  assert.doesNotMatch(activity.summary, /已阻止策略执行/);
+  assert.match(text, /attempts=2/);
+  assert.match(text, /first=invalid_json\/malformed_json_object/);
+  assert.match(text, /final=no_json_object/);
+  assert.match(text, /响应预览：plain explanation/);
+  assert.match(text, /追加停止执行/);
+});
+
 test("all command notifications strip terminal control sequences", () => {
   const messages = [];
   notify(

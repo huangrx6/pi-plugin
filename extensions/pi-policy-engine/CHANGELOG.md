@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.2 - 2026-09-06
+
+- Recover the single valid recognition object when explanatory text also contains a malformed brace example, while continuing to reject multiple valid objects.
+- Retry invalid JSON or schema output once through the same configured model as a bounded format-repair call; the original recognition deadline covers both attempts.
+- Accept an explicitly uncertain, unclear result whose task type is conversational; underspecified requests are valid recognition outcomes and receive the standard clarification policy instead of appearing as classifier failures or disabling the flow.
+- Record actionable recognition diagnostics in the private JSONL history and show them through the existing status/history views: attempt count, first and final parser/schema issue, response length, format and a bounded response preview.
+- Describe the failure boundary accurately: a failed preflight skips task-policy selection and injects a stop instruction, but does not claim to enforce tool execution.
+
 ## 0.33.1 - 2026-09-06
 
 - Accept one strictly validated recognition object when the active model wraps it in a Markdown JSON fence, a byte-order mark, or a short explanatory prefix.

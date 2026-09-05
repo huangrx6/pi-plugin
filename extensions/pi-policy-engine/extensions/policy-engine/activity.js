@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { formatRecognitionDiagnostics } from "./format.js";
 import { sanitizeTerminalText, wrapTerminalText } from "./terminal.js";
 
 export const ACTIVITY_TYPE = "policy-engine-activity";
@@ -56,7 +57,7 @@ export function activitySnapshot(decision, phase, injected = "") {
   const recognitionBlocked = data.preflightBlocked === true;
   const policyUnchanged = data.recognition?.policyUnchanged === true;
   const next = recognitionBlocked
-    ? "先重试识别或检查 recognition 配置；本轮不会执行变更。"
+    ? "插件未加载任务策略；已向主模型追加停止执行并重试识别的要求。"
     : !injected
       ? "本轮没有追加策略指令。"
     : phase === "planning"
@@ -71,7 +72,7 @@ export function activitySnapshot(decision, phase, injected = "") {
     next,
     summary: injected
       ? recognitionBlocked
-        ? "意图识别失败 · 本轮已阻止策略执行"
+        ? "意图识别失败 · 本轮未加载任务策略"
         : policyUnchanged
           ? `策略已复用 · ${rigors[data.rigor] ?? data.rigor ?? "模型选择流程"} · 当前模型确认策略未变化`
           : modelRecognition
@@ -108,6 +109,14 @@ export function activityText(activity) {
             d.recognition?.reason === "contextual"
           ? `判断方式：当前模型使用完整对话完成意图识别，并据此选择本轮策略。`
           : `判断方式：识别为${tasks[d.taskType] ?? d.taskType ?? "未分类"}；风险 ${d.risk ?? "未知"}。`,
+      ...(d.preflightBlocked
+        ? [
+            `识别诊断：${formatRecognitionDiagnostics(d.recognition)}`,
+            ...(d.recognition?.responsePreview
+              ? [`响应预览：${d.recognition.responsePreview}`]
+              : []),
+          ]
+        : []),
       ...(d.reasons?.length
         ? ["触发依据：", ...d.reasons.map((reason) => `  ${reason}`)]
         : []),
