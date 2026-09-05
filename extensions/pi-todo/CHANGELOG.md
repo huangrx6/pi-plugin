@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0 - 2026-09-05
+
+- Remove the retired agent-root `pi-todo/` fallback. Durable tasks now have one canonical `extensions-data/pi-todo/state/` root, avoiding silent split-brain storage.
+
 ## 0.7.3 - 2026-09-04
 
 ### Fix: tool renderers crash pi 0.85 at startup (`child.invalidate is not a function`)

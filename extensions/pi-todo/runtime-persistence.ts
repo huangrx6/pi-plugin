@@ -17,7 +17,6 @@
  *      not at concrete factory modules (P3-E LOCK §31).
  */
 
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import * as piAgent from "@earendil-works/pi-coding-agent";
 // P3-E note: SDK index.d.ts re-exports getAgentDir from ./config.ts, but
@@ -67,9 +66,6 @@ export function createProductionTodoPersistence(
  return { scopeResolver, durableStore, rootDir };
 }
 
-/** Keep legacy state authoritative until it has been migrated offline. */
 export function resolveDefaultTodoRoot(agentDir = getAgentDir()): string {
- const rootDir = join(agentDir, "extensions-data", "pi-todo", "state");
- const legacyRoot = join(agentDir, "pi-todo");
- return !existsSync(rootDir) && existsSync(legacyRoot) ? legacyRoot : rootDir;
+ return join(agentDir, "extensions-data", "pi-todo", "state");
 }

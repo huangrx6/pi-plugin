@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createProductionTodoPersistence, resolveDefaultTodoRoot } from "./runtime-persistence.ts";
 
-test("todo keeps legacy state until migration and prefers the new state directory", () => {
+test("todo always uses the canonical extension state directory", () => {
  const agentDir = mkdtempSync(join(tmpdir(), "todo-paths-"));
  try {
   const legacy = join(agentDir, "pi-todo");
@@ -13,7 +13,7 @@ test("todo keeps legacy state until migration and prefers the new state director
   assert.equal(resolveDefaultTodoRoot(agentDir), current);
   mkdirSync(legacy);
   writeFileSync(join(legacy, "workspace.json"), '{"version":1}');
-  assert.equal(resolveDefaultTodoRoot(agentDir), legacy);
+  assert.equal(resolveDefaultTodoRoot(agentDir), current);
   mkdirSync(current, { recursive: true });
   assert.equal(resolveDefaultTodoRoot(agentDir), current);
   assert.equal(createProductionTodoPersistence({ rootDir: legacy }).rootDir, legacy);
