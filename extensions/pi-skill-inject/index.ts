@@ -596,6 +596,7 @@ export default function (pi: ExtensionAPI): void {
     const readPath = normalizePath(input.path, ctx.cwd);
     for (const skill of skillsCache) {
       if (skill.path === readPath) {
+        if (loadedSkills.has(skill.name)) continue;
         loadedSkills.add(skill.name);
         pi.appendEntry(LOADED_SKILL_ENTRY_TYPE, {
           name: skill.name,

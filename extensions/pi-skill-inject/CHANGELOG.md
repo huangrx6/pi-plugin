@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 - 2026-09-05
+
+- Avoid appending duplicate “技能已加载” activity entries when the same `SKILL.md` is read repeatedly in one branch.
+
 ## 0.2.0 - 2026-09-04
 
 - Replace the English inline marker with a compact themed “技能已加载” activity row; expanded mode now shows the complete sanitized skill names and source paths used for that turn, wrapped at the actual terminal width and aligned with Pi's output padding.

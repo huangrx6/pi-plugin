@@ -1,6 +1,6 @@
 {
   "name": "pi-skill-inject",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Inline /skill loading for Pi with autocomplete, expandable activity records, and an independent loaded-skills view.",
   "license": "MIT",
   "type": "module",
