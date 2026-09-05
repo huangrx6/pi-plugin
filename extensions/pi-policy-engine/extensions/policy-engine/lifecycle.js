@@ -20,6 +20,7 @@ import { createAgentClassifier } from "./agent-classifier.js";
 import { buildTurnBlock } from "./policy-block.js";
 import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
 import { readPlanReport } from "../../src/core/task-contract.js";
+import { appendPolicyToProviderPayload } from "../../src/core/provider-payload.js";
 
 export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
   async function restore(_event, ctx) {
@@ -89,6 +90,114 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     getState().currentModel = cleanModel(event.model ?? ctx?.model);
   });
 
+  function conversationFromMessages(messages) {
+    return (messages ?? [])
+      .filter((message) => message?.role && message.role !== "toolResult")
+      .slice(-24)
+      .map((message) => ({
+        role: message.role,
+        content:
+          typeof message.content === "string"
+            ? message.content.slice(0, 6000)
+            : message.content
+                ?.filter?.((part) => part?.type === "text")
+                .map((part) => part.text)
+                .join("\n")
+                .slice(0, 6000) ?? "",
+      }));
+  }
+
+  function lastUserPrompt(messages, fallback = "") {
+    for (let i = (messages?.length ?? 0) - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message?.role !== "user") continue;
+      if (typeof message.content === "string") return message.content;
+      const text = message.content
+        ?.filter?.((part) => part?.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+      if (text) return text;
+    }
+    return fallback;
+  }
+
+  function workingMessage(ctx, text) {
+    if (typeof ctx?.ui?.setWorkingMessage === "function")
+      ctx.ui.setWorkingMessage(text);
+    if (text && typeof ctx?.ui?.setWorkingVisible === "function")
+      ctx.ui.setWorkingVisible(true);
+  }
+
+  async function resolveAndApply({ event, ctx, state, prompt }) {
+    const phaseFrom = state.phase;
+    const previewConfig = buildEffectiveConfig({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      state,
+    });
+    const agentRecognition =
+      previewConfig.semanticFallback?.enabled &&
+      previewConfig.semanticFallback?.strategy === "primary" &&
+      previewConfig.semanticFallback?.source === "agent";
+    if (agentRecognition) workingMessage(ctx, "意图识别中…");
+    const turn = await resolveTurn({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      prompt,
+      state,
+      model: state.currentModel,
+      agentClassifier: agentRecognition ? createAgentClassifier(ctx) : null,
+      conversation: conversationFromMessages(event?.messages),
+    });
+    const built = turn.inject
+      ? buildTurnBlock({
+          packageRoot,
+          cwd: ctx?.cwd ?? process.cwd(),
+          turn,
+          model: state.currentModel,
+        })
+      : { injected: "" };
+    state.turnRelation = turn.relation;
+    state.outcome =
+      turn.relation === "conversation"
+        ? state.outcome
+        : built.blocked
+          ? "blocked"
+          : turn.inject
+            ? "in_progress"
+            : "idle";
+    if (turn.config._diagnostics.length)
+      notify(
+        ctx,
+        `Policy configuration: ${turn.config._usingLastValid ? "using last valid configuration. " : ""}${turn.config._diagnostics.map((x) => x.message).join("; ")}`,
+        "warning",
+      );
+    await history(state, ctx, "decide", prompt, turn.decision, phaseFrom, {
+      relation: turn.relation,
+      configFingerprint: fingerprint({
+        ...turn.config,
+        _sources: undefined,
+        _diagnostics: undefined,
+      }),
+      injectionFingerprint: fingerprint(built.injected),
+      injectedBytes: Buffer.byteLength(built.injected),
+    });
+    publishActivity(pi, state, ctx, built.injected, turn.decision);
+    await persistWorkflow({ pi, state, ctx, packageRoot });
+    state.turnContext = {
+      prompt,
+      injected: built.injected,
+      decision: turn.decision,
+      config: turn.config,
+      preflight: agentRecognition,
+      preflightDone: true,
+    };
+    // Restore Pi's normal spinner text after the short policy preflight. The
+    // spinner itself remains owned by the host agent loop.
+    if (agentRecognition) workingMessage(ctx);
+    return { turn, built };
+  }
+
   async function history(
     state,
     ctx,
@@ -118,97 +227,70 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
   }
   pi.on("before_agent_start", async (event, ctx) => {
     const state = getState();
-    const phaseFrom = state.phase;
     const prompt = String(event.prompt ?? "");
     state.currentModel = cleanModel(ctx?.model ?? state.currentModel);
-    const previewConfig = buildEffectiveConfig({
-      packageRoot,
-      cwd: ctx?.cwd ?? process.cwd(),
-      state,
-    });
-    const agentRecognition =
-      previewConfig.semanticFallback?.enabled &&
-      previewConfig.semanticFallback?.strategy === "primary" &&
-      previewConfig.semanticFallback?.source === "agent";
-    if (agentRecognition) setStatus(ctx, "policy:意图识别中…");
-    const conversation = (ctx?.sessionManager?.getBranch?.() ?? [])
-      .filter((entry) => entry?.type === "message" && entry.message)
-      .slice(-24)
-      .map((entry) => ({
-        role: entry.message.role,
-        content:
-          typeof entry.message.content === "string"
-            ? entry.message.content.slice(0, 6000)
-            : entry.message.content
-                ?.filter?.((part) => part?.type === "text")
-                .map((part) => part.text)
-                .join("\n")
-                .slice(0, 6000) ?? "",
-      }));
-    const turn = await resolveTurn({
-      packageRoot,
-      cwd: ctx?.cwd ?? process.cwd(),
-      prompt,
-      state,
-      model: state.currentModel,
-      agentClassifier: agentRecognition ? createAgentClassifier(ctx) : null,
-      conversation,
-    });
-    const built = turn.inject
-      ? buildTurnBlock({
-          packageRoot,
-          cwd: ctx?.cwd ?? process.cwd(),
-          turn,
-          model: state.currentModel,
-        })
-      : { injected: "" };
-    state.turnRelation = turn.relation;
-    state.outcome =
-      turn.relation === "conversation"
-        ? state.outcome
-        : built.blocked
-          ? "blocked"
-          : turn.inject
-            ? "in_progress"
-            : "idle";
-    if (agentRecognition && turn.decision?.recognition?.reason === "contextual") {
-      const rigorLabel = {
-        quick: "轻量流程",
-        standard: "标准流程",
-        strict: "严格流程",
-        off: "已关闭",
-      }[turn.decision.rigor] ?? "模型选择流程";
-      setStatus(ctx, `policy:已识别 · ${rigorLabel}`);
-    }
-    else if (agentRecognition)
-      setStatus(ctx, "policy:意图识别失败，已回退");
-    if (turn.config._diagnostics.length)
-      notify(
+    state.turnContext = { prompt, injected: "", preflightDone: false };
+    // Older hosts without the Working-message API cannot provide the modern
+    // message-first lifecycle. Keep a compatibility path for them; current
+    // Pi versions take the deferred `context` path below.
+    if (typeof ctx?.ui?.setWorkingMessage !== "function") {
+      const { built } = await resolveAndApply({
+        event: {
+          messages:
+            ctx?.sessionManager?.getBranch?.()?.map?.(
+              (entry) => entry.message,
+            ) ?? [],
+        },
         ctx,
-        `Policy configuration: ${turn.config._usingLastValid ? "using last valid configuration. " : ""}${turn.config._diagnostics.map((x) => x.message).join("; ")}`,
-        "warning",
-      );
-    await history(state, ctx, "decide", prompt, turn.decision, phaseFrom, {
-      relation: turn.relation,
-      configFingerprint: fingerprint({
-        ...turn.config,
-        _sources: undefined,
-        _diagnostics: undefined,
-      }),
-      injectionFingerprint: fingerprint(built.injected),
-      injectedBytes: Buffer.byteLength(built.injected),
+        state,
+        prompt,
+      });
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      if (cfg.showStatus !== false)
+        setStatus(
+          ctx,
+          `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
+        );
+      return built.injected
+        ? { systemPrompt: `${event.systemPrompt ?? ""}\n\n${built.injected}` }
+        : undefined;
+    }
+    // Policy resolution intentionally does not run here. Pi has not emitted
+    // the user's message or entered its Working state at this lifecycle point.
+    return undefined;
+  });
+  pi.on("context", async (event, ctx) => {
+    const state = getState();
+    const pending = state.turnContext;
+    if (!pending || pending.preflightDone) return;
+    const prompt = pending.prompt || lastUserPrompt(event?.messages);
+    if (!prompt) return;
+    pending.preflightDone = true;
+    await resolveAndApply({ event, ctx, state, prompt });
+    const cfg = buildEffectiveConfig({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      state,
     });
-    publishActivity(pi, state, ctx, built.injected, turn.decision);
-    await persistWorkflow({ pi, state, ctx, packageRoot });
-    if (turn.config.showStatus !== false)
-      setStatus(ctx, `policy:${turn.decision.rigor}/${state.phase}`);
-    return built.injected
-      ? { systemPrompt: `${event.systemPrompt ?? ""}\n\n${built.injected}` }
-      : undefined;
+    if (cfg.showStatus !== false)
+      setStatus(ctx, `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`);
+    return { messages: event.messages };
+  });
+  pi.on("before_provider_request", async (event) => {
+    const injected = getState().turnContext?.injected;
+    if (!injected) return undefined;
+    return appendPolicyToProviderPayload(event.payload, injected);
   });
   pi.on("agent_end", async (event, ctx) => {
     const state = getState();
-    if (state.turnRelation === "conversation") return;
+    if (state.turnRelation === "conversation") {
+      workingMessage(ctx);
+      return;
+    }
     const phaseFrom = state.phase;
     const assistant = (event.messages ?? [])
       .filter((m) => m.role === "assistant")
@@ -247,5 +329,13 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     });
     if (cfg.showStatus !== false)
       setStatus(ctx, `policy:${state.phase}/${state.outcome}`);
+    workingMessage(ctx);
+  });
+  pi.on("agent_settled", (_event, ctx) => {
+    // Pi can auto-retry or auto-compact after agent_end. Keep the selected
+    // policy available for those provider requests and clear it only once the
+    // host confirms that no continuation remains.
+    workingMessage(ctx);
+    getState().turnContext = null;
   });
 }

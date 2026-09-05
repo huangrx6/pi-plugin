@@ -64,7 +64,7 @@ export function recordHistory(state, { source, prompt, decision }) {
   if (!decision) return;
   state.history.push({
     schemaVersion: 2,
-    extensionVersion: "0.30.0",
+    extensionVersion: "0.31.0",
     sessionId: state.sessionId,
     taskId: state.task?.id,
     planVersion: state.task?.planVersion,

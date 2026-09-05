@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.31.0 - 2026-09-05
+
+- Move model-first intent recognition into Pi's `context` lifecycle hook so the user message is rendered immediately and the host-owned Working spinner is active during preflight.
+- Use `setWorkingMessage("意图识别中…")` for the preflight label, then restore Pi's normal Working text after the policy is selected.
+- Inject the selected policy into the provider payload immediately before the request, without persisting a synthetic chat message or blocking the user message render.
+- Support common Pi provider payload shapes (`messages`, `system`, and `instructions`) with idempotent injection.
+- Keep a compatibility path for older hosts without `setWorkingMessage`; current Pi versions use the message-first lifecycle.
+
 ## 0.30.0 - 2026-09-05
 
 - 当前 agent 改为前置结构化意图识别：先识别任务关系、任务类型、执行意图、风险、领域和覆盖范围，再选择对应策略。

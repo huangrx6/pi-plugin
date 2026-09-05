@@ -57,6 +57,7 @@ function session(cwd, sessionId = "session-a", entries = []) {
   const handlers = new Map();
   const notices = [];
   const statuses = [];
+  const workingMessages = [];
   const ctx = {
     cwd,
     model: { provider: "deepseek", id: "chat" },
@@ -68,6 +69,8 @@ function session(cwd, sessionId = "session-a", entries = []) {
     ui: {
       notify: (m) => notices.push(m),
       setStatus: (_key, value) => statuses.push(value),
+      setWorkingMessage: (value) => workingMessages.push(value ?? ""),
+      setWorkingVisible: () => {},
     },
   };
   const pi = {
@@ -89,15 +92,17 @@ function session(cwd, sessionId = "session-a", entries = []) {
   return {
     state,
     entries,
+    handlers,
     notices,
     statuses,
+    workingMessages,
     ctx,
     command,
     async start() {
       await handlers.get("session_start")({}, ctx);
     },
     async turn(prompt) {
-      const result = await handlers.get("before_agent_start")(
+      await handlers.get("before_agent_start")(
         { prompt, systemPrompt: "BASE" },
         ctx,
       );
@@ -106,7 +111,16 @@ function session(cwd, sessionId = "session-a", entries = []) {
         type: "message",
         message: { role: "user", content: prompt },
       });
-      return result;
+      await handlers.get("context")(
+        {
+          messages: entries
+            .filter((entry) => entry.type === "message")
+            .map((entry) => entry.message),
+        },
+        ctx,
+      );
+      const injected = state.turnContext?.injected;
+      return injected ? { systemPrompt: `BASE\n\n${injected}` } : undefined;
     },
     async end(stopReason = "stop", text = null) {
       if (text === null)
@@ -815,7 +829,7 @@ test("same-task constraints do not revoke explicit autonomy", async (t) => {
   assert.ok(s.state.task.constraints.includes("必须保持旧接口"));
 });
 
-test("agent recognition preflight selects the strategy and reports loading status", async (t) => {
+test("agent recognition preflight selects the strategy in Pi's Working state", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
     semanticFallback: {
@@ -869,8 +883,14 @@ test("agent recognition preflight selects the strategy and reports loading statu
     s.state.lastDecision.recognition.model,
     "session-provider/first",
   );
-  assert.ok(s.statuses.includes("policy:意图识别中…"));
-  assert.ok(s.statuses.some((value) => value.startsWith("policy:已识别")));
+  assert.ok(s.workingMessages.includes("意图识别中…"));
+  assert.ok(s.workingMessages.includes(""));
+  const providerPayload = await s.handlers?.get?.("before_provider_request")?.(
+    { payload: { messages: [{ role: "system", content: "BASE" }] } },
+    s.ctx,
+  );
+  assert.ok(providerPayload);
+  assert.match(providerPayload.messages[0].content, /Policy: intent\.mutate/);
   await s.end();
   s.ctx.model = {
     provider: "another-provider",
@@ -925,6 +945,6 @@ test("failed agent preflight blocks policy execution instead of silently routing
   assert.equal(s.state.lastDecision.preflightBlocked, true);
   assert.match(out.systemPrompt, /Intent preflight blocked/);
   assert.equal(s.state.lastDecision.rigor, "off");
-  assert.ok(s.statuses.includes("policy:意图识别中…"));
-  assert.ok(s.statuses.includes("policy:意图识别失败，已回退"));
+  assert.ok(s.workingMessages.includes("意图识别中…"));
+  assert.ok(s.workingMessages.includes(""));
 });
