@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 - 2026-09-05
+
+- Unify normal content color and font weight; use whitespace between fields and readable muted labels.
+- Separate model identity, quota, current context and accumulated usage into short rows; keep full view as the default and hide empty groups.
+- Remove leading decorative status icons and omit only redundant pure context percentages matching host usage. Preserve warnings and descriptive statuses.
+
 ## 0.5.0 - 2026-09-05
 
 - Default to full view on load; keep compact and native views available in the single-level selector.

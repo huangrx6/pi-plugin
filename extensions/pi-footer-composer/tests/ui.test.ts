@@ -23,7 +23,7 @@ test("full footer is the default; compact and native remain selectable", async (
     model: { id: "model\u001b]9;bad\u0007", provider: "provider", reasoning: true, contextWindow: 128_000 },
     thinkingLevel: "high",
     sessionManager: {
-      getEntries: () => [],
+      getEntries: () => [{ type: "message", message: { role: "assistant", usage: { input: 4000000, output: 147000, cacheRead: 58000000 } } }],
       getCwd: () => "/tmp/project",
       getSessionName: () => "session",
     },
@@ -38,12 +38,18 @@ test("full footer is the default; compact and native remain selectable", async (
   const renderer = footerCalls.at(-1) as Function;
   const component = renderer(
     { requestRender() {} },
-    { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+    { fg: (color: string, text: string) => {
+      assert.ok(["text", "muted", "warning", "error", "dim"].includes(color));
+      return text;
+    }, bold: () => { throw new Error("Footer must use uniform font weight"); } },
     {
       getGitBranch: () => "main",
       getExtensionStatuses: () => new Map([
-        ["config:mode", "权限 smart"],
-        ["integration:mcp", "MCP ready"],
+        ["config:mode", "⚙ 权限 smart"],
+        ["integration:mcp", "🔌 MCP ready"],
+        ["quota:account", "⚡GLM 5h: 37%"],
+        ["context:summary", "◎ Context 12%"],
+        ["context:paused", "◎ Context 12% · 暂停"],
         ["usage:custom", "额外用量 42"],
       ]),
       getAvailableProviderCount: () => 2,
@@ -51,13 +57,17 @@ test("full footer is the default; compact and native remain selectable", async (
     },
   );
   const full = component.render(200);
-  assert.equal(full.length, 5);
+  assert.equal(full.length, 7);
   assert.match(full.join("\n"), /状态  /);
-  assert.match(full.join("\n"), /模型  model · provider · 思考 high/);
-  assert.match(full.join("\n"), /上下文 12.0% \/ 128k/);
+  assert.match(full.join("\n"), /模型  model   provider   思考 high/);
+  assert.match(full.join("\n"), /窗口  12.0% \/ 128k/);
+  assert.match(full.join("\n"), /额度  GLM 5h: 37%/);
+  assert.match(full.join("\n"), /累计  输入 4.0M   输出 147k/);
+  assert.equal(full.join("\n").match(/Context 12%/g)?.length, 1);
+  assert.match(full.join("\n"), /Context 12% · 暂停/);
   assert.match(full.join("\n"), /额外用量 42/);
   assert.match(full.join("\n"), /MCP ready/);
-  assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|│/);
+  assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|│|⚡|🔌|⚙|◎/);
   for (const width of [1, 5, 6, 12, 40, 80, 120]) {
     assert.ok(component.render(width).every((line: string) => visibleWidth(line) <= width));
   }

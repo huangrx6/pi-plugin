@@ -89,7 +89,7 @@ describe("sanitizeTerminalText", () => {
 describe("renderTable", () => {
   it("soft separators and wrapped rows keep content aligned", () => {
     const theme = { fg: (_color: string, text: string) => text };
-    assert.deepEqual(renderTable([[makeCell("abc"), makeCell("def")]], 15, theme, ["模型"]), ["模型  abc · def"]);
+    assert.deepEqual(renderTable([[makeCell("abc"), makeCell("def")]], 15, theme, ["模型"]), ["模型  abc   def"]);
     assert.deepEqual(renderTable([[makeCell("abc"), makeCell("def")]], 10, theme, ["模型"]), ["模型  abc", "      def"]);
     assert.deepEqual(renderTable([[makeCell("abc")]], 3, theme), ["abc"]);
   });

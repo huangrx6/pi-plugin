@@ -1,7 +1,7 @@
 /**
  * pi-footer-composer — optional compact/full labelled footer.
  *
- * Full mode is the default with five information groups; compact mode
+ * Full mode is the default with seven information groups; compact mode
  * keeps three. Every row is prefixed with a dim category label:
  *
  *   1. 环境   cwd / branch / session name (one dim cell each)
@@ -14,7 +14,7 @@
  *            policy) — also catches any uncategorised status as a
  *            fallback so nothing is silently dropped
  *
- * Cells within a row are joined by a dim `·`; a row wider than the
+ * Cells within a row are separated by whitespace; a row wider than the
  * terminal greedy-wraps onto continuation lines, which are indented
  * under the label so the content stays aligned. Everything it shows
  * comes from pi's aggregate surfaces — it never imports or knows about
@@ -90,7 +90,7 @@ type LooseUsage = {
  * quiet label from content. The set is closed — adding/removing a row requires
  * editing both this array and the `renderTable` call below.
  */
-const ROW_LABELS = ["路径", "模型", "用量", "集成", "状态"] as const;
+const ROW_LABELS = ["路径", "模型", "额度", "窗口", "累计", "集成", "状态"] as const;
 const COMPACT_ROW_LABELS = ["路径", "模型", "状态"] as const;
 type FooterMode = "compact" | "full" | "native";
 
@@ -134,10 +134,10 @@ function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
   ];
   const branch = footerData.getGitBranch();
   if (branch)
-    cells.push(makeCell(theme.fg("muted", sanitize(branch))));
+    cells.push(makeCell(theme.fg("text", sanitize(branch))));
   const sessionName = ctx.sessionManager.getSessionName();
   if (sessionName)
-    cells.push(makeCell(theme.fg("muted", sanitize(sessionName))));
+    cells.push(makeCell(theme.fg("text", sanitize(sessionName))));
   return cells;
 }
 
@@ -182,8 +182,8 @@ function usageCells(ctx: Ctx, theme: Theme): Cell[] {
     }
   }
   const parts: string[] = [];
-  if (totals.input) parts.push(`↑${formatTokens(totals.input)}`);
-  if (totals.output) parts.push(`↓${formatTokens(totals.output)}`);
+  if (totals.input) parts.push(`输入 ${formatTokens(totals.input)}`);
+  if (totals.output) parts.push(`输出 ${formatTokens(totals.output)}`);
   if (totals.cacheRead) parts.push(`缓存读 ${formatTokens(totals.cacheRead)}`);
   if (totals.cacheWrite) parts.push(`缓存写 ${formatTokens(totals.cacheWrite)}`);
   if (
@@ -192,13 +192,14 @@ function usageCells(ctx: Ctx, theme: Theme): Cell[] {
   )
     parts.push(`命中 ${latestCacheHitRate.toFixed(1)}%`);
   if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
-  return parts.map((p) => makeCell(theme.fg("muted", p)));
+  return parts.map((p) => makeCell(theme.fg("text", p)));
 }
 
 function contextCell(
   ctx: Ctx,
   theme: Theme,
   model: { contextWindow?: number } | null,
+  labelled = true,
 ): Cell[] {
   const usage = ctx.getContextUsage?.();
   const window = usage?.contextWindow ?? model?.contextWindow ?? 0;
@@ -216,7 +217,7 @@ function contextCell(
         : pct > 70
           ? "warning"
           : "text";
-  return [makeCell(theme.fg(color, text))];
+  return [makeCell(theme.fg(color, labelled ? text : text.replace(/^上下文 /, "")))];
 }
 
 function modelCells(
@@ -226,12 +227,12 @@ function modelCells(
   providerCount: number,
 ): Cell[] {
   const name = model?.id || "未选择模型";
-  const cells = [makeCell(theme.fg("accent", theme.bold(sanitize(name))))];
+  const cells = [makeCell(theme.fg("text", sanitize(name)))];
   if (providerCount > 1 && model?.provider)
-    cells.push(makeCell(theme.fg("muted", sanitize(model.provider))));
+    cells.push(makeCell(theme.fg("text", sanitize(model.provider))));
   if (model?.reasoning) {
     const level = thinkingLevel || "off";
-    cells.push(makeCell(theme.fg("muted", level === "off"
+    cells.push(makeCell(theme.fg("text", level === "off"
       ? "思考关闭" : `思考 ${sanitize(level)}`)));
   }
   return cells;
@@ -273,6 +274,7 @@ function sectionOf(key: string): Section {
 function statusGroups(
   footerData: FooterData,
   theme: Theme,
+  contextPercent?: number | null,
 ): Record<Section, Cell[]> {
   const groups: Record<Section, Cell[]> = {
     quota: [],
@@ -286,10 +288,20 @@ function statusGroups(
     ([a], [b]) => a.localeCompare(b),
   );
   for (const [key, text] of entries) {
-    const clean = sanitize(text);
+    // Remove decorative leading pictographs only. Keep words, numbers and
+    // meaningful warning/check symbols intact; never reinterpret status data.
+    const clean = sanitize(text).split("\n").map(line =>
+      line.replace(/^(?:[⚡🔌⚙◎]\uFE0F?\s*)+/u, ""),
+    ).join("\n");
+    const section = sectionOf(key);
+    const contextSummary = section === "context"
+      ? clean.match(/^(?:Context|上下文)\s+(\d+(?:\.\d+)?)%$/i) : null;
+    if (contextSummary && typeof contextPercent === "number" &&
+      Number.isFinite(contextPercent) &&
+      Math.round(Number(contextSummary[1])) === Math.round(contextPercent)) continue;
     const cell = makeCell(clean ? theme.fg("text", clean) : "");
     if (cell.w === 0) continue;
-    groups[sectionOf(key)].push(cell);
+    groups[section].push(cell);
   }
   return groups;
 }
@@ -354,7 +366,7 @@ export default function (pi: ExtensionAPI): void {
         );
         return {
           render: (width: number) => {
-            const sections = statusGroups(footerData, theme);
+            const sections = statusGroups(footerData, theme, activeCtx?.getContextUsage?.()?.percent);
             if (footerMode === "compact") {
               return renderTable(
                 [
@@ -384,22 +396,22 @@ export default function (pi: ExtensionAPI): void {
               [
                 // row 1: 环境 — cwd · branch · session
                 envCells(activeCtx as Ctx, footerData, theme),
-                // row 2: 模型 — provider · id · thinking + subscription quota
-                [
-                  ...modelCells(
+                // Keep model identity, account quota and current window separate.
+                modelCells(
                     theme,
                     activeModel,
                     activeThinking,
                     footerData.getAvailableProviderCount(),
                   ),
-                  ...sections.quota,
-                ],
-                // row 3: 资源 — tokens · cache · cost · window occupancy + context governance
+                sections.quota,
                 [
-                  ...contextCell(activeCtx as Ctx, theme, activeModel),
+                  ...contextCell(activeCtx as Ctx, theme, activeModel, false),
+                  ...sections.context,
+                ],
+                // Accumulated usage is a different timescale from window pressure.
+                [
                   ...usageCells(activeCtx as Ctx, theme),
                   ...sections.usage,
-                  ...sections.context,
                 ],
                 // row 4: 集成 — integration-prefixed statuses (MCP, LSP)
                 sections.integration,

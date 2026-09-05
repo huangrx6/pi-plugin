@@ -8,7 +8,7 @@
  * `prefixes` array glues a dim label (e.g. "环境：") to the first line
  * of each row; continuation lines (when a row wraps) are indented to
  * keep the content aligned under the label. Cells within a row are
- * joined by a dim `·`. Cells wider than the row's effective budget
+ * separated by three spaces. Cells wider than the row's effective budget
  * are truncated with an ellipsis.
  *
  * A cell whose text contains `\n` is a multi-line cell: each sub-line
@@ -117,7 +117,7 @@ type Theme = { fg(color: string, text: string): string };
 
 /**
  * One content group per row (single column, multiple rows). Within a
- * row, cells are joined by a dim `·`; a row wider than the terminal
+ * row, cells are separated by three spaces; a row wider than the terminal
  * greedy-wraps. Cells wider than the row's effective budget are
  * truncated.
  *
@@ -136,7 +136,7 @@ export function renderTable(
   prefixes?: readonly string[],
 ): string[] {
   if (width <= 0 || groups.length === 0) return [];
-  const sepText = theme.fg("dim", " · ");
+  const sepText = "   ";
   const sepW = 3;
 
   const lines: string[] = [];
@@ -146,7 +146,7 @@ export function renderTable(
 
     const rawPrefix = prefixes?.[gi];
     const prefixW = rawPrefix ? visibleWidth(rawPrefix) + 2 : 0;
-    const styledPrefix = rawPrefix ? theme.fg("dim", rawPrefix) : "";
+    const styledPrefix = rawPrefix ? theme.fg("muted", rawPrefix) : "";
     const indent = prefixW > 0 ? " ".repeat(prefixW) : "";
     const budget = width - prefixW;
 
