@@ -95,12 +95,18 @@ test("full footer is the default; compact and native remain selectable", async (
       getExtensionStatuses: () => new Map([
         ["config:mode", "权限 smart"],
         ["integration:mcp", "MCP ready"],
+        ["quota:account", "GLM 5h: 37%"],
       ]),
       getAvailableProviderCount: () => 1,
       onBranchChange: () => () => {},
     },
   ).render(200);
-  assert.equal(compact.length, 3);
+  assert.equal(compact.length, 7, "three category rows and four horizontal rules");
+  assert.ok(compact[0].startsWith("──────┬"));
+  assert.ok(compact.at(-1)?.startsWith("──────┴"));
+  assert.match(compact.join("\n"), /路径 │ \/tmp\/project.*分支  main.*会话  session/);
+  assert.match(compact.join("\n"), /模型 │ model.*思考 high.*额度  GLM 5h: 37%/);
+  assert.match(compact.join("\n"), /状态 │ 上下文 12.0% \/ 128k.*权限 smart/);
   assert.doesNotMatch(compact.join("\n"), /MCP ready/);
 
   await command?.("native", ctx);

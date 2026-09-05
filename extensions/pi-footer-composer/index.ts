@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { renderTable, makeCell, sanitizeTerminalText } from "./layout.ts";
+import { makeCell, sanitizeTerminalText } from "./layout.ts";
 import type { Cell } from "./layout.ts";
 import { renderGrid } from "./grid.ts";
 
@@ -46,7 +46,6 @@ type LooseUsage = {
   cost?: { total?: number };
 };
 
-const COMPACT_ROW_LABELS = ["路径", "模型", "状态"] as const;
 type FooterMode = "compact" | "full" | "native";
 
 // ── formatters (shared shape with the footer conventions) ──────────────
@@ -254,9 +253,8 @@ function statusGroups(
     if (contextSummary && typeof contextPercent === "number" &&
       Number.isFinite(contextPercent) &&
       Math.round(Number(contextSummary[1])) === Math.round(contextPercent)) continue;
-    const cell = makeCell(clean ? theme.fg("text", clean) : "");
-    if (cell.w === 0) continue;
-    groups[section].push(cell);
+    if (!clean) continue;
+    groups[section].push(makeCell(theme.fg("text", clean)));
   }
   return groups;
 }
@@ -322,46 +320,46 @@ export default function (pi: ExtensionAPI): void {
         return {
           render: (width: number) => {
             const sections = statusGroups(footerData, theme, activeCtx?.getContextUsage?.()?.percent);
-            if (footerMode === "compact") {
-              return renderTable(
-                [
-                  envCells(activeCtx as Ctx, footerData, theme),
-                  [
-                    ...modelCells(
-                      theme,
-                      activeModel,
-                      activeThinking,
-                      footerData.getAvailableProviderCount(),
-                    ),
-                    ...sections.quota,
-                  ],
-                  [
-                    ...contextCell(activeCtx as Ctx, theme, activeModel),
-                    ...sections.context,
-                    ...sections.config,
-                    ...sections.misc,
-                  ],
-                ],
-                width,
-                theme,
-                COMPACT_ROW_LABELS,
-              );
-            }
             const labelCells = (cells: Cell[], labels: string | string[]) =>
               cells.map((cell, index) => {
                 const label = typeof labels === "string" ? labels : labels[index];
                 return `${label ? `${label}  ` : ""}${cell.text}`;
               });
+            const environmentItems = () => labelCells(
+              envCells(activeCtx as Ctx, footerData, theme),
+              ["", ...(footerData.getGitBranch() ? ["分支"] : []), "会话"],
+            );
+            const modelItems = () => labelCells(
+              modelCells(
+                theme,
+                activeModel,
+                activeThinking,
+                footerData.getAvailableProviderCount(),
+              ),
+              ["", ...(activeModel?.provider && footerData.getAvailableProviderCount() > 1
+                ? ["平台"] : [])],
+            );
+            if (footerMode === "compact") {
+              return renderGrid([
+                { label: "路径", items: environmentItems() },
+                { label: "模型", items: [
+                  ...modelItems(),
+                  ...labelCells(sections.quota, "额度"),
+                ] },
+                { label: "状态", items: labelCells([
+                    ...contextCell(activeCtx as Ctx, theme, activeModel),
+                    ...sections.context,
+                    ...sections.config,
+                    ...sections.misc,
+                  ], "") },
+                ],
+                width,
+                theme,
+              );
+            }
             return renderGrid([
-                { label: "路径", items: labelCells(envCells(activeCtx as Ctx, footerData, theme), [
-                  "", ...(footerData.getGitBranch() ? ["分支"] : []), "会话",
-                ]) },
-                { label: "模型", items: labelCells(modelCells(
-                    theme,
-                    activeModel,
-                    activeThinking,
-                    footerData.getAvailableProviderCount(),
-                  ), ["", ...(activeModel?.provider && footerData.getAvailableProviderCount() > 1 ? ["平台"] : [])]) },
+                { label: "路径", items: environmentItems() },
+                { label: "模型", items: modelItems() },
                 { label: "额度", items: labelCells(sections.quota, "") },
                 { label: "窗口", items: labelCells([
                   ...contextCell(activeCtx as Ctx, theme, activeModel, false),

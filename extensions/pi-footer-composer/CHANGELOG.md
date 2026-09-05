@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0 - 2026-09-05
+
+- Apply the same open-sided category table to compact view, with fixed path, model and status rows.
+- Keep model identity, provider, thinking level and quota together; keep context and configuration statuses together.
+- Retain compact filtering: accumulated usage and integration statuses remain hidden.
+- Remove the superseded loose-row renderer and its compatibility-only tests; both custom views now share one layout path.
+
 ## 0.7.0 - 2026-09-05
 
 - Group related fields into seven fixed category rows instead of filling individual boxes across columns.
