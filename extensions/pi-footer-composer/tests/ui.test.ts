@@ -70,6 +70,7 @@ test("full footer is the default; compact and native remain selectable", async (
   assert.match(full.join("\n"), /窗口 │ 12.0% \/ 128k/);
   assert.match(full.join("\n"), /额度 │ GLM 5h: 37%/);
   assert.match(full.join("\n"), /用量 │ 输入 4.0M.*输出 147k.*缓存读 58M/);
+  assert.match(full.join("\n"), /缓存读 58M.*命中 93.5%/);
   assert.match(full.join("\n"), /输入 4.0M/);
   assert.match(full.join("\n"), /输出 147k/);
   assert.equal(full.join("\n").match(/Context 12%/g)?.length, 1);
@@ -106,7 +107,7 @@ test("full footer is the default; compact and native remain selectable", async (
   assert.ok(compact.at(-1)?.startsWith("──────┴"));
   assert.match(compact.join("\n"), /路径 │ \/tmp\/project.*分支  main.*会话  session/);
   assert.match(compact.join("\n"), /模型 │ model.*思考 high.*额度  GLM 5h: 37%/);
-  assert.match(compact.join("\n"), /状态 │ 上下文 12.0% \/ 128k.*权限 smart/);
+  assert.match(compact.join("\n"), /状态 │ 上下文 12.0% \/ 128k.*命中 93.5%.*权限 smart/);
   assert.doesNotMatch(compact.join("\n"), /MCP ready/);
 
   await command?.("native", ctx);

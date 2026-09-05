@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 - 2026-09-05
+
+- Show the latest assistant-message cache hit rate immediately after context usage in compact mode.
+- Reuse the full view's cache-hit calculation and continue hiding cumulative token, cache-volume, cost and integration details.
+
 ## 0.8.0 - 2026-09-05
 
 - Apply the same open-sided category table to compact view, with fixed path, model and status rows.

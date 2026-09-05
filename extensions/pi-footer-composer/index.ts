@@ -95,7 +95,12 @@ function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
   return cells;
 }
 
-function usageCells(ctx: Ctx, theme: Theme): Cell[] {
+type UsageStats = {
+  totals: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+  latestCacheHitRate?: number;
+};
+
+function collectUsageStats(ctx: Ctx): UsageStats {
   const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
   let latestCacheHitRate: number | undefined;
   for (const entry of ctx.sessionManager.getEntries()) {
@@ -135,18 +140,33 @@ function usageCells(ctx: Ctx, theme: Theme): Cell[] {
       totals.cost += entry.usage.cost?.total ?? 0;
     }
   }
+  return { totals, latestCacheHitRate };
+}
+
+function cacheHitText(stats: UsageStats): string | undefined {
+  if (
+    !(stats.totals.cacheRead || stats.totals.cacheWrite) ||
+    stats.latestCacheHitRate === undefined
+  ) return undefined;
+  return `命中 ${stats.latestCacheHitRate.toFixed(1)}%`;
+}
+
+function cacheHitCells(stats: UsageStats, theme: Theme): Cell[] {
+  const text = cacheHitText(stats);
+  return text ? [makeCell(theme.fg("text", text))] : [];
+}
+
+function usageCells(stats: UsageStats, theme: Theme): Cell[] {
+  const { totals } = stats;
   const parts: string[] = [];
   if (totals.input) parts.push(`输入 ${formatTokens(totals.input)}`);
   if (totals.output) parts.push(`输出 ${formatTokens(totals.output)}`);
   if (totals.cacheRead) parts.push(`缓存读 ${formatTokens(totals.cacheRead)}`);
   if (totals.cacheWrite) parts.push(`缓存写 ${formatTokens(totals.cacheWrite)}`);
-  if (
-    (totals.cacheRead || totals.cacheWrite) &&
-    latestCacheHitRate !== undefined
-  )
-    parts.push(`命中 ${latestCacheHitRate.toFixed(1)}%`);
+  const cacheHit = cacheHitText(stats);
+  if (cacheHit) parts.push(cacheHit);
   if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
-  return parts.map((p) => makeCell(theme.fg("text", p)));
+  return parts.map((part) => makeCell(theme.fg("text", part)));
 }
 
 function contextCell(
@@ -320,6 +340,7 @@ export default function (pi: ExtensionAPI): void {
         return {
           render: (width: number) => {
             const sections = statusGroups(footerData, theme, activeCtx?.getContextUsage?.()?.percent);
+            const usage = collectUsageStats(activeCtx as Ctx);
             const labelCells = (cells: Cell[], labels: string | string[]) =>
               cells.map((cell, index) => {
                 const label = typeof labels === "string" ? labels : labels[index];
@@ -348,6 +369,7 @@ export default function (pi: ExtensionAPI): void {
                 ] },
                 { label: "状态", items: labelCells([
                     ...contextCell(activeCtx as Ctx, theme, activeModel),
+                    ...cacheHitCells(usage, theme),
                     ...sections.context,
                     ...sections.config,
                     ...sections.misc,
@@ -365,7 +387,7 @@ export default function (pi: ExtensionAPI): void {
                   ...contextCell(activeCtx as Ctx, theme, activeModel, false),
                   ...sections.context,
                 ], "") },
-                { label: "用量", items: labelCells([...usageCells(activeCtx as Ctx, theme), ...sections.usage], "") },
+                { label: "用量", items: labelCells([...usageCells(usage, theme), ...sections.usage], "") },
                 { label: "集成", items: labelCells(sections.integration, "") },
                 { label: "状态", items: labelCells([...sections.config, ...sections.misc], "") },
               ],
