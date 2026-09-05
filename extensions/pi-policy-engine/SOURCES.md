@@ -9,6 +9,6 @@ Implementation was aligned to Pi's documented extension/package concepts current
 
 The extension intentionally avoids importing Pi package namespaces so it is less sensitive to namespace changes between Pi distributions/releases.
 
-## Active model reuse (0.28)
+## Current-agent context (0.29)
 
-Checked against the installed `@earendil-works/pi-coding-agent` 0.85.0: `docs/extensions.md` (ctx.modelRegistry / ctx.model), `examples/extensions/qna.ts`, and `dist/core/model-registry.d.ts`. The documented `ctx.modelRegistry.complete(ctx.model, context, { signal })` delegates to the host runtime and resolves provider/auth configuration there. The integration uses feature detection and an injected callable; core logic still imports no Pi namespace.
+The installed `@earendil-works/pi-coding-agent` 0.85.0 lifecycle documentation confirms that `before_agent_start` runs before the normal model turn and can extend its system prompt. Current-agent interpretation therefore uses an injected contextual policy in the existing turn. It does not call `modelRegistry.complete`; this avoids blocking message display and lets the model use the conversation already supplied by the host. Core logic still imports no Pi namespace.

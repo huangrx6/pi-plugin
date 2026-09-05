@@ -1,4 +1,4 @@
-# Design — pi-policy-engine 0.28.0
+# Design — pi-policy-engine 0.29.0
 
 ## Responsibility
 
@@ -7,8 +7,8 @@ The extension classifies user intent, selects task instructions, tracks bounded 
 ## Turn pipeline
 
 ```text
-input + current task contract
-  → contextual model interpretation (primary) OR offline task relationship
+input + current conversation
+  → in-band agent interpretation OR optional endpoint classification
   → authorization and intent
   → rigor, coverage, profile, current-model adaptation
   → required boundaries, optional policies and budget
@@ -17,7 +17,7 @@ input + current task contract
 
 `transitions.js::resolveTurn` owns the transition decision. `policy-block.js` composes and renders it. The lifecycle applies these functions to live state; preview applies them to a cloned state. Preview defaults to no semantic network call. `--new` discards current runtime/task context for the preview; `--semantic` permits the configured opt-in classifier.
 
-Task relationship has one authoritative result per turn. With `semanticFallback.strategy: primary`, a validated model response chooses new, continue, revise, discuss, conversation or uncertain using the current task contract. Otherwise a bounded offline parser decides. Continuations retain task identity and risk context; uncertainty cannot authorize mutation. Explicit user approval responses cannot be reinterpreted as independent tasks by the model. `/policy new` corrects association explicitly; `/policy task` exposes the contract.
+Endpoint classification produces one authoritative relationship result before the turn. In the default agent source, the engine makes no extra model request: the normal agent call receives `intent.contextual` and uses its complete conversation to interpret continuation, correction, question, or new work. Deterministic labels remain provisional hints for base policy selection. Continuations with a plugin task snapshot retain task identity and risk context; missing snapshots do not force the agent to forget visible conversation. Uncertainty cannot grant mutation or approval.
 
 ## Intent and authorization
 
@@ -43,7 +43,7 @@ Each task has an ID, full original goal, user requirement records, extracted con
 
 The `policy-plan` JSON report must bind taskId and planVersion and contain a nonempty goal and steps with action/verification strings. A request for a file path or plain text does not qualify. The stored evidence is explicitly assistant_reported; structural validity is not semantic proof that the plan is adequate. The engine has no authoritative verification-result protocol and never marks the task verified-complete merely from a round ending.
 
-Mutation planning and awaiting approval both load `rigor.strict-plan`; only executing an authorized mutation loads `rigor.strict-execute`. A pinned strict read-only request uses `rigor.strict-review` without claiming implementation approval. A pending approval is not bypassed by a depth setting. `once` is reserved until the next new-task decision; `off` explicitly disables policy and discards the pending task. Command and menu changes share persistence behavior.
+Mutation planning and awaiting approval both load `rigor.strict-plan`; only executing an authorized mutation loads `rigor.strict-execute`. A pinned strict read-only request uses `rigor.strict-review` without claiming implementation approval. A pending approval is not bypassed by a depth setting. The daily panel exposes automatic, strict and off presets; choosing one immediately writes the validated global user config. Legacy direct commands remain available for scripts and diagnostics but do not occupy the panel.
 
 ## Session and branch persistence
 
@@ -65,17 +65,17 @@ Precedence: package defaults < global config < ancestor-to-nearest project confi
 
 On a runtime configuration error, the previous valid configuration for that cwd is retained and the error is shown. On first load, invalid values use normalized safe defaults, invalid semantic settings cannot initiate a network call, and diagnostics remain visible. Project settings cannot supply credentials, endpoints, history paths or global model rules.
 
-`/policy save global|project` writes only explicitly selected runtime mode/profile plus global-only recognition selection, preserving the existing valid configuration. It refuses to overwrite malformed JSON and atomically replaces a validated result. Global save uses the current data directory and can copy a valid legacy configuration forward without deleting it.
+The daily panel atomically saves automatic, strict and off selections to `<agent-dir>/extensions-data/pi-policy-engine/config.json`, preserving unrelated valid settings. It refuses to overwrite malformed JSON. Package `config/defaults.json` is immutable distribution data, not user state. The default agent directory is `~/.pi/agent`; `PI_CODING_AGENT_DIR` replaces that root.
 
-Global `modelRules` precede package rules. Matching is exact provider plus exact or trailing-star model prefix, case insensitive. A proxy/provider alias can map to an existing model policy. The main model is always the host's choice. The semantic classifier can use the active host model or a separately configured endpoint. `agent-classifier.js` captures the complete current model per turn and calls `ctx.modelRegistry.complete` with an isolated context and abort signal; the registry owns provider/auth/OAuth/proxy resolution. There are no Pi namespace imports, credential extraction, tool definitions, session-message writes or recursive agent calls. Missing host support degrades explicitly to rules without switching to a configured endpoint. Primary interpretation supports OpenAI-compatible Chat Completions and Anthropic Messages, optional JSON response format and optional temperature, plus explicitly unauthenticated local services. Legacy fallback retains its single-prompt OpenAI-compatible conservative merge. `/policy recognition agent|endpoint|primary|fallback|off` changes the runtime selection; `/policy save global` persists only that selection while preserving endpoint and credential-reference configuration.
+Global `modelRules` precede package rules. Matching is exact provider plus exact or trailing-star model prefix, case insensitive. A proxy/provider alias can map to an existing model policy. The main model is always the host's choice. Agent source uses the existing normal turn and therefore needs no provider API, credential extraction, tool definitions, session-message writes or recursive call. Endpoint source supports OpenAI-compatible Chat Completions and Anthropic Messages, optional JSON response format and temperature, plus explicitly unauthenticated local services. Legacy fallback retains its single-prompt OpenAI-compatible conservative merge.
 
 ## Model interpretation boundary
 
-`interpretation.js` serializes the current user message, full goal, retained requirements/constraints, proposed plan and phase into a data-only user message. It sends no repository files, tool outputs or unrelated conversations. The context itself may contain user-supplied sensitive text. For endpoint source, the global-only endpoint and environment-variable reference are the network trust boundary. For agent source, the current host model registry resolves requests; endpoint and apiKeyEnvVar settings are not consulted. Both paths share schema validation, context bounds and request deadlines. New defaults select agent/primary but remain disabled; existing source-less semantic configurations preserve endpoint behavior and old timeout defaults. Each interpretation is still an extra model call with latency and usage costs.
+For agent source, `interpretation.js` returns `in_band` immediately with zero classification duration. `intent.contextual` tells the current model to use the full conversation and treat rule labels as provisional; this is part of the existing model call and introduces no pre-display wait or extra usage. For endpoint source, the module serializes the latest message, goal, retained requirements/constraints, plan and phase into a bounded data-only request. The global-only endpoint and environment-variable reference form the network trust boundary. Existing source-less semantic configurations preserve endpoint behavior.
 
 Primary results must have exactly the specified fields, valid task/relation/intent/risk/coverage enums, known domains and bounded constraint quotations present in unquoted current user text. Extra authorization fields invalidate the response. The model can correct rule classification, but cannot write task IDs, approved versions or autonomy. Direct user approval requirements remain authoritative. Natural-language approvals still use the conservative local parser; `/policy approve` is the explicit alternative. Risk cannot decrease during a continuing task; architecture retains its high-risk floor. A model's result has no fabricated confidence probability.
 
-The deadline covers transport and JSON parsing even when an injected transport ignores abort. HTTP errors, malformed JSON/schema, missing keys and network failure return diagnostic codes without response bodies or secrets. Oversized serialized context falls back without silently dropping constraints. No retries occur. Primary runs once per turn, before relation/phase handling; disabled and ordinary offline previews make no calls. Legacy fallback does not supply contextual task relation.
+For endpoint source, the deadline covers transport and JSON parsing even when an injected transport ignores abort. HTTP errors, malformed JSON/schema, missing keys and network failure return diagnostic codes without response bodies or secrets. Oversized serialized context falls back without silently dropping constraints. No retries occur. Agent source and ordinary offline previews make no network call. Legacy fallback does not supply contextual task relation.
 
 The classification result remains fallible, and injected behavior does not enforce tool permissions. Mock protocol tests establish data flow and transition invariants, not model accuracy. Real-model evaluation must measure task misassociation, constraint retention, false approval waits, latency/cost and outcomes before enabling classification by default or claiming provider-specific prompt efficacy.
 
@@ -89,4 +89,4 @@ If required policies are missing, excluded or cannot fit, the turn is marked blo
 
 Tests use OS temporary directories. The smoke entry point isolates both cwd and `PI_CODING_AGENT_DIR`; asynchronous writes complete before cleanup. Regression scenarios include greetings, fresh reviews after pending debugging, negated/quoted autonomy, narrowing approvals, restart/fork/tree navigation, missing plans, errors, model changes, damaged configuration, preview parity and insufficient budgets.
 
-Version 0.27.0 changes approval restoration intentionally. Existing history stays readable, and old disk states are left intact until normal retention cleanup. Upgrade does not migrate a stale directory-scoped approval into a new session. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
+Version 0.29.0 changes current-agent recognition from a blocking extra request to in-band interpretation. Existing history stays readable, and endpoint configurations remain compatible. Updating the installed package and reloading Pi are separate deployment actions from changing this repository.
