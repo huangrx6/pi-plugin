@@ -53,8 +53,12 @@ export function activitySnapshot(decision, phase, injected = "") {
   const modelRecognition =
     data.recognition?.source === "agent" &&
     data.recognition?.reason === "contextual";
-  const next = !injected
-    ? "本轮没有追加策略指令。"
+  const recognitionBlocked = data.preflightBlocked === true;
+  const policyUnchanged = data.recognition?.policyUnchanged === true;
+  const next = recognitionBlocked
+    ? "先重试识别或检查 recognition 配置；本轮不会执行变更。"
+    : !injected
+      ? "本轮没有追加策略指令。"
     : phase === "planning"
       ? "先生成计划，完成后等待你确认。"
       : phase === "awaiting_approval"
@@ -66,9 +70,13 @@ export function activitySnapshot(decision, phase, injected = "") {
     injected,
     next,
     summary: injected
-      ? modelRecognition
-        ? `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "模型选择流程"} · 当前模型已识别并选择策略`
-        : `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "自动流程"} · ${{ "read-only": "只读", mutate: "修改", unclear: "需要澄清" }[data.executionIntent] ?? "需要澄清"}`
+      ? recognitionBlocked
+        ? "意图识别失败 · 本轮已阻止策略执行"
+        : policyUnchanged
+          ? `策略已复用 · ${rigors[data.rigor] ?? data.rigor ?? "模型选择流程"} · 当前模型确认策略未变化`
+          : modelRecognition
+            ? `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "模型选择流程"} · 当前模型已识别并选择策略`
+            : `策略已加载 · ${rigors[data.rigor] ?? data.rigor ?? "自动流程"} · ${{ "read-only": "只读", mutate: "修改", unclear: "需要澄清" }[data.executionIntent] ?? "需要澄清"}`
       : "本轮未注入策略",
     // Exclude reason wording and timestamps: identical applied instructions do
     // not create a new transcript entry on every follow-up.
@@ -94,10 +102,12 @@ export function activityText(activity) {
   return sanitizeTerminalText(
     [
       activity.summary,
-      d.recognition?.source === "agent" &&
-      d.recognition?.reason === "contextual"
-        ? `判断方式：当前模型使用完整对话完成意图识别，并据此选择本轮策略。`
-        : `判断方式：识别为${tasks[d.taskType] ?? d.taskType ?? "未分类"}；风险 ${d.risk ?? "未知"}。`,
+      d.preflightBlocked
+        ? `判断方式：模型识别未成功（${d.recognition?.reason ?? "unknown"}），本轮未使用本地规则继续执行。`
+        : d.recognition?.source === "agent" &&
+            d.recognition?.reason === "contextual"
+          ? `判断方式：当前模型使用完整对话完成意图识别，并据此选择本轮策略。`
+          : `判断方式：识别为${tasks[d.taskType] ?? d.taskType ?? "未分类"}；风险 ${d.risk ?? "未知"}。`,
       ...(d.reasons?.length
         ? ["触发依据：", ...d.reasons.map((reason) => `  ${reason}`)]
         : []),

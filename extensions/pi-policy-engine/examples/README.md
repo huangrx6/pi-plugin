@@ -65,7 +65,7 @@ project/.pi/
 
 ## 大模型优先识别
 
-[semantic-primary.json](semantic-primary.json) 是全局配置片段：先替换 endpoint、model 和 apiKeyEnvVar，再合并到全局 config.json。不能放进项目配置。此模式发送当前任务目标、约束、要求及计划上下文，支持 OpenAI 兼容接口；Anthropic 原生接口改为 protocol: `anthropic` 和完整 Messages 地址。
+[recognition-endpoint.json](recognition-endpoint.json) 是全局配置片段：先替换 endpoint、model 和 apiKeyEnvVar，再合并到全局 config.json。不能放进项目配置。此模式发送当前任务目标、约束、要求及计划上下文，支持 OpenAI 兼容接口；Anthropic 原生接口改为 protocol: `anthropic` 和完整 Messages 地址。
 
 把这段配置合并到个人全局 `config.json` 后，可用 `/policy preview --semantic <请求>` 检查识别来源。示例没有真实凭证。
 

@@ -145,7 +145,7 @@ export async function readHistory(filePath, limit = 50, fs = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Strict-plan state across sessions (v0.20)
+// Strict-plan state across sessions
 // ---------------------------------------------------------------------------
 //
 // session_start resets state, so a strict plan left at awaiting_approval
@@ -158,18 +158,18 @@ export async function readHistory(filePath, limit = 50, fs = null) {
 // execution on its own.
 
 /**
- * Path of the strict-state file next to a resolved history file, NAMESPACED
- * by project cwd (v0.21): with the default shared historyFile, all projects
- * wrote one strict-state.json and the last project to save stole the
- * restore (verified: A saves, B saves, A can no longer restore). The
- * loadStrictState cwd check remains as a second layer.
+ * Path of the strict-state file next to a resolved history file, namespaced
+ * by project cwd and session ID.
  */
 export function strictStatePath(historyFilePath, cwd = null, sessionId = null) {
-  if (typeof historyFilePath !== "string" || !historyFilePath) return null;
+  if (
+    typeof historyFilePath !== "string" ||
+    !historyFilePath ||
+    typeof cwd !== "string" ||
+    !cwd
+  )
+    return null;
   const dir = dirname(historyFilePath);
-  if (typeof cwd !== "string" || !cwd) {
-    return join(dir, "strict-state.json"); // caller without cwd: legacy name
-  }
   const hash = createHash("sha256")
     .update(sessionId ? `${cwd}\0${sessionId}` : cwd)
     .digest("hex")
@@ -205,7 +205,7 @@ export async function saveStrictState(filePath, state, fs = null) {
   const decision = {};
   for (const k of STRICT_DECISION_FIELDS) decision[k] = state.decision?.[k];
   const payload = {
-    version: state.sessionId ? 2 : 1,
+    version: 2,
     sessionId: state.sessionId,
     task: state.task,
     cwd: state.cwd,
@@ -249,7 +249,7 @@ export async function loadStrictState(
   }
   try {
     const parsed = JSON.parse(text);
-    if (![1, 2].includes(parsed?.version)) return null;
+    if (parsed?.version !== 2) return null;
     if (
       sessionId &&
       (parsed.version !== 2 ||
@@ -266,11 +266,6 @@ export async function loadStrictState(
       Date.now() - parsed.ts > maxAgeMs
     ) {
       return null;
-    }
-    // v0.21: strip legacy modelPolicy (v0.20 files persisted it); it is
-    // recomputed from the CURRENT model at use time.
-    if (parsed.decision && "modelPolicy" in parsed.decision) {
-      delete parsed.decision.modelPolicy;
     }
     return {
       phase: "awaiting_approval",
@@ -307,9 +302,9 @@ export async function clearStrictState(filePath, fs = null) {
  * accumulated next to the history. Restores already ignore files older
  * than maxAgeMs; this actually deletes them.
  *
- * Only files matching strict-state-<16-hex>.json (or the legacy
- * strict-state.json) in the SAME directory as the history file are
- * considered. Best-effort: never throws, returns the removal count.
+ * Only files matching strict-state-<16-hex>.json in the SAME directory as the
+ * history file are considered. Best-effort: never throws, returns the removal
+ * count.
  */
 export async function pruneStrictStates(
   historyFilePath,
@@ -325,7 +320,7 @@ export async function pruneStrictStates(
   } catch {
     return 0;
   }
-  const STALE_RE = /^strict-state(?:-[0-9a-f]{16})?\.json$/;
+  const STALE_RE = /^strict-state-[0-9a-f]{16}\.json$/;
   let removed = 0;
   for (const name of names) {
     if (!STALE_RE.test(name)) continue;

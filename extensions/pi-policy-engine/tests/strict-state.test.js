@@ -29,7 +29,7 @@ function planText(task) {
 
 const stateFile = join(
   mkdtempSync(join(tmpdir(), "pi-policy-ss-")),
-  "strict-state.json",
+  "strict-state-v2.json",
 );
 const cwdA = mkdtempSync(join(tmpdir(), "pi-policy-ss-a-"));
 const cwdB = mkdtempSync(join(tmpdir(), "pi-policy-ss-b-"));
@@ -118,7 +118,7 @@ test("end-to-end: session restart restores awaiting_approval", async () => {
     modelPolicy: null,
     reasons: [],
   };
-  const sPath = join(historyDir, "strict-state.json");
+  const sPath = join(historyDir, "strict-state-v2.json");
   await saveStrictState(sPath, { cwd: cwdA, decision });
   const restored = await loadStrictState(sPath, { cwd: cwdA });
   assert.ok(restored);
@@ -141,39 +141,7 @@ test("strictStatePath namespaces by cwd (project A/B do not collide)", async () 
   assert.ok(/strict-state-[0-9a-f]{16}\.json$/.test(a));
   assert.ok(a.startsWith("/tmp/shared"));
 
-  // legacy callers without cwd keep the old name (back-compat)
-  assert.equal(strictStatePath(h), "/tmp/shared/strict-state.json");
-});
-
-test("legacy v0.20 payloads with modelPolicy are stripped on restore", async () => {
-  const { loadStrictState } = await import("../src/core/history-store.js");
-  const store = new Map();
-  const fs = {
-    async readFile(p) {
-      const v = store.get(p);
-      if (!v) throw new Error("ENOENT");
-      return v;
-    },
-  };
-  store.set(
-    "/f.json",
-    JSON.stringify({
-      version: 1,
-      cwd: "/x",
-      ts: Date.now(),
-      phase: "awaiting_approval",
-      decision: {
-        taskType: "coding",
-        risk: "high",
-        rigor: "strict",
-        modelPolicy: "model.minimax-m3", // stale v0.20 field
-        domains: [],
-      },
-    }),
-  );
-  const restored = await loadStrictState("/f.json", { cwd: "/x" }, fs);
-  assert.ok(restored);
-  assert.equal("modelPolicy" in restored.decision, false);
+  assert.equal(strictStatePath(h), null);
 });
 
 test("E2E: A/B projects restore independently; model switch recomputes adaptation", async () => {
@@ -184,12 +152,24 @@ test("E2E: A/B projects restore independently; model switch recomputes adaptatio
   const isolatedAgentDirectory = mkdtempSync(join(tmpdir(), "pi-policy-home-"));
   const repoA = mkdtempSync(join(tmpdir(), "pi-policy-a-"));
   const repoB = mkdtempSync(join(tmpdir(), "pi-policy-b-"));
-  mkdirSync(join(isolatedAgentDirectory, "policy-engine"), { recursive: true });
+    mkdirSync(
+      join(isolatedAgentDirectory, "extensions-data", "pi-policy-engine"),
+      { recursive: true },
+    );
   process.env.PI_CODING_AGENT_DIR = isolatedAgentDirectory;
   try {
     writeFileSync(
-      join(isolatedAgentDirectory, "policy-engine.json"),
-      JSON.stringify({ showStatus: false, historyMaxEntries: 50 }),
+      join(
+        isolatedAgentDirectory,
+        "extensions-data",
+        "pi-policy-engine",
+        "config.json",
+      ),
+      JSON.stringify({
+        showStatus: false,
+        historyMaxEntries: 50,
+        recognition: { enabled: false },
+      }),
     );
     const makeSession = (cwd, model) => {
       let task;
@@ -307,9 +287,18 @@ test("E2E: /policy cancel → restart MUST NOT restore the plan", async () => {
   process.env.PI_CODING_AGENT_DIR = isolatedAgentDirectory;
   try {
     mkdirSync(isolatedAgentDirectory, { recursive: true });
+    mkdirSync(
+      join(isolatedAgentDirectory, "extensions-data", "pi-policy-engine"),
+      { recursive: true },
+    );
     writeFileSync(
-      join(isolatedAgentDirectory, "policy-engine.json"),
-      JSON.stringify({ showStatus: false }),
+      join(
+        isolatedAgentDirectory,
+        "extensions-data",
+        "pi-policy-engine",
+        "config.json",
+      ),
+      JSON.stringify({ showStatus: false, recognition: { enabled: false } }),
     );
     const make = (cwd) => {
       let task;
@@ -393,9 +382,18 @@ test("E2E: read-only prompt injects intent.read-only + intent-neutral rigor", as
   process.env.PI_CODING_AGENT_DIR = isolatedAgentDirectory;
   try {
     mkdirSync(isolatedAgentDirectory, { recursive: true });
+    mkdirSync(
+      join(isolatedAgentDirectory, "extensions-data", "pi-policy-engine"),
+      { recursive: true },
+    );
     writeFileSync(
-      join(isolatedAgentDirectory, "policy-engine.json"),
-      JSON.stringify({ showStatus: false }),
+      join(
+        isolatedAgentDirectory,
+        "extensions-data",
+        "pi-policy-engine",
+        "config.json",
+      ),
+      JSON.stringify({ showStatus: false, recognition: { enabled: false } }),
     );
     const handlers = new Map();
     policyEngine({
@@ -460,7 +458,6 @@ test("pruneStrictStates removes only stale namespaced files", async () => {
     };
     const stale = mk("strict-state-deadbeefdeadbeef.json");
     const fresh = mk("strict-state-0123456789abcdef.json");
-    const legacy = mk("strict-state.json");
     const birthFresh = mk("strict-state-1111111111111111.json");
     const mtimeFresh = mk("strict-state-2222222222222222.json");
     const untouched = mk("other.json");
@@ -468,7 +465,6 @@ test("pruneStrictStates removes only stale namespaced files", async () => {
     const old = now - 20 * 24 * 3600 * 1000;
     const times = new Map([
       [stale, { birthtimeMs: old, mtimeMs: old }],
-      [legacy, { birthtimeMs: old, mtimeMs: old }],
       [birthFresh, { birthtimeMs: now, mtimeMs: old }],
       [mtimeFresh, { birthtimeMs: old, mtimeMs: now }],
     ]);
@@ -483,9 +479,8 @@ test("pruneStrictStates removes only stale namespaced files", async () => {
       {},
       controlledFs,
     );
-    assert.equal(removed, 2);
+    assert.equal(removed, 1);
     assert.equal(existsSync(stale), false, "stale namespaced removed");
-    assert.equal(existsSync(legacy), false, "stale legacy removed");
     assert.equal(existsSync(fresh), true, "fresh namespaced kept");
     assert.equal(
       existsSync(birthFresh),

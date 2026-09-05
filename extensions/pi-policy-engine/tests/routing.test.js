@@ -126,6 +126,31 @@ test("workflow routing matrix", () => {
     [],
   );
   assert.equal(chooseRigor(readonly, "auto"), "standard");
+
+  assert.equal(
+    chooseRigor(
+      {
+        taskType: "coding",
+        executionIntent: "unclear",
+        risk: "low",
+        coverage: "focused",
+      },
+      "auto",
+    ),
+    "standard",
+  );
+  assert.equal(
+    chooseRigor(
+      {
+        taskType: "coding",
+        executionIntent: "mutate",
+        risk: "low",
+        coverage: "comprehensive",
+      },
+      "auto",
+    ),
+    "standard",
+  );
 });
 
 test("preview() end-to-end: strict PG migration", async () => {
@@ -172,6 +197,6 @@ test("preview() is a pure read — no shared-state mutation", async () => {
     prompt: "high-risk 生产 PG schema 迁移",
     model: null,
   });
-  assert.equal(before.decision.rigor, "quick");
+  assert.equal(before.decision.rigor, "standard");
   assert.equal(after.decision.rigor, "strict");
 });

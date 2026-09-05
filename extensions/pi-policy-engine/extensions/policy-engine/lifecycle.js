@@ -29,13 +29,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     const branch = ctx?.sessionManager?.getBranch?.() ?? [];
     const runtimeMode =
       _event?.type === "session_tree" ? state.runtimeMode : null;
-    const runtimeProfile =
-      _event?.type === "session_tree" ? state.runtimeProfile : null;
     const runtimeRecognition =
       _event?.type === "session_tree" ? state.runtimeRecognition : null;
     Object.assign(state, createState(), {
       runtimeMode,
-      runtimeProfile,
       runtimeRecognition,
     });
     state.sessionId = ctx?.sessionManager?.getSessionId?.() ?? null;
@@ -48,6 +45,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       state.task = saved.task;
       state.lastDecision = saved.decision;
       state.lastPrompt = saved.lastPrompt;
+      state.lastPolicyNote = saved.lastPolicyNote ?? null;
       state.outcome = saved.outcome;
       if (state.phase === "executing") {
         state.phase = "idle";
@@ -63,6 +61,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         state.phase = savedDisk.phase;
         state.task = savedDisk.task;
         state.lastDecision = savedDisk.decision;
+        state.lastPolicyNote = savedDisk.lastPolicyNote ?? null;
         if (!state.task?.plan) {
           state.phase = "planning";
           state.outcome = "missing_plan";
@@ -128,28 +127,99 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       ctx.ui.setWorkingVisible(true);
   }
 
-  async function resolveAndApply({ event, ctx, state, prompt }) {
+  // This only marks a possible interrupted-run resume. It never decides the
+  // intent or strategy; the current model still recognizes the message below.
+  // Keep the candidate phrases small and exact so natural-language task
+  // changes continue through the normal recognition path.
+  function isExplicitResumeCommand(prompt) {
+    const normalized = String(prompt ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s，。！？,.!?；;:：]+/g, " ")
+      .trim();
+    return new Set([
+      "继续",
+      "继续执行",
+      "继续处理",
+      "恢复任务",
+      "continue",
+      "continue working",
+      "resume",
+      "resume task",
+    ]).has(normalized);
+  }
+
+  function shouldReuseInterruptedPolicy(state, prompt) {
+    const samePromptRetry =
+      String(state.lastPrompt ?? "").trim() === String(prompt ?? "").trim();
+    return (
+      state.outcome === "interrupted" &&
+      !!state.lastDecision &&
+      !!state.task &&
+      (isExplicitResumeCommand(prompt) || samePromptRetry)
+    );
+  }
+
+  function policySelectionFingerprint(decision) {
+    return fingerprint({
+      taskType: decision?.taskType,
+      executionIntent: decision?.executionIntent,
+      risk: decision?.risk,
+      domains: decision?.domains,
+      concerns: decision?.concerns,
+      coverage: decision?.coverage,
+      rigor: decision?.rigor,
+      flow: decision?.flow,
+      profile: decision?.profile,
+      intentPolicy: decision?.intentPolicy,
+      approvalRequired: decision?.approvalRequired,
+      preflightBlocked: decision?.preflightBlocked,
+      modelPolicy: decision?.modelPolicy,
+    });
+  }
+
+  function previousTurnSnapshot(state) {
+    return {
+      task: structuredClone(state.task),
+      decision: structuredClone(state.lastDecision),
+      lastPrompt: state.lastPrompt,
+      phase: state.phase,
+      note: state.lastPolicyNote,
+      injected: state.lastActivity?.injected ?? null,
+    };
+  }
+
+  async function resolveAndApply({
+    event,
+    ctx,
+    state,
+    prompt,
+    resumeCandidate = false,
+  }) {
     const phaseFrom = state.phase;
+    const previous =
+      resumeCandidate && state.lastDecision
+        ? previousTurnSnapshot(state)
+        : null;
     const previewConfig = buildEffectiveConfig({
       packageRoot,
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
-    const agentRecognition =
-      previewConfig.semanticFallback?.enabled &&
-      previewConfig.semanticFallback?.strategy === "primary" &&
-      previewConfig.semanticFallback?.source === "agent";
-    if (agentRecognition) workingMessage(ctx, "意图识别中…");
-    const turn = await resolveTurn({
+    const recognitionEnabled = previewConfig.recognition?.enabled === true;
+    const hostRecognition =
+      recognitionEnabled && previewConfig.recognition?.source === "agent";
+    if (recognitionEnabled) workingMessage(ctx, "意图识别中…");
+    let turn = await resolveTurn({
       packageRoot,
       cwd: ctx?.cwd ?? process.cwd(),
       prompt,
       state,
       model: state.currentModel,
-      agentClassifier: agentRecognition ? createAgentClassifier(ctx) : null,
+      agentClassifier: hostRecognition ? createAgentClassifier(ctx) : null,
       conversation: conversationFromMessages(event?.messages),
     });
-    const built = turn.inject
+    let built = turn.inject
       ? buildTurnBlock({
           packageRoot,
           cwd: ctx?.cwd ?? process.cwd(),
@@ -157,6 +227,53 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
           model: state.currentModel,
         })
       : { injected: "" };
+    let policyUnchanged = false;
+    if (
+      previous?.injected &&
+      turn.inject &&
+      ["continue", "response", "uncertain"].includes(turn.relation) &&
+      !turn.decision.preflightBlocked &&
+      policySelectionFingerprint(previous.decision) ===
+        policySelectionFingerprint(turn.decision)
+    ) {
+      const resolvedTask = state.task;
+      const resolvedDecision = state.lastDecision;
+      const resolvedPrompt = state.lastPrompt;
+      const resolvedPhase = state.phase;
+      state.task = previous.task;
+      const reusedDecision = previous.decision;
+      reusedDecision.recognition = {
+        ...structuredClone(turn.decision.recognition),
+        policyUnchanged: true,
+      };
+      const reusedTurn = {
+        ...turn,
+        decision: reusedDecision,
+        phase: previous.phase === "idle" ? turn.phase : previous.phase,
+        note: previous.note ?? turn.note,
+        reusedPolicy: true,
+      };
+      const reusedBuilt = buildTurnBlock({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        turn: reusedTurn,
+        model: state.currentModel,
+      });
+      if (reusedBuilt.injected === previous.injected) {
+        turn = reusedTurn;
+        built = reusedBuilt;
+        policyUnchanged = true;
+        state.lastDecision = reusedDecision;
+        state.lastPrompt = previous.lastPrompt;
+        state.phase = reusedTurn.phase;
+      } else {
+        state.task = resolvedTask;
+        state.lastDecision = resolvedDecision;
+        state.lastPrompt = resolvedPrompt;
+        state.phase = resolvedPhase;
+      }
+    }
+    state.lastPolicyNote = turn.note;
     state.turnRelation = turn.relation;
     state.outcome =
       turn.relation === "conversation"
@@ -172,16 +289,25 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         `Policy configuration: ${turn.config._usingLastValid ? "using last valid configuration. " : ""}${turn.config._diagnostics.map((x) => x.message).join("; ")}`,
         "warning",
       );
-    await history(state, ctx, "decide", prompt, turn.decision, phaseFrom, {
-      relation: turn.relation,
-      configFingerprint: fingerprint({
-        ...turn.config,
-        _sources: undefined,
-        _diagnostics: undefined,
-      }),
-      injectionFingerprint: fingerprint(built.injected),
-      injectedBytes: Buffer.byteLength(built.injected),
-    });
+    await history(
+      state,
+      ctx,
+      policyUnchanged ? "reuse" : "decide",
+      prompt,
+      turn.decision,
+      phaseFrom,
+      {
+        relation: turn.relation,
+        policyUnchanged,
+        configFingerprint: fingerprint({
+          ...turn.config,
+          _sources: undefined,
+          _diagnostics: undefined,
+        }),
+        injectionFingerprint: fingerprint(built.injected),
+        injectedBytes: Buffer.byteLength(built.injected),
+      },
+    );
     publishActivity(pi, state, ctx, built.injected, turn.decision);
     await persistWorkflow({ pi, state, ctx, packageRoot });
     state.turnContext = {
@@ -189,12 +315,14 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       injected: built.injected,
       decision: turn.decision,
       config: turn.config,
-      preflight: agentRecognition,
+      preflight: recognitionEnabled,
       preflightDone: true,
+      reused: policyUnchanged,
+      policyUnchanged,
     };
     // Restore Pi's normal spinner text after the short policy preflight. The
     // spinner itself remains owned by the host agent loop.
-    if (agentRecognition) workingMessage(ctx);
+    if (recognitionEnabled) workingMessage(ctx);
     return { turn, built };
   }
 
@@ -229,7 +357,12 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     const state = getState();
     const prompt = String(event.prompt ?? "");
     state.currentModel = cleanModel(ctx?.model ?? state.currentModel);
-    state.turnContext = { prompt, injected: "", preflightDone: false };
+    state.turnContext = {
+      prompt,
+      injected: "",
+      preflightDone: false,
+      resumeCandidate: shouldReuseInterruptedPolicy(state, prompt),
+    };
     // Older hosts without the Working-message API cannot provide the modern
     // message-first lifecycle. Keep a compatibility path for them; current
     // Pi versions take the deferred `context` path below.
@@ -244,6 +377,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         ctx,
         state,
         prompt,
+        resumeCandidate: state.turnContext.resumeCandidate,
       });
       const cfg = buildEffectiveConfig({
         packageRoot,
@@ -270,7 +404,13 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     const prompt = pending.prompt || lastUserPrompt(event?.messages);
     if (!prompt) return;
     pending.preflightDone = true;
-    await resolveAndApply({ event, ctx, state, prompt });
+    await resolveAndApply({
+      event,
+      ctx,
+      state,
+      prompt,
+      resumeCandidate: pending.resumeCandidate,
+    });
     const cfg = buildEffectiveConfig({
       packageRoot,
       cwd: ctx?.cwd ?? process.cwd(),

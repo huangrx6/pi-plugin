@@ -83,13 +83,11 @@ export function modelPolicyId(model, rules = DEFAULT_MODEL_RULES) {
 }
 
 export function chooseRigor(classification, requestedMode = "auto") {
-  // v0.22 P0: precedence is off > CURRENT-PROMPT explicit gate > pinned
-  // runtime mode > risk routing. A stale /policy quick|standard must never
-  // swallow a gate the user demands in the CURRENT prompt ("先给方案，确认
-  // 后再执行" while runtime=standard used to route standard). The gate can
-  // be lifted per-prompt too: "不用等我确认，直接执行" classifies null and
-  // the pinned mode applies again. Only /policy off disables the engine
-  // entirely and wins over everything.
+  // Precedence is: off > an explicit approval gate in the current prompt >
+  // pinned mode > the automatic matrix below. A pinned mode changes depth,
+  // never authorization. The automatic matrix is intentionally small:
+  // uncertainty and broad work get a standard workflow; high-risk mutation
+  // gets strict; focused low-risk work gets quick.
   if (requestedMode === "off" || classification.taskType === "conversation")
     return "off";
 
@@ -120,6 +118,8 @@ export function chooseRigor(classification, requestedMode = "auto") {
   }
 
   if (classification.risk === "high") return "strict";
+  if (classification.executionIntent === "unclear") return "standard";
+  if (classification.coverage === "comprehensive") return "standard";
   if (classification.risk === "low") return "quick";
   return "standard";
 }

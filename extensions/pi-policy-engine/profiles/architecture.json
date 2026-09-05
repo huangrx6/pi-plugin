@@ -2,6 +2,7 @@
   "id": "architecture",
   "policies": [
     "behavior.execution-discipline",
+    "behavior.minimal-change",
     "behavior.context-hygiene",
     "behavior.tool-discipline"
   ]

@@ -102,7 +102,6 @@ export async function resolveTurn({
     relation = "response";
   if (!state.task && !["conversation", "uncertain"].includes(relation))
     relation = "new";
-  if (relation === "new") mode = state.onceMode ?? mode;
   const recognitionNote = `recognition:${recognition.source}/${recognition.reason}`;
   let note = "";
   let verdict = null;
@@ -129,7 +128,6 @@ export async function resolveTurn({
   if (mode === "off") {
     state.phase = "idle";
     state.task = null;
-    state.onceMode = null;
     const { decision } = await decide({
       packageRoot,
       cwd,
@@ -205,8 +203,7 @@ export async function resolveTurn({
       delete state.task.plan;
       delete state.task.planEntryId;
     }
-    if (state.runtimeProfile || config.profile !== "auto")
-      decision.profile = config.profile;
+    if (config.profile !== "auto") decision.profile = config.profile;
     if (verdict === "approve") {
       state.phase = "executing";
       state.task.autonomy ||= approval.autonomy;
@@ -234,13 +231,6 @@ export async function resolveTurn({
         verdict === "discuss"
           ? "## Pending-plan discussion\nAnswer the question; do not start implementation. The plan still requires explicit approval."
           : "## Still awaiting approval\nRemain in PLAN-ONLY mode. The message does not authorize implementation; explain the pending state only when relevant.";
-    }
-    // Mode changes change depth, never fabricate approval for a pending plan.
-    if (state.onceMode) {
-      decision.reasons = [
-        ...decision.reasons,
-        `mode:${state.onceMode} reserved for the next new task; pending authorization remains authoritative`,
-      ];
     }
     rememberRequirements(
       state.task,
@@ -289,8 +279,14 @@ export async function resolveTurn({
     interpretation: interpreted,
     explicitMode: mode,
   });
+  // Recognition is the live routing gate. If it is explicitly enabled but
+  // cannot produce a valid interpretation, do not silently route by the old
+  // local rules; surface a blocked turn so the user can retry or switch the
+  // recognition source. Offline previews remain deterministic and unblocked.
   const preflightFailed =
-    recognition.source === "agent" && recognition.reason !== "contextual";
+    semantic &&
+    config.recognition?.enabled === true &&
+    recognition.reason !== "contextual";
   if (preflightFailed) {
     decision.taskType = "unknown";
     decision.risk = "unknown";
@@ -304,7 +300,7 @@ export async function resolveTurn({
     decision.profile = "auto";
     decision.modelPolicy = null;
     decision.preflightBlocked = true;
-    decision.reasons = [`agent-preflight:${recognition.reason}`];
+    decision.reasons = [`recognition-preflight:${recognition.reason}`];
     state.phase = "idle";
   }
   if (relation === "uncertain") decision.executionIntent = "unclear";
@@ -355,7 +351,6 @@ export async function resolveTurn({
     state.task.workDecision = structuredClone(decision);
   state.lastDecision = decision;
   state.lastPrompt = prompt;
-  if (!followUp) state.onceMode = null;
   return {
     config,
     classification,

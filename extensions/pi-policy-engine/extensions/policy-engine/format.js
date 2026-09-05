@@ -92,7 +92,6 @@ export function formatStatusSummary({
   model,
   outcome,
   task,
-  onceMode,
   recognition,
 }) {
   return [
@@ -102,7 +101,6 @@ export function formatStatusSummary({
     `awaiting approval: ${phase === "awaiting_approval" ? "yes" : "no"}`,
     `outcome: ${outcome ?? "unknown"}`,
     `task: ${task?.id ?? "none"}; plan version: ${task?.planVersion ?? "none"}`,
-    `next-task override: ${onceMode ?? "none"}`,
     `recognition: ${recognition?.source ?? "none"}/${recognition?.reason ?? "not_run"}`,
     `model: ${model}`,
   ].join("\n");
@@ -241,18 +239,19 @@ export function formatConfig(config) {
     `  excludePolicies: ${JSON.stringify(config.excludePolicies ?? [])}`,
   );
   lines.push("");
-  lines.push("semanticFallback");
-  const sf = config.semanticFallback ?? {};
+  lines.push("intent recognition");
+  const sf = config.recognition ?? {};
   lines.push(`  source: ${sf.source ?? "endpoint"}`);
   lines.push(
-    `  strategy: ${sf.strategy ?? "fallback"}; protocol: ${sf.protocol ?? "openai"}; maxContextChars: ${sf.maxContextChars ?? 24000}`,
+    `  protocol: ${sf.protocol ?? "host"}; maxContextChars: ${sf.maxContextChars ?? 24000}`,
   );
   lines.push(`  enabled: ${sf.enabled === true}`);
   if (sf.enabled === true) {
-    lines.push(`  endpoint: ${sf.endpoint ?? "(default)"}`);
-    lines.push(`  model: ${sf.model ?? "(default)"}`);
-    lines.push(`  apiKeyEnvVar: ${sf.apiKeyEnvVar ?? "(default)"}`);
-    lines.push(`  confidenceThreshold: ${sf.confidenceThreshold ?? 0.7}`);
+    if (sf.source === "endpoint") {
+      lines.push(`  endpoint: ${sf.endpoint ?? "(default)"}`);
+      lines.push(`  model: ${sf.model ?? "(default)"}`);
+      lines.push(`  apiKeyEnvVar: ${sf.apiKeyEnvVar ?? "(default)"}`);
+    }
     lines.push(`  timeoutMs: ${sf.timeoutMs ?? 4000}`);
   }
   return lines.join("\n");

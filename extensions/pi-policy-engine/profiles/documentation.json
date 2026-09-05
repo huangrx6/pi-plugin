@@ -1,6 +1,8 @@
 {
   "id": "documentation",
   "policies": [
-    "behavior.minimal-change"
+    "behavior.execution-discipline",
+    "behavior.minimal-change",
+    "behavior.context-hygiene"
   ]
 }

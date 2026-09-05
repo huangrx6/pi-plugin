@@ -288,7 +288,7 @@ export function classifyTask(prompt, routing, domainHints = [], options = {}) {
   // A 7/6/6 split across three task types is NOT 95% — it's nearly a tie.
   // dominance = (top - runnerUp) / top ∈ [0, 1]; near-ties push confidence
   // toward the floor so /policy preview shows an honest number and users
-  // know to reach for `/policy once ...`.
+  // can inspect the model-selected route before changing configuration.
 
   let confidence;
   if (topScore >= 5) confidence = 0.95;

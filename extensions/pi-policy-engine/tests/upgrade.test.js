@@ -23,7 +23,6 @@ import {
 } from "../extensions/policy-engine/state.js";
 import { registerLifecycleHandlers } from "../extensions/policy-engine/lifecycle.js";
 import { createCommandHandler } from "../extensions/policy-engine/commands.js";
-import { buildSemanticRequestBody } from "../src/core/semantic.js";
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const review =
   "你全局审查审查，看看我当前的项目还差什么东西，还需要优化什么东西，还是直接进入测试阶段\n你要着重考虑，后续每个流程阶段的控制，配置是否方便\nrabbitmq 队列绑定不同的模型实例，模型是否方便切换，是否支持不同平台的模型\n入向量库，什么时机，怎么入的，又是怎么被使用的\n你需要全面的进行考虑";
@@ -45,6 +44,10 @@ function fixture(t) {
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(configPath, JSON.stringify(data));
   };
+  // Most lifecycle tests exercise state transitions rather than the network
+  // preflight. Keep those fixtures explicitly offline; model-first behavior
+  // is covered by the dedicated recognition cases below.
+  configure({ recognition: { enabled: false } });
   t.after(() => {
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previous;
@@ -270,10 +273,12 @@ test("off/cancel/reset are persisted immediately and do not restore", async (t) 
   const { cwd } = fixture(t);
   for (const cmd of ["off", "cancel", "reset"]) {
     const s = session(cwd, `session-${cmd}`);
+    if (cmd === "off")
+      s.ctx.ui.select = async () => "关闭策略 — 停止策略注入并立即保存";
     await s.start();
     await s.turn(planPrompt);
     await s.end();
-    await s.command(cmd, s.ctx);
+    await s.command(cmd === "off" ? "" : cmd, s.ctx);
     const resumed = session(cwd, `session-${cmd}`, structuredClone(s.entries));
     await resumed.start();
     assert.equal(resumed.state.phase, "idle", cmd);
@@ -318,7 +323,7 @@ test("initial autonomy works for strict tasks, survives continuation, resets for
 test("preview shares current runtime and pending state without changes or network", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
-    semanticFallback: {
+    recognition: {
       enabled: true,
       endpoint: "https://example.invalid",
       model: "fake",
@@ -345,7 +350,7 @@ test("preview shares current runtime and pending state without changes or networ
   assert.equal(calls, 0);
   assert.deepEqual(state, before);
   // Disabled network configuration for actual lifecycle calls in this fixture.
-  configure({ semanticFallback: { enabled: false } });
+  configure({ recognition: { enabled: false } });
   const s = session(cwd);
   await s.start();
   await s.turn(planPrompt);
@@ -374,7 +379,7 @@ test("schema errors are diagnosable and invalid edits retain last valid configur
     { domainHints: "backend" },
     { includePolicies: 123 },
     { showStatus: "false" },
-    { semanticFallback: { enabled: "true" } },
+    { recognition: { enabled: "true" } },
     { projectPolicyMaxBytes: -1 },
     null,
   ]) {
@@ -394,7 +399,7 @@ test("schema errors are diagnosable and invalid edits retain last valid configur
   assert.equal(next.mode, "quick");
   assert.equal(next._sources.mode, configPath);
 });
-test("global provider aliases override packaged adaptation and optional API fields", async (t) => {
+test("global provider aliases override packaged adaptation", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
     modelRules: [
@@ -409,12 +414,6 @@ test("global provider aliases override packaged adaptation and optional API fiel
   });
   assert.equal(p.decision.modelPolicy, "model.deepseek");
   assert.match(p.injected, /DeepSeek Adaptation/);
-  const body = buildSemanticRequestBody("model", "{}", {
-    jsonResponse: false,
-    temperature: null,
-  });
-  assert.equal("temperature" in body, false);
-  assert.equal("response_format" in body, false);
 });
 test("required boundaries precede large project policies; impossible budgets block execution", async (t) => {
   const { cwd, configure } = fixture(t);
@@ -461,49 +460,6 @@ test("explicit approval with a narrowing constraint executes and retains scope o
   assert.match(continued.systemPrompt, /别动数据库/);
 });
 
-test("save selections persists only chosen mode/profile and preserves unrelated settings", async (t) => {
-  const { cwd, configure, configPath } = fixture(t);
-  configure({ mode: "auto", maxDomains: 1 });
-  const s = session(cwd);
-  await s.start();
-  await s.command("strict", s.ctx);
-  await s.command("profile review", s.ctx);
-  await s.command("save global", s.ctx);
-  const saved = JSON.parse(readFileSync(configPath));
-  assert.equal(saved.mode, "strict");
-  assert.equal(saved.profile, "review");
-  assert.equal(saved.maxDomains, 1);
-  assert.equal(saved.historyFile, undefined);
-  writeFileSync(configPath, "{broken");
-  await s.command("save global", s.ctx);
-  assert.equal(readFileSync(configPath, "utf8"), "{broken");
-  assert.match(s.notices.at(-1), /invalid configuration/);
-  await s.command("save project", s.ctx);
-  assert.deepEqual(
-    JSON.parse(readFileSync(join(cwd, ".pi/policy-engine.json"))),
-    { mode: "strict", profile: "review" },
-  );
-});
-
-test("once mode survives greetings and discussions then applies to the next task", async (t) => {
-  const { cwd } = fixture(t);
-  const s = session(cwd);
-  await s.start();
-  await s.turn(planPrompt);
-  await s.end();
-  await s.command("once quick", s.ctx);
-  await s.turn("你好");
-  assert.equal(s.state.onceMode, "quick");
-  await s.turn("为什么第二步要这样做？");
-  assert.equal(s.state.onceMode, "quick");
-  assert.equal(s.state.phase, "awaiting_approval");
-  await s.end();
-  await s.turn("修改一处注释");
-  assert.equal(s.state.onceMode, null);
-  assert.equal(s.state.lastDecision.rigor, "quick");
-  assert.equal(s.state.phase, "executing");
-});
-
 test("pinned strict read-only review never claims an approved implementation plan", async (t) => {
   const { cwd } = fixture(t);
   const state = createState();
@@ -535,9 +491,9 @@ const interpretation = (overrides = {}) => ({
 });
 function primary(t, configure, response) {
   configure({
-    semanticFallback: {
+    recognition: {
       enabled: true,
-      strategy: "primary",
+      source: "endpoint",
       apiKeyEnvVar: null,
       endpoint: "http://localhost:9999/v1/chat/completions",
       model: "test",
@@ -723,57 +679,6 @@ test("semantic uncertainty cannot authorize modifications", async (t) => {
   assert.match(result.systemPrompt, /Before making any change/);
 });
 
-test("recognition selection saves globally without replacing endpoint and resets cleanly", async (t) => {
-  const { cwd, configure, configPath } = fixture(t);
-  configure({
-    semanticFallback: {
-      enabled: false,
-      model: "private-model",
-      endpoint: "http://localhost:8080/v1/chat/completions",
-      apiKeyEnvVar: "PRIVATE_KEY_NAME",
-    },
-  });
-  const s = session(cwd);
-  await s.start();
-  await s.command("recognition primary", s.ctx);
-  await s.command("save global", s.ctx);
-  const fb = JSON.parse(readFileSync(configPath)).semanticFallback;
-  assert.equal(fb.model, "private-model");
-  assert.equal(fb.apiKeyEnvVar, "PRIVATE_KEY_NAME");
-  assert.equal(fb.enabled, true);
-  assert.equal(fb.strategy, "primary");
-  await s.command("recognition off", s.ctx);
-  assert.equal(
-    buildEffectiveConfig({ packageRoot, cwd, state: s.state }).semanticFallback
-      .enabled,
-    false,
-  );
-  await s.command("reset", s.ctx);
-  assert.equal(s.state.runtimeRecognition, null);
-  assert.equal(
-    buildEffectiveConfig({ packageRoot, cwd, state: s.state }).semanticFallback
-      .enabled,
-    true,
-  );
-});
-
-test("next-task depth override is not consumed by an approved continuation", async (t) => {
-  const { cwd } = fixture(t);
-  const s = session(cwd);
-  await s.start();
-  await s.turn(planPrompt);
-  await s.end();
-  await s.command("once quick", s.ctx);
-  await s.command("approve", s.ctx);
-  await s.turn("继续处理当前任务，先补测试，其他都按原计划");
-  assert.equal(s.state.onceMode, "quick");
-  assert.equal(s.state.lastDecision.rigor, "strict");
-  await s.end();
-  await s.turn("修改一处注释");
-  assert.equal(s.state.onceMode, null);
-  assert.equal(s.state.lastDecision.rigor, "quick");
-});
-
 test("restoring a plan checks its content, not merely an existing entry id", async (t) => {
   const { cwd } = fixture(t);
   const s = session(cwd);
@@ -829,13 +734,12 @@ test("same-task constraints do not revoke explicit autonomy", async (t) => {
   assert.ok(s.state.task.constraints.includes("必须保持旧接口"));
 });
 
-test("agent recognition preflight selects the strategy in Pi's Working state", async (t) => {
+test("agent recognition preflight selects policies in Pi's Working state", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
-    semanticFallback: {
+    recognition: {
       source: "agent",
       enabled: true,
-      strategy: "primary",
       endpoint: "https://must-not-call.invalid",
       apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
     },
@@ -907,13 +811,79 @@ test("agent recognition preflight selects the strategy in Pi's Working state", a
   );
 });
 
+test("interrupted continuation recognizes intent and reuses an unchanged policy", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({
+    recognition: {
+      source: "agent",
+      enabled: true,
+      endpoint: "https://must-not-call.invalid",
+      apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
+    },
+  });
+  const s = session(cwd);
+  let calls = 0;
+  s.ctx.modelRegistry = {
+    complete: async () => ({
+      stopReason: "stop",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            relation: calls === 1 ? "new" : "continue",
+            taskType: "coding",
+            executionIntent: "mutate",
+            risk: "medium",
+            domains: [],
+            coverage: "focused",
+            constraints: [],
+          }),
+        },
+      ],
+    }),
+  };
+  const complete = s.ctx.modelRegistry.complete;
+  s.ctx.modelRegistry.complete = async (...args) => {
+    calls++;
+    return complete(...args);
+  };
+  await s.start();
+  await s.turn("直接修改 parser，不用询问我");
+  assert.equal(calls, 1);
+  const activityCount = s.entries.filter(
+    (entry) => entry.customType === "policy-engine-activity",
+  ).length;
+  await s.end("aborted", "");
+  assert.equal(s.state.outcome, "interrupted");
+
+  const resumed = await s.turn("继续");
+  assert.equal(calls, 2);
+  assert.match(resumed.systemPrompt, /Policy: intent\.mutate/);
+  assert.equal(s.state.turnContext.reused, true);
+  assert.equal(s.state.lastDecision.recognition.policyUnchanged, true);
+  assert.equal(s.state.history.at(-1).source, "reuse");
+  assert.equal(
+    s.entries.filter((entry) => entry.customType === "policy-engine-activity")
+      .length,
+    activityCount,
+  );
+  assert.equal(
+    s.workingMessages.filter((message) => message === "意图识别中…").length,
+    2,
+  );
+
+  await s.end("aborted", "");
+  await s.turn("直接修改 parser，不用询问我");
+  assert.equal(calls, 3);
+  assert.equal(s.state.turnContext.reused, true);
+});
+
 test("agent semantic preview reports that a host model is required", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
-    semanticFallback: {
+    recognition: {
       source: "agent",
       enabled: true,
-      strategy: "primary",
       endpoint: "https://must-not-call.invalid",
       apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
     },
@@ -932,7 +902,7 @@ test("agent semantic preview reports that a host model is required", async (t) =
 test("failed agent preflight blocks policy execution instead of silently routing", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
-    semanticFallback: { source: "agent", enabled: true, strategy: "primary" },
+    recognition: { source: "agent", enabled: true },
   });
   const s = session(cwd);
   s.ctx.modelRegistry = {
@@ -947,4 +917,31 @@ test("failed agent preflight blocks policy execution instead of silently routing
   assert.equal(s.state.lastDecision.rigor, "off");
   assert.ok(s.workingMessages.includes("意图识别中…"));
   assert.ok(s.workingMessages.includes(""));
+});
+
+test("failed endpoint recognition also blocks live routing", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({
+    recognition: {
+      source: "endpoint",
+      enabled: true,
+      endpoint: "http://classifier.invalid/v1/chat/completions",
+      model: "classifier",
+      apiKeyEnvVar: null,
+    },
+  });
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("classifier unavailable");
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  const s = session(cwd);
+  await s.start();
+  const out = await s.turn("修改 parser");
+  assert.equal(s.state.lastDecision.preflightBlocked, true);
+  assert.equal(s.state.lastDecision.recognition.source, "endpoint");
+  assert.equal(s.state.lastDecision.recognition.reason, "request_failed");
+  assert.match(out.systemPrompt, /Intent preflight blocked/);
 });

@@ -39,27 +39,8 @@ test("new installations group config and durable state under the selected agent 
   assert.equal(existsSync(expected), false, "resolving paths must not create or move files");
 });
 
-test("legacy config and state are reused until each new destination exists", (t) => {
+test("broken current config is diagnosed without changing the defaults", (t) => {
   const { root, write, config } = fixture(t);
-  const legacyConfig = join(root, "policy-engine.json");
-  const legacyState = join(root, "policy-engine");
-  write(legacyConfig, { mode: "strict" });
-  write(join(legacyState, "strict-state.json"), { version: 1 });
-  assert.equal(globalConfigFile().path, legacyConfig);
-  assert.equal(config().mode, "strict");
-  assert.equal(config().historyFile, join(legacyState, "history.jsonl"));
-  write(join(extensionDirectory(), "config.json"), { mode: "quick" });
-  assert.equal(config().mode, "quick");
-  assert.equal(config().historyFile, join(legacyState, "history.jsonl"));
-  mkdirSync(join(extensionDirectory(), "state"));
-  assert.equal(config().historyFile, join(extensionDirectory(), "state", "history.jsonl"));
-  assert.equal(existsSync(legacyConfig), true);
-  assert.equal(existsSync(join(legacyState, "strict-state.json")), true);
-});
-
-test("broken new config is diagnosed without silently reviving the legacy config", (t) => {
-  const { root, write, config } = fixture(t);
-  write(join(root, "policy-engine.json"), { mode: "strict" });
   const current = join(extensionDirectory(), "config.json");
   write(current, {});
   writeFileSync(current, "{broken");

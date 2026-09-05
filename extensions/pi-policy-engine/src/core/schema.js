@@ -85,37 +85,18 @@ export function validateShape(config) {
           error(`modelRules[${i}]`, "requires provider/model and a policy id");
       }
   }
-  const fb = config.semanticFallback;
+  const fb = config.recognition;
   if (fb !== undefined) {
     if (!fb || typeof fb !== "object" || Array.isArray(fb))
-      error("semanticFallback", "must be an object");
+      error("recognition", "must be an object");
     else {
       if (fb.source !== undefined && !["agent", "endpoint"].includes(fb.source))
-        error("semanticFallback.source", "must be agent or endpoint");
-      if (fb.source === "agent" && fb.strategy === "fallback")
-        error(
-          "semanticFallback.strategy",
-          "agent source requires primary strategy",
-        );
-      if (
-        fb.strategy !== undefined &&
-        !["fallback", "primary"].includes(fb.strategy)
-      )
-        error("semanticFallback.strategy", "must be fallback or primary");
+        error("recognition.source", "must be agent or endpoint");
       if (
         fb.protocol !== undefined &&
         !["openai", "anthropic"].includes(fb.protocol)
       )
-        error("semanticFallback.protocol", "must be openai or anthropic");
-      if (
-        fb.source !== "agent" &&
-        fb.strategy === "fallback" &&
-        fb.protocol === "anthropic"
-      )
-        error(
-          "semanticFallback.protocol",
-          "anthropic requires primary strategy",
-        );
+        error("recognition.protocol", "must be openai or anthropic");
       if (
         fb.maxContextChars !== undefined &&
         !(
@@ -125,33 +106,24 @@ export function validateShape(config) {
         )
       )
         error(
-          "semanticFallback.maxContextChars",
+          "recognition.maxContextChars",
           "must be an integer in [1000, 200000]",
         );
       for (const k of ["enabled", "jsonResponse"])
         if (fb[k] !== undefined && typeof fb[k] !== "boolean")
-          error(`semanticFallback.${k}`, "must be boolean");
+          error(`recognition.${k}`, "must be boolean");
       for (const k of ["endpoint", "model", "apiKeyEnvVar"])
         if (
           fb[k] !== undefined &&
           !(k === "apiKeyEnvVar" && fb[k] === null) &&
           (typeof fb[k] !== "string" || !fb[k])
         )
-          error(`semanticFallback.${k}`, "must be a nonempty string");
+          error(`recognition.${k}`, "must be a nonempty string");
       if (
         fb.endpoint !== undefined &&
         (typeof fb.endpoint !== "string" || !/^https?:\/\//.test(fb.endpoint))
       )
-        error("semanticFallback.endpoint", "must be an http(s) URL");
-      if (
-        fb.confidenceThreshold !== undefined &&
-        !(
-          typeof fb.confidenceThreshold === "number" &&
-          fb.confidenceThreshold > 0 &&
-          fb.confidenceThreshold < 1
-        )
-      )
-        error("semanticFallback.confidenceThreshold", "must be in (0, 1)");
+        error("recognition.endpoint", "must be an http(s) URL");
       if (
         fb.timeoutMs !== undefined &&
         !(
@@ -160,7 +132,7 @@ export function validateShape(config) {
           fb.timeoutMs <= 60000
         )
       )
-        error("semanticFallback.timeoutMs", "must be an integer in [1, 60000]");
+        error("recognition.timeoutMs", "must be an integer in [1, 60000]");
       if (
         fb.temperature !== undefined &&
         fb.temperature !== null &&
@@ -171,7 +143,7 @@ export function validateShape(config) {
         )
       )
         error(
-          "semanticFallback.temperature",
+          "recognition.temperature",
           "must be null or a number in [0, 2]",
         );
       for (const k of Object.keys(fb))
@@ -181,17 +153,15 @@ export function validateShape(config) {
             "endpoint",
             "model",
             "apiKeyEnvVar",
-            "confidenceThreshold",
             "timeoutMs",
             "jsonResponse",
             "temperature",
-            "strategy",
             "source",
             "protocol",
             "maxContextChars",
           ].includes(k)
         )
-          error(`semanticFallback.${k}`, "unknown setting");
+          error(`recognition.${k}`, "unknown setting");
     }
   }
   const known = new Set([
@@ -205,7 +175,7 @@ export function validateShape(config) {
     "projectPolicies",
     "historyFile",
     "modelRules",
-    "semanticFallback",
+    "recognition",
   ]);
   for (const key of Object.keys(config))
     if (!known.has(key) && !key.startsWith("_")) error(key, "unknown setting");

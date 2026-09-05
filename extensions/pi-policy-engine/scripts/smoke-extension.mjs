@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyPlanResponse } from "../src/core/approval.js";
@@ -10,6 +10,19 @@ import policyEngine from "../extensions/policy-engine/index.js";
 // leaks into the smoke run (or vice versa).
 const smokeCwd = mkdtempSync(join(tmpdir(), "pi-policy-smoke-"));
 process.env.PI_CODING_AGENT_DIR = join(smokeCwd, "agent-data");
+mkdirSync(
+  join(process.env.PI_CODING_AGENT_DIR, "extensions-data", "pi-policy-engine"),
+  { recursive: true },
+);
+writeFileSync(
+  join(
+    process.env.PI_CODING_AGENT_DIR,
+    "extensions-data",
+    "pi-policy-engine",
+    "config.json",
+  ),
+  JSON.stringify({ recognition: { enabled: false } }),
+);
 
 const handlers = new Map();
 const commands = new Map();

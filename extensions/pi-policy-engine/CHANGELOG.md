@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.33.0 - 2026-09-05
+
+- Remove legacy global config/state fallback reads and obsolete v1 strict-state compatibility paths.
+- Rename the live model configuration block to `recognition`; the obsolete `semanticFallback` key is no longer read.
+- Remove the unused `/policy once`, `/policy profile`, `/policy save` and direct mode command paths; the first-level panel is the single daily control surface.
+- Make live recognition failures block instead of silently falling back to local keyword routing; offline previews remain deterministic.
+- Tighten automatic rigor routing for unclear and comprehensive mutation work, and strengthen task profiles for architecture, documentation, review and research.
+
+## 0.32.0 - 2026-09-05
+
+- Run current-model intent recognition again when an interrupted task is resumed with an explicit continuation command such as `继续` or `resume`, or when the host retries the same original prompt.
+- Mark the recognition result as `policyUnchanged` when the task, authorization, workflow and model adaptation are unchanged; reuse the prior policy block and activity fingerprint while retaining an audit history entry marked as `reuse`.
+- Keep provider payload injection idempotent for the resumed turn, so each actual provider request receives one policy block without adding synthetic messages to the session.
+
 ## 0.31.0 - 2026-09-05
 
 - Move model-first intent recognition into Pi's `context` lifecycle hook so the user message is rendered immediately and the host-owned Working spinner is active during preflight.

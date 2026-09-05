@@ -101,9 +101,7 @@ test("all command notifications strip terminal control sequences", () => {
 test("single-level panel applies and saves the recommended preset", async () => {
   const state = {
     runtimeMode: null,
-    runtimeProfile: null,
     runtimeRecognition: null,
-    onceMode: null,
     phase: "idle",
     lastActivity: { summary: "策略\x1b]2;bad\x07", injected: "" },
   };
@@ -134,11 +132,9 @@ test("single-level panel applies and saves the recommended preset", async () => 
   assert.equal(state.runtimeMode, "auto");
   assert.deepEqual(state.runtimeRecognition, {
     enabled: true,
-    strategy: "primary",
     source: "agent",
   });
   assert.equal(saves.length, 1);
-  assert.equal(saves[0].scope, "global");
   assert.equal(saves[0].mode, "auto");
   assert.equal(saves[0].recognition.source, "agent");
   assert.match(notifications.at(-1), /已启用并保存/);
@@ -148,9 +144,7 @@ test("single-level panel applies and saves the recommended preset", async () => 
 test("single-level panel exposes only everyday actions", async () => {
   const state = {
     runtimeMode: null,
-    runtimeProfile: null,
     runtimeRecognition: null,
-    onceMode: null,
     phase: "idle",
     task: null,
     lastActivity: null,

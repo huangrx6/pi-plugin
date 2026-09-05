@@ -11,12 +11,10 @@
   "includePolicies": [],
   "excludePolicies": [],
   "domainHints": [],
-  "semanticFallback": {
+  "recognition": {
     "enabled": true,
     "source": "agent",
-    "strategy": "primary",
     "maxContextChars": 24000,
-    "confidenceThreshold": 0.7,
     "timeoutMs": 15000
   },
   "modelRules": []

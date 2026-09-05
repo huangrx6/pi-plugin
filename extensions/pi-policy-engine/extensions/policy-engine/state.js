@@ -22,7 +22,6 @@ import {
   resolveHistoryPath,
   strictStatePath,
 } from "../../src/core/history-store.js";
-import { maybeSemanticClassify } from "../../src/core/semantic.js";
 
 export function createState() {
   return {
@@ -31,12 +30,14 @@ export function createState() {
     outcome: "idle",
     lastValidConfig: null,
     runtimeMode: null,
-    runtimeProfile: null,
     runtimeRecognition: null,
-    onceMode: null,
     lastDecision: null,
     lastActivity: null,
     lastPrompt: null,
+    // Exact non-policy prose appended to the last selected block. Keeping it
+    // lets an interrupted continuation reproduce the same injection byte for
+    // byte instead of generating a second activity card with changed wording.
+    lastPolicyNote: null,
     // Single source of truth for the strict-workflow state machine:
     // idle / planning / awaiting_approval / executing.
     phase: "idle",
@@ -64,7 +65,7 @@ export function recordHistory(state, { source, prompt, decision }) {
   if (!decision) return;
   state.history.push({
     schemaVersion: 2,
-    extensionVersion: "0.31.0",
+    extensionVersion: "0.33.0",
     sessionId: state.sessionId,
     taskId: state.task?.id,
     planVersion: state.task?.planVersion,
@@ -92,17 +93,13 @@ export function recordHistory(state, { source, prompt, decision }) {
 function stateRuntimeOverrides(state) {
   const out = {};
   if (state.runtimeMode) out.mode = state.runtimeMode;
-  if (state.runtimeProfile) out.profile = state.runtimeProfile;
-  if (state.runtimeRecognition) out.semanticFallback = state.runtimeRecognition;
+  if (state.runtimeRecognition) out.recognition = state.runtimeRecognition;
   return out;
 }
 
 /**
- * THE one strict-state path resolver (v0.23 P0). Save/load/clear/cancel/
- * reset must all derive the file through this function — v0.22 namespaced
- * the file by cwd but three clear sites kept the legacy call shape
- * (strictStatePath without cwd), clearing strict-state.json while saves
- * went to strict-state-<hash>.json: a cancelled plan revived on restart.
+ * THE one strict-state path resolver. Save/load/clear/cancel/reset all derive
+ * the same project-and-session namespace through this function.
  */
 export function resolveStrictStatePath(cfg, cwd, sessionId = null) {
   if (!cfg?.historyFile) return null;
@@ -127,8 +124,8 @@ export function buildEffectiveConfig({ packageRoot, cwd, state, raw = false }) {
     return {
       ...structuredClone(state.lastValidConfig.config),
       ...stateRuntimeOverrides(state),
-      semanticFallback: {
-        ...state.lastValidConfig.config.semanticFallback,
+      recognition: {
+        ...state.lastValidConfig.config.recognition,
         ...state.runtimeRecognition,
       },
       _diagnostics: next._diagnostics,
@@ -143,9 +140,8 @@ export function buildEffectiveConfig({ packageRoot, cwd, state, raw = false }) {
  * Pure classifier -> router glue. Loads the package routing config, calls
  * `classifyTask`, then `buildDecision` with the resolved mode + profile.
  *
- * Async because the optional `semanticFallback` may issue a one-shot HTTP
- * call to a small LLM when the deterministic confidence is low (DESIGN §4).
- * Any fallback failure is swallowed and the deterministic decision stands.
+ * Async because model-first recognition may call the active host model or an
+ * explicitly configured endpoint before the deterministic router runs.
  */
 export async function decide({
   packageRoot,
@@ -174,7 +170,7 @@ export async function decide({
       coverage: interpretation.coverage,
       confidence: null,
       reasons: [
-        "semantic-primary: contextual interpretation; confidence is not a calibrated probability",
+        "model-recognition: contextual interpretation; confidence is not a calibrated probability",
       ],
     };
     if (
@@ -245,18 +241,7 @@ export async function decide({
       ],
     };
   }
-  const mode = explicitMode ?? state.onceMode ?? config.mode ?? "auto";
-
-  // Optional semantic fallback (DESIGN §4). Disabled by default. Any
-  // failure (network / timeout / schema) returns null and we keep the
-  // deterministic result.
-  const merged =
-    semantic &&
-    config.semanticFallback?.strategy !== "primary" &&
-    !interpretation
-      ? await maybeSemanticClassify(prompt, classification, config, { fetcher })
-      : null;
-  if (merged) classification = merged;
+  const mode = explicitMode ?? config.mode ?? "auto";
 
   const decision = buildDecision({
     classification,
@@ -265,20 +250,6 @@ export async function decide({
     model,
     modelRules: [...(config.modelRules ?? []), ...loadModelRules(packageRoot)],
   });
-  if (
-    semantic &&
-    config.semanticFallback?.enabled &&
-    config.semanticFallback.strategy !== "primary"
-  )
-    decision.recognition = {
-      source: merged ? "model" : "rules",
-      reason: merged
-        ? "legacy_fallback"
-        : classification.confidence >=
-            config.semanticFallback.confidenceThreshold
-          ? "threshold_not_met"
-          : "fallback_unavailable",
-    };
   return { decision, config, classification };
 }
 

@@ -16,6 +16,7 @@ export function workflowSnapshot(state, cwd) {
     task: state.task,
     decision: state.lastDecision,
     lastPrompt: state.lastPrompt,
+    lastPolicyNote: state.lastPolicyNote,
     outcome: state.outcome,
   });
 }

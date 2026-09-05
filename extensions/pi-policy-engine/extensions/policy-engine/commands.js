@@ -1,7 +1,7 @@
 // /policy command handler.
 // Two entry points:
-//   - With no args: open an interactive ctx.ui.select() picker covering
-//     recent behavior first; mode/profile settings are secondary.
+//   - With no args: open an interactive ctx.ui.select() picker with the small
+//     set of daily controls; diagnostics remain parameterized text commands.
 //   - With args: parse subcommand and apply directly (scriptable / LLM-friendly).
 
 import { saveSelections } from "../../src/core/config-writer.js";
@@ -31,47 +31,6 @@ import {
   validateConfig,
 } from "./state.js";
 
-const MODE_OPTIONS = [
-  { key: "auto", description: "根据任务自动选择（默认）" },
-  { key: "quick", description: "快速检查、修改并验证" },
-  {
-    key: "standard",
-    description: "明确任务后检查、计划、执行并验证",
-  },
-  { key: "strict", description: "先给计划，确认后分步执行" },
-  { key: "off", description: "关闭策略注入和模型适配" },
-];
-
-const PROFILE_OPTIONS = [
-  { key: "auto", description: "根据任务类型自动选择（默认）" },
-  {
-    key: "coding",
-    description: "通用编码：持续执行、控制改动、管理上下文",
-  },
-  {
-    key: "debugging",
-    description: "排查行为预设：持续执行、控制改动、管理上下文；不改变任务类型",
-  },
-  {
-    key: "documentation",
-    description: "文档与注释：持续执行、控制改动",
-  },
-  {
-    key: "architecture",
-    description: "架构设计：持续执行、遵守工具契约",
-  },
-  {
-    key: "review",
-    description: "审查行为预设：管理上下文；不改变任务类型或执行权限",
-  },
-  {
-    key: "research",
-    description: "调研行为预设：管理上下文；不改变任务类型或执行权限",
-  },
-];
-
-const VALID_MODES = new Set(MODE_OPTIONS.map((o) => o.key));
-
 /**
  * Build the /policy command handler. Dependencies are injected so this module
  * has no import side effects on pi (and is trivial to unit-test).
@@ -84,11 +43,9 @@ export function createCommandHandler({
 }) {
   async function applyGlobalPreset(state, ctx, mode) {
     state.runtimeMode = mode;
-    state.onceMode = null;
     if (mode !== "off")
       state.runtimeRecognition = {
         enabled: true,
-        strategy: "primary",
         source: "agent",
       };
     if (mode === "off") {
@@ -99,8 +56,6 @@ export function createCommandHandler({
     }
     try {
       const path = await saveConfig({
-        cwd: ctx?.cwd ?? process.cwd(),
-        scope: "global",
         mode,
         recognition: mode === "off" ? null : state.runtimeRecognition,
       });
@@ -184,7 +139,7 @@ export function createCommandHandler({
         });
         notify(
           ctx,
-          `个人配置：${globalConfigPath()}\n当前模式：${cfg.mode}；意图理解：${cfg.semanticFallback?.enabled ? "当前模型（同一次回答）" : "本地规则"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
+          `个人配置：${globalConfigPath()}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（同一次回答）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
           checked.ok ? "info" : "warning",
         );
       }
@@ -194,54 +149,6 @@ export function createCommandHandler({
     }
 
     const { action, rest } = parsePolicyCommand(args);
-
-    if (action === "recognition") {
-      const selected = rest[0];
-      if (!selected) {
-        const cfg = buildEffectiveConfig({
-          packageRoot,
-          cwd: ctx?.cwd ?? process.cwd(),
-          state,
-        });
-        notify(
-          ctx,
-          JSON.stringify(
-            {
-              configuration: cfg.semanticFallback,
-              last: state.lastDecision?.recognition ?? null,
-            },
-            null,
-            2,
-          ),
-          "info",
-        );
-        return;
-      }
-      if (
-        !["agent", "endpoint", "primary", "fallback", "off"].includes(selected)
-      ) {
-        notify(
-          ctx,
-          "Usage: /policy recognition [agent|endpoint|primary|fallback|off]",
-          "warning",
-        );
-        return;
-      }
-      state.runtimeRecognition =
-        selected === "off"
-          ? { enabled: false }
-          : selected === "agent" || selected === "endpoint"
-            ? { enabled: true, strategy: "primary", source: selected }
-            : selected === "fallback"
-              ? { enabled: true, strategy: "fallback", source: "endpoint" }
-              : { enabled: true, strategy: selected };
-      notify(
-        ctx,
-        `识别模式：${selected}。日常设置请使用 /policy 一级面板，选择后会立即保存。`,
-        "success",
-      );
-      return;
-    }
 
     if (action === "task") {
       notify(
@@ -281,61 +188,6 @@ export function createCommandHandler({
       return;
     }
 
-    if (VALID_MODES.has(action)) {
-      state.runtimeMode = action;
-      state.onceMode = null;
-      if (action === "off") {
-        state.phase = "idle";
-        state.task = null;
-        state.lastDecision = null;
-        state.lastPrompt = null;
-      }
-      notify(ctx, `Policy mode: ${action}`, "success");
-      return;
-    }
-
-    if (action === "once") {
-      const mode = (rest[0] ?? "").toLowerCase();
-      if (!VALID_MODES.has(mode)) {
-        notify(ctx, "Usage: /policy once quick|standard|strict|off", "warning");
-        return;
-      }
-      state.onceMode = mode;
-      notify(ctx, `Next task policy mode: ${mode}`, "success");
-      return;
-    }
-
-    if (action === "profile") {
-      const profile = (rest[0] ?? "").toLowerCase();
-      if (!profile || !PROFILE_OPTIONS.some((o) => o.key === profile)) {
-        notify(
-          ctx,
-          "Usage: /policy profile " +
-            PROFILE_OPTIONS.map((o) => o.key).join("|"),
-          "warning",
-        );
-        return;
-      }
-      state.runtimeProfile = profile;
-      notify(ctx, `Policy profile: ${profile}`, "success");
-      return;
-    }
-
-    if (action === "save") {
-      try {
-        const path = await saveSelections({
-          cwd: ctx?.cwd ?? process.cwd(),
-          scope: rest[0],
-          mode: state.runtimeMode,
-          profile: state.runtimeProfile,
-          recognition: state.runtimeRecognition,
-        });
-        notify(ctx, `Policy settings saved: ${path}`, "success");
-      } catch (error) {
-        notify(ctx, error.message, "warning");
-      }
-      return;
-    }
     if (action === "preview") {
       const previewArgs = [...rest];
       let newTaskPreview = false;
@@ -504,7 +356,6 @@ export function createCommandHandler({
           outcome: state.outcome,
           task: state.task,
           recognition: state.lastDecision?.recognition,
-          onceMode: state.onceMode,
           model: modelKey(ctx?.model ?? state.currentModel),
         }),
         "info",
@@ -552,9 +403,7 @@ export function createCommandHandler({
 
     if (action === "reset") {
       state.runtimeMode = null;
-      state.runtimeProfile = null;
       state.runtimeRecognition = null;
-      state.onceMode = null;
       state.lastDecision = null;
       state.lastPrompt = null;
       state.phase = "idle";
@@ -576,8 +425,6 @@ export function createCommandHandler({
       state.phase,
       state.task,
       state.runtimeMode,
-      state.runtimeProfile,
-      state.onceMode,
       state.runtimeRecognition,
     ]);
     await policyCommand(args, ctx);
@@ -586,8 +433,6 @@ export function createCommandHandler({
         state.phase,
         state.task,
         state.runtimeMode,
-        state.runtimeProfile,
-        state.onceMode,
         state.runtimeRecognition,
       ]) !== before
     ) {

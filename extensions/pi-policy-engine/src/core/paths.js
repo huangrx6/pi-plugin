@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -17,15 +16,9 @@ export function extensionDirectory() {
 }
 
 export function globalConfigPath() {
-  const current = join(extensionDirectory(), "config.json");
-  const legacy = join(agentDirectory(), "policy-engine.json");
-  return !existsSync(current) && existsSync(legacy) ? legacy : current;
+  return join(extensionDirectory(), "config.json");
 }
 
 export function defaultHistoryFilePath() {
-  const current = join(extensionDirectory(), "state");
-  const legacy = join(agentDirectory(), "policy-engine");
-  // Keep strict-plan files and history together, including when only plans exist.
-  const directory = !existsSync(current) && existsSync(legacy) ? legacy : current;
-  return join(directory, "history.jsonl");
+  return join(extensionDirectory(), "state", "history.jsonl");
 }

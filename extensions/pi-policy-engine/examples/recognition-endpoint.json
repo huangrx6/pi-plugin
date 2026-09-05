@@ -1,7 +1,6 @@
 {
-  "semanticFallback": {
+  "recognition": {
     "enabled": true,
-    "strategy": "primary",
     "protocol": "openai",
     "endpoint": "https://your-provider.example/v1/chat/completions",
     "model": "your-classifier-model",

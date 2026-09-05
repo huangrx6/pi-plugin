@@ -66,12 +66,12 @@ export function projectConfigFiles(cwd) {
 // carry its own conventions, exactly like project instructions), and is
 // NEVER trusted with host credentials, arbitrary network destinations, or
 // arbitrary filesystem destinations. The second half is why
-// semanticFallback (verified exfiltration path: project endpoint +
+// recognition (verified exfiltration path: project endpoint +
 // apiKeyEnvVar → Bearer <secret> + full prompt) and historyFile (append
 // JSONL to arbitrary user files) are global-only, whatever the project
 // layer says.
 const PRIVILEGED_KEYS = [
-  "semanticFallback",
+  "recognition",
   "historyFile",
   "historyMaxEntries",
   "modelRules",
@@ -241,19 +241,17 @@ export function normalizeEffectiveConfig(cfg) {
     out.historyFile = null;
   if (validateShape({ modelRules: out.modelRules }).length) out.modelRules = [];
   if (
-    !out.semanticFallback ||
-    typeof out.semanticFallback !== "object" ||
-    Array.isArray(out.semanticFallback)
+    !out.recognition ||
+    typeof out.recognition !== "object" ||
+    Array.isArray(out.recognition)
   )
-    out.semanticFallback = { enabled: false };
-  const fb = out.semanticFallback;
+    out.recognition = { enabled: false };
+  const fb = out.recognition;
   if (fb.enabled !== true) fb.enabled = false;
   if (fb && typeof fb === "object") {
-    const t = Number(fb.confidenceThreshold);
-    if (!(t > 0 && t < 1)) fb.confidenceThreshold = 0.7;
     const ms = Number(fb.timeoutMs);
     if (!(ms > 0 && ms <= 60000)) fb.timeoutMs = 4000;
-    if (validateShape({ semanticFallback: fb }).length) fb.enabled = false;
+    if (validateShape({ recognition: fb }).length) fb.enabled = false;
   }
   return out;
 }
@@ -271,15 +269,6 @@ export function loadEffectiveConfig({
     globalConfigOverride === undefined
       ? safeJson(globalConfigPath(), {})
       : structuredClone(globalConfigOverride);
-  // Preserve the meaning of existing endpoint configurations on upgrade.
-  if (
-    isPlainObject(globalConfig?.semanticFallback) &&
-    globalConfig.semanticFallback.source === undefined
-  ) {
-    globalConfig.semanticFallback.source = "endpoint";
-    globalConfig.semanticFallback.strategy ??= "fallback";
-    globalConfig.semanticFallback.timeoutMs ??= 4000;
-  }
   // Project layers are sanitized BEFORE merging — the trust boundary is
   // structural, not advisory (see PRIVILEGED_KEYS).
   const projectLayers = projectConfigFiles(cwd).map((f) =>

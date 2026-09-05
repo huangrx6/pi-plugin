@@ -18,9 +18,8 @@ const valid = {
 };
 const state = { task: null };
 const config = (extra = {}) => ({
-  semanticFallback: {
+  recognition: {
     enabled: true,
-    strategy: "primary",
     model: "fixture-model",
     endpoint: "http://localhost:8080/v1/chat/completions",
     apiKeyEnvVar: null,
@@ -103,7 +102,7 @@ test("malformed response and network failures report bounded diagnostic codes", 
       config: config(),
       fetcher,
     });
-    assert.equal(r.source, "rules");
+    assert.equal(r.source, "endpoint");
     assert.equal(r.reason, reason);
     assert.doesNotMatch(JSON.stringify(r), /private server secret/);
   }
@@ -190,9 +189,8 @@ test("plan reports require the current task, version and concrete verification",
   assert.equal(readPlanReport("Please provide a file path.", task), null);
 });
 
-test("semantic configuration rejects invalid strategy, protocol, and context budget", () => {
+test("recognition configuration rejects invalid protocol and context budget", () => {
   for (const extra of [
-    { strategy: "magic" },
     { protocol: "anything" },
     { maxContextChars: 1 },
     { apiKeyEnvVar: 42 },

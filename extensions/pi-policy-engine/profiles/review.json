@@ -1,6 +1,7 @@
 {
   "id": "review",
   "policies": [
+    "behavior.comprehensive-review",
     "behavior.context-hygiene"
   ]
 }

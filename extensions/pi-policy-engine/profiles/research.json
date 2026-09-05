@@ -1,6 +1,7 @@
 {
   "id": "research",
   "policies": [
+    "behavior.comprehensive-review",
     "behavior.context-hygiene"
   ]
 }

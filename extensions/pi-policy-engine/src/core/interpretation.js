@@ -125,21 +125,29 @@ export async function interpretTask({
   agentClassifier = null,
   conversation = [],
 }) {
-  const fb = config.semanticFallback ?? {};
-  const fallback = (reason) => ({
-    source: "rules",
+  const recognitionConfig = config.recognition ?? {};
+  const failure = (reason) => ({
+    source: recognitionConfig.source === "agent" ? "agent" : "endpoint",
     reason,
     interpretation: null,
   });
-  if (!fb.enabled || fb.strategy !== "primary") return fallback("disabled");
-  const useAgent = fb.source === "agent";
-  if (useAgent && !agentClassifier) return fallback("agent_unavailable");
+  if (!recognitionConfig.enabled) return failure("disabled");
+  const useAgent = recognitionConfig.source === "agent";
+  if (useAgent && !agentClassifier) return failure("agent_unavailable");
   const apiKey =
-    !useAgent && fb.apiKeyEnvVar ? process.env[fb.apiKeyEnvVar] : null;
-  if (!useAgent && fb.apiKeyEnvVar && !apiKey) return fallback("missing_key");
-  if (!useAgent && (!fb.endpoint || !fb.model || typeof fetcher !== "function"))
-    return fallback("missing_configuration");
-  const maxContextChars = fb.maxContextChars ?? 24000;
+    !useAgent && recognitionConfig.apiKeyEnvVar
+      ? process.env[recognitionConfig.apiKeyEnvVar]
+      : null;
+  if (!useAgent && recognitionConfig.apiKeyEnvVar && !apiKey)
+    return failure("missing_key");
+  if (
+    !useAgent &&
+    (!recognitionConfig.endpoint ||
+      !recognitionConfig.model ||
+      typeof fetcher !== "function")
+  )
+    return failure("missing_configuration");
+  const maxContextChars = recognitionConfig.maxContextChars ?? 24000;
   let boundedConversation = conversation.slice(-12).map((entry) => ({
     role: entry.role,
     content: String(entry.content ?? "").slice(-1800),
@@ -157,36 +165,37 @@ export async function interpretTask({
     return {
       ...(useAgent
         ? { source: "agent", reason: "context_too_large", interpretation: null }
-        : fallback("context_too_large")),
+        : failure("context_too_large")),
       contextChars: payload.length,
       limit: maxContextChars,
     };
-  const anthropic = fb.protocol === "anthropic";
+  const anthropic = recognitionConfig.protocol === "anthropic";
   const body = anthropic
     ? {
-        model: fb.model,
+        model: recognitionConfig.model,
         max_tokens: 1200,
         system: INSTRUCTIONS,
         messages: [{ role: "user", content: payload }],
       }
     : {
-        model: fb.model,
+        model: recognitionConfig.model,
         messages: [
           { role: "system", content: INSTRUCTIONS },
           { role: "user", content: payload },
         ],
-        ...(fb.jsonResponse === false
+        ...(recognitionConfig.jsonResponse === false
           ? {}
           : { response_format: { type: "json_object" } }),
       };
-  if (fb.temperature !== null) body.temperature = fb.temperature ?? 0;
+  if (recognitionConfig.temperature !== null)
+    body.temperature = recognitionConfig.temperature ?? 0;
   const controller = new AbortController();
   let timer;
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
-      resolve(fallback("timeout"));
-    }, fb.timeoutMs ?? 4000);
+      resolve(failure("timeout"));
+    }, recognitionConfig.timeoutMs ?? 4000);
   });
   const started = Date.now();
   try {
@@ -200,7 +209,7 @@ export async function interpretTask({
             signal: controller.signal,
           });
         } else {
-          const response = await fetcher(fb.endpoint, {
+          const response = await fetcher(recognitionConfig.endpoint, {
             method: "POST",
             signal: controller.signal,
             redirect: "error",
@@ -215,7 +224,7 @@ export async function interpretTask({
             },
             body: JSON.stringify(body),
           });
-          if (!response?.ok) return fallback("http_error");
+          if (!response?.ok) return failure("http_error");
           const data = await response.json();
           content = anthropic
             ? data?.content
@@ -225,12 +234,12 @@ export async function interpretTask({
             : data?.choices?.[0]?.message?.content;
         }
         if (typeof content !== "string" || content.length > 64000)
-          return fallback("invalid_response");
+          return failure("invalid_response");
         let parsed;
         try {
           parsed = JSON.parse(content);
         } catch {
-          return fallback("invalid_json");
+          return failure("invalid_json");
         }
         const interpretation = validateInterpretation(parsed, prompt);
         return interpretation
@@ -239,21 +248,19 @@ export async function interpretTask({
               reason: "contextual",
               interpretation,
             }
-          : fallback("invalid_schema");
+          : failure("invalid_schema");
       } catch {
-        return fallback(
+        return failure(
           controller.signal.aborted ? "timeout" : "request_failed",
         );
       }
     })();
     const result = await Promise.race([request, timeout]);
     return {
-      ...(useAgent && result.source === "rules"
-        ? { ...result, source: "agent" }
-        : result),
-      model: useAgent ? agentClassifier.model : fb.model,
+      ...result,
+      model: useAgent ? agentClassifier.model : recognitionConfig.model,
       transport: useAgent ? "host" : "endpoint",
-      protocol: useAgent ? "host" : (fb.protocol ?? "openai"),
+      protocol: useAgent ? "host" : (recognitionConfig.protocol ?? "openai"),
       durationMs: Date.now() - started,
       contextChars: payload.length,
     };

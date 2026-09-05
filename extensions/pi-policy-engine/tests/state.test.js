@@ -275,7 +275,7 @@ test("formatConfig: defaults and real-world config", () => {
   assert.match(text, /projectPolicyMaxFiles: 12/);
   assert.match(text, /projectPolicyMaxBytes: 24000/);
   assert.match(text, /policyMaxBytes: 24000/);
-  assert.match(text, /semanticFallback/);
+  assert.match(text, /intent recognition/);
   assert.match(text, /enabled: false/);
 
   const rich = formatConfig({
@@ -285,19 +285,17 @@ test("formatConfig: defaults and real-world config", () => {
     policyMaxBytes: 30000,
     domainHints: ["backend", "database"],
     includePolicies: ["behavior.execution-discipline"],
-    semanticFallback: {
+    recognition: {
       enabled: true,
       endpoint: "https://api.example.test/v1/chat/completions",
       model: "test-model",
       apiKeyEnvVar: "TEST_KEY",
-      confidenceThreshold: 0.6,
       timeoutMs: 5000,
     },
   });
   assert.match(rich, /mode: strict/);
   assert.match(rich, /profile: debugging/);
   assert.match(rich, /enabled: true/);
-  assert.match(rich, /confidenceThreshold: 0.6/);
 });
 
 test("formatHistory: empty, limit, ordering, numbering", () => {
@@ -355,12 +353,12 @@ test("formatValidation: ok / warnings / errors / pluralization", () => {
 });
 
 test("parsePolicyCommand", () => {
-  const a = parsePolicyCommand("strict");
-  assert.equal(a.action, "strict");
+  const a = parsePolicyCommand("status");
+  assert.equal(a.action, "status");
   assert.deepEqual(a.rest, []);
-  const b = parsePolicyCommand("  once quick  ");
-  assert.equal(b.action, "once");
-  assert.deepEqual(b.rest, ["quick"]);
+  const b = parsePolicyCommand("  preview README  ");
+  assert.equal(b.action, "preview");
+  assert.deepEqual(b.rest, ["README"]);
   const c = parsePolicyCommand("   ");
   assert.equal(c.action, "status");
   assert.deepEqual(c.rest, []);
