@@ -1,5 +1,5 @@
 /**
- * pi-footer-composer — grouped table by default, compact rows optional.
+ * pi-footer-composer — compact grouped table by default, full rows optional.
  * Each category occupies one row with a shared label divider and open sides.
  * grid.ts owns wrapping, alignment and quiet theme colors.
  * Data comes only from Pi's public session, context and footer surfaces.
@@ -11,6 +11,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { makeCell, sanitizeTerminalText } from "./layout.ts";
 import type { Cell } from "./layout.ts";
 import { renderGrid } from "./grid.ts";
+import {
+  createFooterConfigStore,
+  DEFAULT_FOOTER_CONFIG,
+  type FooterConfigStore,
+  type FooterMode,
+} from "./config.ts";
 
 type Theme = {
   fg(color: string, text: string): string;
@@ -45,8 +51,6 @@ type LooseUsage = {
   cacheWrite?: number;
   cost?: { total?: number };
 };
-
-type FooterMode = "compact" | "full" | "native";
 
 // ── formatters (shared shape with the footer conventions) ──────────────
 
@@ -310,8 +314,11 @@ type FooterCtx = Ctx & {
   };
 };
 
-export default function (pi: ExtensionAPI): void {
-  let footerMode: FooterMode = "full";
+type FactoryOptions = { configStore?: FooterConfigStore };
+
+export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
+  const configStore = options.configStore ?? createFooterConfigStore();
+  let footerMode: FooterMode = DEFAULT_FOOTER_CONFIG.mode;
   let activeCtx: Ctx | null = null;
   let activeModel: {
     id?: string;
@@ -409,7 +416,13 @@ export default function (pi: ExtensionAPI): void {
     footerMode = mode;
     mountFooter(ctx);
     const label = mode === "compact" ? "紧凑" : mode === "full" ? "完整" : "Pi 原生";
-    ctx.ui.notify(`Footer · ${label}`, "info");
+    try {
+      configStore.save({ mode });
+      ctx.ui.notify(`Footer · ${label} · 已保存`, "info");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Footer 已切换为${label}，但配置保存失败：${message}`, "warning");
+    }
   };
 
   pi.registerCommand("footer", {
@@ -426,16 +439,16 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       const choices = [
-        "完整 · 默认，显示用量、集成与全部状态",
-        "紧凑 · 收起累计用量和集成信息",
+        "紧凑 · 默认，保留日常关键信息",
+        "完整 · 显示用量、集成与全部状态",
         "Pi 原生 · 停用自定义 Footer",
       ];
       const choice = await ctx.ui.select(
         `Footer（当前：${footerMode === "compact" ? "紧凑" : footerMode === "full" ? "完整" : "Pi 原生"}）`,
         choices,
       );
-      if (choice === choices[0]) switchFooter("full", ctx);
-      if (choice === choices[1]) switchFooter("compact", ctx);
+      if (choice === choices[0]) switchFooter("compact", ctx);
+      if (choice === choices[1]) switchFooter("full", ctx);
       if (choice === choices[2]) switchFooter("native", ctx);
     },
   });
@@ -443,7 +456,15 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     // Re-mount on every session_start: pi clears the custom footer on
     // session invalidate without firing session_shutdown.
-    mountFooter(ctx as FooterCtx);
+    const footerCtx = ctx as FooterCtx;
+    try {
+      footerMode = configStore.load().mode;
+    } catch (error) {
+      footerMode = DEFAULT_FOOTER_CONFIG.mode;
+      const message = error instanceof Error ? error.message : String(error);
+      footerCtx.ui.notify(`Footer 配置无效，已使用紧凑模式：${message}`, "warning");
+    }
+    mountFooter(footerCtx);
   });
 
   pi.on("model_select", async (event, ctx) => {

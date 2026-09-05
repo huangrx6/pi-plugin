@@ -6,19 +6,25 @@ import test from "node:test";
 import footerExtension from "../index.ts";
 import { visibleWidth } from "../layout.ts";
 
-test("full footer is the default; compact and native remain selectable", async () => {
+test("configured full footer renders and compact/native selections persist", async () => {
   const handlers = new Map<string, Function>();
   let command: Function | undefined;
   const footerCalls: unknown[] = [];
   const notices: string[] = [];
   let selection: string | undefined;
   let branch: string | null = "main";
+  const savedModes: string[] = [];
   footerExtension({
     on(name: string, handler: Function) { handlers.set(name, handler); },
     registerCommand(_name: string, definition: { handler: Function }) {
       command = definition.handler;
     },
-  } as never);
+  } as never, {
+    configStore: {
+      load: () => ({ mode: "full" }),
+      save: ({ mode }) => savedModes.push(mode),
+    },
+  });
 
   const ctx = {
     model: { id: "model\u001b]9;bad\u0007", provider: "provider", reasoning: true, contextWindow: 128_000 },
@@ -87,6 +93,7 @@ test("full footer is the default; compact and native remain selectable", async (
   assert.doesNotMatch(withoutBranch, /分支/);
 
   await command?.("compact", ctx);
+  assert.deepEqual(savedModes, ["compact"]);
   const fullRenderer = footerCalls.at(-1) as Function;
   const compact = fullRenderer(
     { requestRender() {} },
@@ -111,6 +118,7 @@ test("full footer is the default; compact and native remain selectable", async (
   assert.doesNotMatch(compact.join("\n"), /MCP ready/);
 
   await command?.("native", ctx);
+  assert.deepEqual(savedModes, ["compact", "native"]);
   assert.equal(footerCalls.at(-1), undefined);
   const noticeCount = notices.length;
   selection = undefined;

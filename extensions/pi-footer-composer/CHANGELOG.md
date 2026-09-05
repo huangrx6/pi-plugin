@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0 - 2026-09-06
+
+- Make the compact three-row table the default when no user configuration exists.
+- Persist every `/footer` mode selection to `extensions-data/pi-footer-composer/config.json` and restore it on the next session or reload.
+- Validate configuration strictly, fall back to compact mode with a visible warning when invalid, and publish `config.ts` with the package.
+
 ## 0.8.1 - 2026-09-05
 
 - Show the latest assistant-message cache hit rate immediately after context usage in compact mode.
