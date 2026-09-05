@@ -2,7 +2,7 @@
 
 ## 0.9.1 - 2026-09-05
 
-- Present the default editor task strip as an open-sided one-row table with aligned top and bottom rules, a fixed task label column and a spacer before the editor.
+- Present the default editor task strip as an open-sided one-row table with aligned top and bottom rules and a fixed task label column; rely on Pi's own widget spacing so the gaps above and below the editor stay balanced.
 - Keep the task and progress on one content row when space allows, falling back to two bounded rows on narrow terminals.
 
 ## 0.9.0 - 2026-09-05

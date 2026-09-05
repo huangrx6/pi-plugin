@@ -261,8 +261,8 @@ function padCompactCell(text: string, width: number): string {
 
 /**
  * Frame the compact status as the same kind of open-sided horizontal table
- * used elsewhere in Pi's terminal UI. A trailing blank line keeps the widget
- * visually separate from the editor border below it.
+ * used elsewhere in Pi's terminal UI. Pi supplies the surrounding widget
+ * spacing, so the component itself does not add another blank row.
  */
 function frameCompactOverlay(
   content: readonly string[],
@@ -273,7 +273,7 @@ function frameCompactOverlay(
   const dividerColumn = labelWidth + 2;
   const contentWidth = width - dividerColumn - 2;
   if (contentWidth < 2) {
-    return [...content.map((line) => truncateToWidth(line, width)), ""];
+    return content.map((line) => truncateToWidth(line, width));
   }
 
   const border = (junction: "┬" | "┴"): string => {
@@ -291,7 +291,7 @@ function frameCompactOverlay(
       ` ${padCompactCell(value, contentWidth)}`,
     );
   }
-  lines.push(border("┴"), "");
+  lines.push(border("┴"));
   return lines;
 }
 
