@@ -1,8 +1,8 @@
 /**
  * pi-footer-composer — optional compact/full labelled footer.
  *
- * Compact mode renders three everyday rows; full mode renders five
- * diagnostic rows. Every row is prefixed with a dim category label:
+ * Full mode is the default with five information groups; compact mode
+ * keeps three. Every row is prefixed with a dim category label:
  *
  *   1. 环境   cwd / branch / session name (one dim cell each)
  *   2. 模型   (provider) id + thinking level
@@ -14,7 +14,7 @@
  *            policy) — also catches any uncategorised status as a
  *            fallback so nothing is silently dropped
  *
- * Cells within a row are joined by a dim `│`; a row wider than the
+ * Cells within a row are joined by a dim `·`; a row wider than the
  * terminal greedy-wraps onto continuation lines, which are indented
  * under the label so the content stays aligned. Everything it shows
  * comes from pi's aggregate surfaces — it never imports or knows about
@@ -86,13 +86,12 @@ type LooseUsage = {
 };
 
 /**
- * Fixed row labels, in row order. Each label is a 2-CJK-char category
- * plus a full-width colon, glued to the first cell of that row's
- * content. The set is closed — adding/removing a row requires
+ * Fixed two-character labels, in row order. Two spaces separate the
+ * quiet label from content. The set is closed — adding/removing a row requires
  * editing both this array and the `renderTable` call below.
  */
-const ROW_LABELS = ["环境：", "模型：", "资源：", "集成：", "配置："] as const;
-const COMPACT_ROW_LABELS = ["环境：", "模型：", "状态："] as const;
+const ROW_LABELS = ["路径", "模型", "用量", "集成", "状态"] as const;
+const COMPACT_ROW_LABELS = ["路径", "模型", "状态"] as const;
 type FooterMode = "compact" | "full" | "native";
 
 // ── formatters (shared shape with the footer conventions) ──────────────
@@ -131,14 +130,14 @@ function formatCwd(cwd: string): string {
 
 function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
   const cells: Cell[] = [
-    makeCell(theme.fg("dim", sanitize(formatCwd(ctx.sessionManager.getCwd())))),
+    makeCell(theme.fg("text", sanitize(formatCwd(ctx.sessionManager.getCwd())))),
   ];
   const branch = footerData.getGitBranch();
   if (branch)
-    cells.push(makeCell(theme.fg("dim", `(${sanitize(branch)})`)));
+    cells.push(makeCell(theme.fg("muted", sanitize(branch))));
   const sessionName = ctx.sessionManager.getSessionName();
   if (sessionName)
-    cells.push(makeCell(theme.fg("dim", `• ${sanitize(sessionName)}`)));
+    cells.push(makeCell(theme.fg("muted", sanitize(sessionName))));
   return cells;
 }
 
@@ -185,15 +184,15 @@ function usageCells(ctx: Ctx, theme: Theme): Cell[] {
   const parts: string[] = [];
   if (totals.input) parts.push(`↑${formatTokens(totals.input)}`);
   if (totals.output) parts.push(`↓${formatTokens(totals.output)}`);
-  if (totals.cacheRead) parts.push(`R${formatTokens(totals.cacheRead)}`);
-  if (totals.cacheWrite) parts.push(`W${formatTokens(totals.cacheWrite)}`);
+  if (totals.cacheRead) parts.push(`缓存读 ${formatTokens(totals.cacheRead)}`);
+  if (totals.cacheWrite) parts.push(`缓存写 ${formatTokens(totals.cacheWrite)}`);
   if (
     (totals.cacheRead || totals.cacheWrite) &&
     latestCacheHitRate !== undefined
   )
-    parts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+    parts.push(`命中 ${latestCacheHitRate.toFixed(1)}%`);
   if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
-  return parts.map((p) => makeCell(theme.fg("dim", p)));
+  return parts.map((p) => makeCell(theme.fg("muted", p)));
 }
 
 function contextCell(
@@ -203,11 +202,12 @@ function contextCell(
 ): Cell[] {
   const usage = ctx.getContextUsage?.();
   const window = usage?.contextWindow ?? model?.contextWindow ?? 0;
-  const pct = usage?.percent;
+  const pct = typeof usage?.percent === "number" && Number.isFinite(usage.percent)
+    ? usage.percent : undefined;
   const text =
     pct === null || pct === undefined
-      ? `?/${formatTokens(window)}`
-      : `${pct.toFixed(1)}%/${formatTokens(window)}`;
+      ? `上下文 ? / ${window > 0 ? formatTokens(window) : "?"}`
+      : `上下文 ${pct.toFixed(1)}% / ${window > 0 ? formatTokens(window) : "?"}`;
   const color =
     pct === null || pct === undefined
       ? "dim"
@@ -215,7 +215,7 @@ function contextCell(
         ? "error"
         : pct > 70
           ? "warning"
-          : "dim";
+          : "text";
   return [makeCell(theme.fg(color, text))];
 }
 
@@ -225,17 +225,16 @@ function modelCells(
   thinkingLevel: string | undefined,
   providerCount: number,
 ): Cell[] {
-  const name = model?.id || "no-model";
-  let text = sanitize(name);
+  const name = model?.id || "未选择模型";
+  const cells = [makeCell(theme.fg("accent", theme.bold(sanitize(name))))];
+  if (providerCount > 1 && model?.provider)
+    cells.push(makeCell(theme.fg("muted", sanitize(model.provider))));
   if (model?.reasoning) {
     const level = thinkingLevel || "off";
-    text = level === "off"
-      ? `${sanitize(name)} (thinking off)`
-      : `${sanitize(name)} (${sanitize(level)})`;
+    cells.push(makeCell(theme.fg("muted", level === "off"
+      ? "思考关闭" : `思考 ${sanitize(level)}`)));
   }
-  if (providerCount > 1 && model?.provider)
-    text = `(${sanitize(model.provider)}) ${text}`;
-  return [makeCell(theme.fg("dim", text))];
+  return cells;
 }
 
 type Section =
@@ -288,7 +287,7 @@ function statusGroups(
   );
   for (const [key, text] of entries) {
     const clean = sanitize(text);
-    const cell = makeCell(clean ? theme.fg("dim", clean) : "");
+    const cell = makeCell(clean ? theme.fg("text", clean) : "");
     if (cell.w === 0) continue;
     groups[sectionOf(key)].push(cell);
   }
@@ -327,7 +326,7 @@ type FooterCtx = Ctx & {
 };
 
 export default function (pi: ExtensionAPI): void {
-  let footerMode: FooterMode = "compact";
+  let footerMode: FooterMode = "full";
   let activeCtx: Ctx | null = null;
   let activeModel: {
     id?: string;
@@ -397,8 +396,9 @@ export default function (pi: ExtensionAPI): void {
                 ],
                 // row 3: 资源 — tokens · cache · cost · window occupancy + context governance
                 [
-                  ...usageCells(activeCtx as Ctx, theme),
                   ...contextCell(activeCtx as Ctx, theme, activeModel),
+                  ...usageCells(activeCtx as Ctx, theme),
+                  ...sections.usage,
                   ...sections.context,
                 ],
                 // row 4: 集成 — integration-prefixed statuses (MCP, LSP)
@@ -442,16 +442,16 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       const choices = [
-        "紧凑 · 环境、模型、上下文与配置",
-        "完整 · 展开资源、集成与全部状态",
+        "完整 · 默认，显示用量、集成与全部状态",
+        "紧凑 · 收起累计用量和集成信息",
         "Pi 原生 · 停用自定义 Footer",
       ];
       const choice = await ctx.ui.select(
         `Footer（当前：${footerMode === "compact" ? "紧凑" : footerMode === "full" ? "完整" : "Pi 原生"}）`,
         choices,
       );
-      if (choice === choices[0]) switchFooter("compact", ctx);
-      if (choice === choices[1]) switchFooter("full", ctx);
+      if (choice === choices[0]) switchFooter("full", ctx);
+      if (choice === choices[1]) switchFooter("compact", ctx);
       if (choice === choices[2]) switchFooter("native", ctx);
     },
   });

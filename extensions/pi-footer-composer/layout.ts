@@ -8,7 +8,7 @@
  * `prefixes` array glues a dim label (e.g. "环境：") to the first line
  * of each row; continuation lines (when a row wraps) are indented to
  * keep the content aligned under the label. Cells within a row are
- * joined by a dim `│`. Cells wider than the row's effective budget
+ * joined by a dim `·`. Cells wider than the row's effective budget
  * are truncated with an ellipsis.
  *
  * A cell whose text contains `\n` is a multi-line cell: each sub-line
@@ -117,14 +117,14 @@ type Theme = { fg(color: string, text: string): string };
 
 /**
  * One content group per row (single column, multiple rows). Within a
- * row, cells are joined by a dim `│`; a row wider than the terminal
+ * row, cells are joined by a dim `·`; a row wider than the terminal
  * greedy-wraps. Cells wider than the row's effective budget are
  * truncated.
  *
  * If `prefixes` is given, it MUST have the same length as `groups`.
  * Each prefix (e.g. "环境：") is rendered dim and glued to the start
  * of its row's first line — separated from the first cell by a
- * single space. Continuation lines (when a row wraps) are indented
+ * two spaces. Continuation lines (when a row wraps) are indented
  * to the same visible width so the content stays aligned under the
  * label. A prefix wider than the terminal leaves the label on its
  * own line.
@@ -136,7 +136,7 @@ export function renderTable(
   prefixes?: readonly string[],
 ): string[] {
   if (width <= 0 || groups.length === 0) return [];
-  const sepText = theme.fg("dim", " │ ");
+  const sepText = theme.fg("dim", " · ");
   const sepW = 3;
 
   const lines: string[] = [];
@@ -145,7 +145,7 @@ export function renderTable(
     if (cells.length === 0) return;
 
     const rawPrefix = prefixes?.[gi];
-    const prefixW = rawPrefix ? visibleWidth(rawPrefix) + 1 : 0; // +1 for the trailing space
+    const prefixW = rawPrefix ? visibleWidth(rawPrefix) + 2 : 0;
     const styledPrefix = rawPrefix ? theme.fg("dim", rawPrefix) : "";
     const indent = prefixW > 0 ? " ".repeat(prefixW) : "";
     const budget = width - prefixW;
@@ -164,7 +164,7 @@ export function renderTable(
     const flush = () => {
       if (current.length === 0) return;
       const joined = current.map((c) => c.text).join(sepText);
-      const lead = isFirstLine ? `${styledPrefix} ` : indent;
+      const lead = isFirstLine && rawPrefix ? `${styledPrefix}  ` : indent;
       lines.push(lead + joined);
       current = [];
       currentW = 0;
@@ -180,7 +180,7 @@ export function renderTable(
           const trimmed = sub.trim();
           if (!trimmed) continue;
           const fitted = makeCell(truncateToWidth(trimmed, budget, "…"));
-          const lead = isFirstLine ? `${styledPrefix} ` : indent;
+          const lead = isFirstLine && rawPrefix ? `${styledPrefix}  ` : indent;
           lines.push(lead + fitted.text);
           isFirstLine = false;
         }

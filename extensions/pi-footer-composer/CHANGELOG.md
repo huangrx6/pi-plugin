@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 - 2026-09-05
+
+- Default to full view on load; keep compact and native views available in the single-level selector.
+- Use quiet labels, soft dot separators, an accent model name and readable cache/context labels. Keep wrapped content aligned and empty groups hidden.
+- Include published `usage:` statuses in full view and put current context occupancy before accumulated usage.
+- Fix unlabelled rows exceeding their width by an extra leading space; cover full/compact/native switching and narrow widths.
+
 ## 0.4.0 - 2026-09-04
 
 - Default to a three-row compact view: environment, model with quota, then context and configuration status. Full resource and integration detail remains available with `/footer full`.

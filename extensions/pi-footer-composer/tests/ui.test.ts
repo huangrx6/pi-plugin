@@ -4,8 +4,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import footerExtension from "../index.ts";
+import { visibleWidth } from "../layout.ts";
 
-test("compact footer is the default and native mode restores Pi's footer", async () => {
+test("full footer is the default; compact and native remain selectable", async () => {
   const handlers = new Map<string, Function>();
   let command: Function | undefined;
   const footerCalls: unknown[] = [];
@@ -19,7 +20,7 @@ test("compact footer is the default and native mode restores Pi's footer", async
   } as never);
 
   const ctx = {
-    model: { id: "model\u001b]9;bad\u0007", provider: "provider", contextWindow: 128_000 },
+    model: { id: "model\u001b]9;bad\u0007", provider: "provider", reasoning: true, contextWindow: 128_000 },
     thinkingLevel: "high",
     sessionManager: {
       getEntries: () => [],
@@ -43,20 +44,27 @@ test("compact footer is the default and native mode restores Pi's footer", async
       getExtensionStatuses: () => new Map([
         ["config:mode", "权限 smart"],
         ["integration:mcp", "MCP ready"],
+        ["usage:custom", "额外用量 42"],
       ]),
       getAvailableProviderCount: () => 2,
       onBranchChange: () => () => {},
     },
   );
-  const compact = component.render(200);
-  assert.equal(compact.length, 3);
-  assert.match(compact.join("\n"), /状态：/);
-  assert.doesNotMatch(compact.join("\n"), /\u001b\]9/);
-  assert.doesNotMatch(compact.join("\n"), /MCP ready/);
+  const full = component.render(200);
+  assert.equal(full.length, 5);
+  assert.match(full.join("\n"), /状态  /);
+  assert.match(full.join("\n"), /模型  model · provider · 思考 high/);
+  assert.match(full.join("\n"), /上下文 12.0% \/ 128k/);
+  assert.match(full.join("\n"), /额外用量 42/);
+  assert.match(full.join("\n"), /MCP ready/);
+  assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|│/);
+  for (const width of [1, 5, 6, 12, 40, 80, 120]) {
+    assert.ok(component.render(width).every((line: string) => visibleWidth(line) <= width));
+  }
 
-  await command?.("full", ctx);
+  await command?.("compact", ctx);
   const fullRenderer = footerCalls.at(-1) as Function;
-  const full = fullRenderer(
+  const compact = fullRenderer(
     { requestRender() {} },
     { fg: (_color: string, text: string) => text, bold: (text: string) => text },
     {
@@ -69,7 +77,8 @@ test("compact footer is the default and native mode restores Pi's footer", async
       onBranchChange: () => () => {},
     },
   ).render(200);
-  assert.equal(full.length, 5);
+  assert.equal(compact.length, 3);
+  assert.doesNotMatch(compact.join("\n"), /MCP ready/);
 
   await command?.("native", ctx);
   assert.equal(footerCalls.at(-1), undefined);
