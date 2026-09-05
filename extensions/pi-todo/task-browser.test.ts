@@ -8,7 +8,10 @@ import {
 } from "./task-browser.ts";
 import type { TaskState } from "./types.ts";
 
-const theme = { fg: (_color: string, text: string) => text };
+const theme = {
+  fg: (_color: string, text: string) => text,
+  bg: (_color: string, text: string) => text,
+};
 const bindings = {
   matches(data: string, id: string): boolean {
     const map: Record<string, string> = {
@@ -67,6 +70,30 @@ test("large task lists stay inside the terminal and keep the selection visible",
   assert.ok(lines.some((line) => line.includes("#100")));
   assert.ok(lines.some((line) => line.includes("100/100")));
   assert.ok(lines.every((line) => visibleWidth(line) === 72));
+});
+
+test("the task window paints every cell with the extension surface background", () => {
+  const state = manyTasks(2);
+  const session: TaskBrowserSession = { view: "current", query: "" };
+  const backgrounds: string[] = [];
+  const browser = new TaskBrowserComponent(
+    { terminal: { rows: 24 }, requestRender: () => {} },
+    {
+      fg: (_color, text) => text,
+      bg: (color, text) => {
+        backgrounds.push(color);
+        return text;
+      },
+    },
+    bindings,
+    state,
+    session,
+    () => {},
+  );
+
+  const lines = browser.render(72);
+  assert.equal(backgrounds.length, lines.length);
+  assert.deepEqual(new Set(backgrounds), new Set(["customMessageBg"]));
 });
 
 test("search filters in place and never renders terminal control payloads", () => {

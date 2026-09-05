@@ -8,6 +8,7 @@
 - Keep detail, create, edit and contextual lifecycle actions in the same window; preserve view, query and selection after mutations.
 - Show mutation feedback inside the task window instead of appending task lists or operation notices to the chat transcript.
 - Temporarily suspend the editor task strip while the task window is open, restoring the user's prior display mode on close.
+- Paint the complete task window with Pi's theme-aware extension background and standard border color so it remains visually separate from the terminal behind it.
 - Remove the retired two-level `/todos commands` catalog and its menu implementation.
 
 ## 0.8.0 - 2026-09-05

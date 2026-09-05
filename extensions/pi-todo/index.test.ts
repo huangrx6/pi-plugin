@@ -2702,7 +2702,10 @@ describe("task-window interaction", () => {
   }
 
   const tui = { terminal: { rows: 24 }, requestRender: () => {} };
-  const theme = { fg: (_color: string, text: string) => text };
+  const theme = {
+    fg: (_color: string, text: string) => text,
+    bg: (_color: string, text: string) => text,
+  };
   const keybindings = {
     matches(data: string, id: string) {
       return ({ enter: "tui.select.confirm", escape: "tui.select.cancel" } as Record<string, string>)[data] === id;

@@ -36,6 +36,7 @@ export interface TaskBrowserSession {
 
 export interface TaskBrowserTheme {
   fg(color: string, text: string): string;
+  bg(color: string, text: string): string;
 }
 
 export interface TaskBrowserKeybindings {
@@ -196,12 +197,14 @@ export class TaskBrowserComponent {
   private frame(width: number, title: string, body: string[], footer: string): string[] {
     const inner = Math.max(16, width - 2);
     const safeTitle = truncateToWidth(` ${title} `, Math.max(1, inner - 3));
-    const top = `╭─${safeTitle}${"─".repeat(Math.max(0, inner - 1 - visibleWidth(safeTitle)))}╮`;
+    const border = (text: string): string => this.theme.fg("border", text);
+    const surface = (text: string): string => this.theme.bg("customMessageBg", text);
+    const top = `${border("╭─")}${this.theme.fg("accent", safeTitle)}${border(`${"─".repeat(Math.max(0, inner - 1 - visibleWidth(safeTitle)))}╮`)}`;
     return [
-      top,
-      ...body.map((line) => `${this.theme.fg("dim", "│")}${padToWidth(line, inner)}${this.theme.fg("dim", "│")}`),
-      `${this.theme.fg("dim", "│")}${padToWidth(this.theme.fg("dim", footer), inner)}${this.theme.fg("dim", "│")}`,
-      this.theme.fg("dim", `╰${"─".repeat(inner)}╯`),
+      surface(top),
+      ...body.map((line) => surface(`${border("│")}${padToWidth(line, inner)}${border("│")}`)),
+      surface(`${border("│")}${padToWidth(this.theme.fg("dim", footer), inner)}${border("│")}`),
+      surface(border(`╰${"─".repeat(inner)}╯`)),
     ];
   }
 
