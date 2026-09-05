@@ -43,6 +43,10 @@
     <rect class="pill" width="64" height="24" rx="12" />
     <text class="ext" x="32" y="17" text-anchor="middle">todo</text>
   </g>
+  <g transform="translate(276, 188)">
+    <rect class="pill" width="112" height="24" rx="12" />
+    <text class="ext" x="56" y="17" text-anchor="middle">browser-test</text>
+  </g>
 
   <!-- DISPLAY -->
   <rect class="band" x="40" y="234" width="400" height="64" rx="6" />

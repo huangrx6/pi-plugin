@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <h1 align="center">pi-plugin</h1>
 <p align="center"><strong>让 Pi 的执行过程可理解，让终端中的操作更直接。</strong></p>
-<p align="center">八个独立扩展 · 按需安装 · 原生终端交互</p>
+<p align="center">九个独立扩展 · 按需安装 · 原生终端交互</p>
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-555?style=flat-square" alt="MIT license" />
@@ -21,7 +21,7 @@
 pi install git:github.com/huangrx6/pi-plugin
 ```
 
-重启 Pi 或运行 `/reload`。整库安装会加载八个扩展；如果只需要其中一部分，使用下方按需安装方式。
+重启 Pi 或运行 `/reload`。整库安装会加载九个扩展；如果只需要其中一部分，使用下方按需安装方式。
 
 > 仓库声明 Node.js `>=22.19`；请同时满足已安装 Pi 宿主的运行要求。自动压缩生命周期在 Node.js 24 的真实 Pi SDK 上验证。
 
@@ -36,6 +36,12 @@ pi install git:github.com/huangrx6/pi-plugin
 | [`pi-auto-compact`](extensions/pi-auto-compact/README.md) | 上下文达到阈值时请求 Pi 原生压缩，并继续被中断的任务。 |
 | [`pi-mode-switcher`](extensions/pi-mode-switcher/README.md) | 按 ask / smart / full 模式决定工具调用是否需要批准。 |
 | [`pi-todo`](extensions/pi-todo/README.md) | 持久化当前工作区的任务，通过可滚动任务窗口完成筛选、详情与状态操作。 |
+
+### 测试规范
+
+| 扩展 | 实际职责 |
+| --- | --- |
+| [`pi-browser-test`](extensions/pi-browser-test/README.md) | 校验版本化业务测试规范、能力契约引用、Fixture 完整性和稳定哈希。 |
 
 ### 状态与展示
 
@@ -68,6 +74,7 @@ pi install git:github.com/huangrx6/pi-plugin
 | 提供领域工作方法 | skill-inject |
 | 查看额度与等待运行结束 | quota-status + notify |
 | 调整终端底部信息密度 | footer-composer |
+| 冻结并校验可审计的业务测试语义 | browser-test |
 
 组合是使用建议；每一项都能独立安装和移除。
 

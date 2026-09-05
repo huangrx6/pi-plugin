@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pi-browser-test.local/schema/test-spec/1.0.0",
+  "title": "Pi Browser Test - Test Spec Schema v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "testSpecId", "caseId", "revision", "title", "intent",
+    "actors", "fixtures", "preconditions", "setup", "steps", "assertions", "cleanup"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "testSpecId": { "$ref": "#/$defs/stableId" },
+    "caseId": { "$ref": "#/$defs/stableId" },
+    "revision": { "type": "integer", "minimum": 1 },
+    "parentTestSpecId": { "$ref": "#/$defs/stableId" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "intent": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "description": { "type": "string", "maxLength": 8192 },
+    "tags": {
+      "type": "array", "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+    },
+    "actors": { "type": "array", "items": { "$ref": "#/$defs/actor" } },
+    "fixtures": { "type": "array", "items": { "$ref": "#/$defs/fixture" } },
+    "preconditions": { "type": "array", "items": { "$ref": "#/$defs/precondition" } },
+    "setup": { "type": "array", "items": { "$ref": "#/$defs/capabilityInvocation" } },
+    "steps": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/capabilityInvocation" } },
+    "assertions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/assertion" } },
+    "cleanup": { "type": "array", "items": { "$ref": "#/$defs/cleanupInvocation" } }
+  },
+  "$defs": {
+    "stableId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{2,127}$" },
+    "jsonPointer": { "type": "string", "pattern": "^(/([^/~]|~[01])*)*$" },
+    "actor": {
+      "type": "object", "additionalProperties": false,
+      "required": ["actorId", "principalRequirement"],
+      "properties": {
+        "actorId": { "$ref": "#/$defs/stableId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "principalRequirement": {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "roleId"],
+          "properties": {
+            "type": { "const": "ROLE" },
+            "roleId": { "$ref": "#/$defs/stableId" }
+          }
+        }
+      }
+    },
+    "fixture": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fixtureId", "kind", "path", "digest"],
+      "properties": {
+        "fixtureId": { "$ref": "#/$defs/stableId" },
+        "kind": { "enum": ["FILE", "JSON", "TEXT", "BINARY"] },
+        "path": { "type": "string", "minLength": 1 },
+        "mediaType": { "type": "string" },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "digest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["algorithm", "value"],
+      "properties": {
+        "algorithm": { "const": "SHA256" },
+        "value": { "type": "string", "pattern": "^[a-fA-F0-9]{64}$" }
+      }
+    },
+    "capabilityContractRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["capabilityId", "contractVersionId"],
+      "properties": {
+        "capabilityId": { "$ref": "#/$defs/stableId" },
+        "contractVersionId": { "$ref": "#/$defs/stableId" }
+      }
+    },
+    "literalExpression": {
+      "type": "object", "additionalProperties": false,
+      "required": ["literal"], "properties": { "literal": {} }
+    },
+    "fixtureExpression": {
+      "type": "object", "additionalProperties": false,
+      "required": ["fixtureRef"],
+      "properties": { "fixtureRef": { "$ref": "#/$defs/stableId" } }
+    },
+    "stepOutputExpression": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stepOutputRef"],
+      "properties": {
+        "stepOutputRef": {
+          "type": "object", "additionalProperties": false,
+          "required": ["stepId", "path"],
+          "properties": {
+            "stepId": { "$ref": "#/$defs/stableId" },
+            "path": { "$ref": "#/$defs/jsonPointer" }
+          }
+        }
+      }
+    },
+    "valueExpression": {
+      "oneOf": [
+        { "$ref": "#/$defs/literalExpression" },
+        { "$ref": "#/$defs/fixtureExpression" },
+        { "$ref": "#/$defs/stepOutputExpression" }
+      ]
+    },
+    "inputMap": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/valueExpression" }
+    },
+    "capabilityProbe": {
+      "type": "object", "additionalProperties": false,
+      "required": ["capability", "input"],
+      "properties": {
+        "actorRef": { "$ref": "#/$defs/stableId" },
+        "capability": { "$ref": "#/$defs/capabilityContractRef" },
+        "input": { "$ref": "#/$defs/inputMap" }
+      }
+    },
+    "capabilityInvocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stepId", "capability", "input"],
+      "properties": {
+        "stepId": { "$ref": "#/$defs/stableId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "actorRef": { "$ref": "#/$defs/stableId" },
+        "capability": { "$ref": "#/$defs/capabilityContractRef" },
+        "input": { "$ref": "#/$defs/inputMap" }
+      }
+    },
+    "cleanupInvocation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["stepId", "capability", "input"],
+      "properties": {
+        "stepId": { "$ref": "#/$defs/stableId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "actorRef": { "$ref": "#/$defs/stableId" },
+        "capability": { "$ref": "#/$defs/capabilityContractRef" },
+        "input": { "$ref": "#/$defs/inputMap" },
+        "when": { "enum": ["ALWAYS", "ON_SUCCESS", "ON_FAILURE"], "default": "ALWAYS" }
+      }
+    },
+    "predicate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["operator"],
+      "properties": {
+        "operator": {
+          "enum": [
+            "EQUALS", "NOT_EQUALS", "GREATER_THAN", "GREATER_THAN_OR_EQUAL",
+            "LESS_THAN", "LESS_THAN_OR_EQUAL", "CONTAINS", "NOT_CONTAINS",
+            "MATCHES", "EXISTS", "NOT_EXISTS", "IS_TRUE", "IS_FALSE",
+            "IS_EMPTY", "NOT_EMPTY"
+          ]
+        },
+        "expected": { "$ref": "#/$defs/valueExpression" }
+      }
+    },
+    "authPrecondition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["preconditionId", "type", "actorRef"],
+      "properties": {
+        "preconditionId": { "$ref": "#/$defs/stableId" },
+        "type": { "const": "ACTOR_AUTHENTICATED" },
+        "actorRef": { "$ref": "#/$defs/stableId" }
+      }
+    },
+    "capabilityPrecondition": {
+      "type": "object", "additionalProperties": false,
+      "required": ["preconditionId", "type", "probe", "predicate"],
+      "properties": {
+        "preconditionId": { "$ref": "#/$defs/stableId" },
+        "type": { "const": "CAPABILITY_ASSERTION" },
+        "probe": { "$ref": "#/$defs/capabilityProbe" },
+        "predicate": { "$ref": "#/$defs/predicate" }
+      }
+    },
+    "precondition": {
+      "oneOf": [
+        { "$ref": "#/$defs/authPrecondition" },
+        { "$ref": "#/$defs/capabilityPrecondition" }
+      ]
+    },
+    "stepOutputAssertionSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "stepId", "path"],
+      "properties": {
+        "type": { "const": "STEP_OUTPUT" },
+        "stepId": { "$ref": "#/$defs/stableId" },
+        "path": { "$ref": "#/$defs/jsonPointer" }
+      }
+    },
+    "capabilityAssertionSource": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "probe", "path"],
+      "properties": {
+        "type": { "const": "CAPABILITY_RESULT" },
+        "probe": { "$ref": "#/$defs/capabilityProbe" },
+        "path": { "$ref": "#/$defs/jsonPointer" }
+      }
+    },
+    "assertion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assertionId", "source", "predicate"],
+      "properties": {
+        "assertionId": { "$ref": "#/$defs/stableId" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "source": {
+          "oneOf": [
+            { "$ref": "#/$defs/stepOutputAssertionSource" },
+            { "$ref": "#/$defs/capabilityAssertionSource" }
+          ]
+        },
+        "predicate": { "$ref": "#/$defs/predicate" },
+        "within": {
+          "type": "string",
+          "pattern": "^P(?=\\d|T\\d)(?:\\d+Y)?(?:\\d+M)?(?:\\d+D)?(?:T(?=\\d)(?:\\d+H)?(?:\\d+M)?(?:\\d+(?:\\.\\d+)?S)?)?$"
+        }
+      }
+    }
+  }
+}

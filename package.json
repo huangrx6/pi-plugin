@@ -1,7 +1,7 @@
 {
   "name": "huangrx6-pi-plugin",
   "version": "0.1.0",
-  "description": "Independent Pi extensions for automatic compaction, skills, approval modes, usage status, policies, tasks, notifications, and terminal layout.",
+  "description": "Independent Pi extensions for browser test specifications, automatic compaction, skills, approval modes, usage status, policies, tasks, notifications, and terminal layout.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -21,7 +21,8 @@
       "./extensions/pi-footer-composer",
       "./extensions/pi-todo",
       "./extensions/pi-notify",
-      "./extensions/pi-auto-compact"
+      "./extensions/pi-auto-compact",
+      "./extensions/pi-browser-test"
     ]
   },
   "files": [

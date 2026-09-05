@@ -11,6 +11,26 @@ on:
     branches: [main]
 
 jobs:
+  pi-browser-test:
+    name: pi-browser-test (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+      - name: Install
+        working-directory: extensions/pi-browser-test
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        working-directory: extensions/pi-browser-test
+        run: npm run check
+      - name: Schema, semantic and extension tests
+        working-directory: extensions/pi-browser-test
+        run: npm test
+
   pi-policy-engine:
     name: pi-policy-engine (js)
     runs-on: ubuntu-latest

@@ -1,0 +1,90 @@
+{
+  "contracts": [
+    {
+      "capabilityId": "cap_document_upload",
+      "contractVersionId": "capcontract_document_upload_1_2",
+      "kind": "ACTION",
+      "sideEffect": "WRITE",
+      "externalEffect": "NONE",
+      "inputSchema": {
+        "type": "object",
+        "required": ["file"],
+        "additionalProperties": false,
+        "properties": {
+          "file": { "x-pi-valueKind": "FILE" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "documentId": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "capabilityId": "cap_document_parse",
+      "contractVersionId": "capcontract_document_parse_1_1",
+      "kind": "ACTION",
+      "sideEffect": "WRITE",
+      "externalEffect": "NONE",
+      "inputSchema": {
+        "type": "object",
+        "required": ["documentId"],
+        "additionalProperties": false,
+        "properties": {
+          "documentId": { "type": "string" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "accepted": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "capabilityId": "cap_document_status",
+      "contractVersionId": "capcontract_document_status_1_0",
+      "kind": "QUERY",
+      "sideEffect": "NONE",
+      "externalEffect": "NONE",
+      "inputSchema": {
+        "type": "object",
+        "required": ["documentId"],
+        "additionalProperties": false,
+        "properties": {
+          "documentId": { "type": "string" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "chapterCount": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "capabilityId": "cap_document_delete",
+      "contractVersionId": "capcontract_document_delete_1_0",
+      "kind": "ACTION",
+      "sideEffect": "DESTRUCTIVE",
+      "externalEffect": "NONE",
+      "inputSchema": {
+        "type": "object",
+        "required": ["documentId"],
+        "additionalProperties": false,
+        "properties": {
+          "documentId": { "type": "string" }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "deleted": { "type": "boolean" }
+        }
+      }
+    }
+  ]
+}

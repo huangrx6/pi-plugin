@@ -1,6 +1,6 @@
 # AGENTS.md — huangrx6/pi-plugin 仓库规约
 
-个人 pi 扩展 monorepo。八个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-auto-compact`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
+个人 pi 扩展 monorepo。九个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-auto-compact` / `pi-browser-test`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
 
 ## 扩展独立性（最高优先级约定）
 

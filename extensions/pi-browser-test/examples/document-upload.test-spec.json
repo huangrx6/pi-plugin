@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0.0",
+  "testSpecId": "spec_document_upload_parse_7",
+  "caseId": "case_document_upload_parse",
+  "revision": 7,
+  "parentTestSpecId": "spec_document_upload_parse_6",
+  "title": "上传 PDF 并验证解析结果",
+  "intent": "普通用户上传一份固定 PDF，系统应成功完成解析，并返回 20 个章节。",
+  "tags": ["document", "parse", "smoke"],
+  "actors": [
+    {
+      "actorId": "actor_normal_user",
+      "name": "普通用户",
+      "principalRequirement": { "type": "ROLE", "roleId": "role_normal_user" }
+    }
+  ],
+  "fixtures": [
+    {
+      "fixtureId": "fixture_sample_pdf",
+      "kind": "FILE",
+      "path": "fixtures/sample.pdf",
+      "mediaType": "application/pdf",
+      "digest": {
+        "algorithm": "SHA256",
+        "value": "ee06ca40a38dbdd6de1b90e1d0a7485c5cb288a809464b51ffba7b73bb12575b"
+      }
+    }
+  ],
+  "preconditions": [
+    {
+      "preconditionId": "precondition_authenticated",
+      "type": "ACTOR_AUTHENTICATED",
+      "actorRef": "actor_normal_user"
+    }
+  ],
+  "setup": [],
+  "steps": [
+    {
+      "stepId": "step_upload",
+      "name": "上传 PDF",
+      "actorRef": "actor_normal_user",
+      "capability": {
+        "capabilityId": "cap_document_upload",
+        "contractVersionId": "capcontract_document_upload_1_2"
+      },
+      "input": { "file": { "fixtureRef": "fixture_sample_pdf" } }
+    },
+    {
+      "stepId": "step_parse",
+      "name": "启动文档解析",
+      "actorRef": "actor_normal_user",
+      "capability": {
+        "capabilityId": "cap_document_parse",
+        "contractVersionId": "capcontract_document_parse_1_1"
+      },
+      "input": {
+        "documentId": {
+          "stepOutputRef": { "stepId": "step_upload", "path": "/documentId" }
+        }
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "assertionId": "assert_parse_status",
+      "name": "文档应解析成功",
+      "source": {
+        "type": "CAPABILITY_RESULT",
+        "probe": {
+          "actorRef": "actor_normal_user",
+          "capability": {
+            "capabilityId": "cap_document_status",
+            "contractVersionId": "capcontract_document_status_1_0"
+          },
+          "input": {
+            "documentId": {
+              "stepOutputRef": { "stepId": "step_upload", "path": "/documentId" }
+            }
+          }
+        },
+        "path": "/status"
+      },
+      "predicate": { "operator": "EQUALS", "expected": { "literal": "PARSED" } },
+      "within": "PT30S"
+    },
+    {
+      "assertionId": "assert_chapter_count",
+      "name": "章节数应为 20",
+      "source": {
+        "type": "CAPABILITY_RESULT",
+        "probe": {
+          "actorRef": "actor_normal_user",
+          "capability": {
+            "capabilityId": "cap_document_status",
+            "contractVersionId": "capcontract_document_status_1_0"
+          },
+          "input": {
+            "documentId": {
+              "stepOutputRef": { "stepId": "step_upload", "path": "/documentId" }
+            }
+          }
+        },
+        "path": "/chapterCount"
+      },
+      "predicate": { "operator": "EQUALS", "expected": { "literal": 20 } }
+    }
+  ],
+  "cleanup": [
+    {
+      "stepId": "cleanup_document",
+      "name": "删除测试文档",
+      "when": "ALWAYS",
+      "actorRef": "actor_normal_user",
+      "capability": {
+        "capabilityId": "cap_document_delete",
+        "contractVersionId": "capcontract_document_delete_1_0"
+      },
+      "input": {
+        "documentId": {
+          "stepOutputRef": { "stepId": "step_upload", "path": "/documentId" }
+        }
+      }
+    }
+  ]
+}

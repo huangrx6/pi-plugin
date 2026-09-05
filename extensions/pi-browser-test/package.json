@@ -1,0 +1,46 @@
+{
+  "name": "pi-browser-test",
+  "version": "0.1.0",
+  "description": "Validate versioned business-level browser test specifications before capability planning and execution.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "ajv": "^8.17.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "browser-testing",
+    "test-spec"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "check": "tsc -p . --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "files": [
+    "*.ts",
+    "schema/",
+    "examples/",
+    "tests/",
+    "tsconfig.json",
+    "README.md",
+    "SPEC.md",
+    "DESIGN.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ]
+}
