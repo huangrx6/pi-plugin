@@ -141,7 +141,7 @@ function validateUnique(spec: TestSpec, issues: ValidationIssue[]): void {
   }
 }
 
-function validateRefs(spec: TestSpec, issues: ValidationIssue[]): void {
+function validateRefs(spec: TestSpec, issues: ValidationIssue[], sanctionedSecretKeys: ReadonlySet<string>): void {
   const actorIds = new Set(spec.actors.map((v) => v.actorId));
   const fixtureIds = new Set(spec.fixtures.map((v) => v.fixtureId));
   walk(spec as unknown as JsonValue, "", (key, value, path) => {
@@ -151,9 +151,35 @@ function validateRefs(spec: TestSpec, issues: ValidationIssue[]): void {
     if (FORBIDDEN_IMPLEMENTATION_KEYS.has(normalized)) add(issues, "TS-013", path, `${key} belongs to a downstream implementation object`);
     if (FORBIDDEN_CODE_KEYS.has(normalized)) add(issues, "TS-013", path, `${key} would embed executable or arbitrary expression content`);
     if (FORBIDDEN_RISK_KEYS.has(normalized)) add(issues, "TS-014", path, `${key} cannot lower or decide execution risk in a Test Spec`);
-    if (SECRET_KEYS.test(normalized)) add(issues, "TS-015", path, `${key} may contain secret material and is forbidden in a Test Spec`);
+    if (SECRET_KEYS.test(normalized) && !sanctionedSecretKeys.has(path)) add(issues, "TS-015", path, `${key} may contain secret material and is forbidden in a Test Spec`);
     if (typeof value === "string" && /^(?:Bearer\s+|Basic\s+)[A-Za-z0-9+/._=-]+$/i.test(value)) add(issues, "TS-015", path, "raw authorization material is forbidden in a Test Spec");
   });
+}
+
+// TS-015 key scanning treats input keys declared by the referenced Capability
+// Contract as sanctioned business vocabulary, so fields such as `tokenCount`
+// or `cookieConsent` validate when the contract owns them. Nested keys inside
+// Literal payloads are never sanctioned, and raw `Bearer`/`Basic` material
+// stays forbidden everywhere (enforced in validateRefs).
+function sanctionedSecretKeyPaths(spec: TestSpec, contracts: Map<string, CapabilityContract>): Set<string> {
+  const sanctioned = new Set<string>();
+  const collect = (call: CapabilityCall, path: string) => {
+    const contract = contracts.get(`${call.capability.capabilityId}\0${call.capability.contractVersionId}`);
+    if (!contract) return;
+    for (const name of Object.keys(call.input)) {
+      if (Object.hasOwn(contract.inputSchema.properties ?? {}, name)) sanctioned.add(`${path}/input/${name}`);
+    }
+  };
+  spec.setup.forEach((call, index) => collect(call, `/setup/${index}`));
+  spec.steps.forEach((call, index) => collect(call, `/steps/${index}`));
+  spec.cleanup.forEach((call, index) => collect(call, `/cleanup/${index}`));
+  spec.preconditions.forEach((entry, index) => {
+    if (entry.type === "CAPABILITY_ASSERTION") collect(entry.probe, `/preconditions/${index}/probe`);
+  });
+  spec.assertions.forEach((entry, index) => {
+    if (entry.source.type === "CAPABILITY_RESULT") collect(entry.source.probe, `/assertions/${index}/source/probe`);
+  });
+  return sanctioned;
 }
 
 function validateReferenceOrder(spec: TestSpec, issues: ValidationIssue[]): void {
@@ -207,11 +233,13 @@ function validateExpressionOutputPaths(
   steps: Map<string, CapabilityInvocation>,
   contracts: Map<string, CapabilityContract>,
   issues: ValidationIssue[],
+  ambiguousStepIds: ReadonlySet<string>,
 ): void {
   const found: Array<{ expression: ValueExpression; path: string }> = [];
   expressions(spec, "", found);
   for (const item of found) {
     if (!("stepOutputRef" in item.expression)) continue;
+    if (ambiguousStepIds.has(item.expression.stepOutputRef.stepId)) continue;
     const reference = item.expression.stepOutputRef;
     const step = steps.get(reference.stepId);
     const contract = step && contracts.get(`${step.capability.capabilityId}\0${step.capability.contractVersionId}`);
@@ -225,8 +253,10 @@ function sourceSchema(
   steps: Map<string, CapabilityInvocation>,
   contracts: Map<string, CapabilityContract>,
   issues: ValidationIssue[],
+  ambiguousStepIds: ReadonlySet<string>,
 ): SchemaNode | undefined {
   if (source.type === "STEP_OUTPUT") {
+    if (ambiguousStepIds.has(source.stepId)) return undefined;
     const step = steps.get(source.stepId);
     const contract = step && contracts.get(`${step.capability.capabilityId}\0${step.capability.contractVersionId}`);
     const schema = contract && schemaAtPointer(contract.outputSchema, source.path);
@@ -247,14 +277,15 @@ function validatePredicate(
   expectedTypes: string[] = [],
 ): void {
   const needsExpected = EXPECTED_REQUIRED.has(predicate.operator);
+  const unexpectedExpected = !needsExpected && Object.hasOwn(predicate, "expected");
   if (needsExpected && !Object.hasOwn(predicate, "expected")) add(issues, "TS-009", `${path}/expected`, `${predicate.operator} requires expected`);
-  if (!needsExpected && Object.hasOwn(predicate, "expected")) add(issues, "TS-009", `${path}/expected`, `${predicate.operator} must not provide expected`);
+  if (unexpectedExpected) add(issues, "TS-009", `${path}/expected`, `${predicate.operator} must not provide expected`);
   const types = schemaTypes(schema);
   if (NUMBER_OPERATORS.has(predicate.operator) && !compatible(types, ["number", "integer"])) add(issues, "TS-008", `${path}/operator`, `${predicate.operator} requires a numeric source`);
   if (STRING_OPERATORS.has(predicate.operator) && !compatible(types, ["string"])) add(issues, "TS-008", `${path}/operator`, `${predicate.operator} requires a string source`);
   if (BOOLEAN_OPERATORS.has(predicate.operator) && !compatible(types, ["boolean"])) add(issues, "TS-008", `${path}/operator`, `${predicate.operator} requires a boolean source`);
-  if (predicate.expected && !["CONTAINS", "NOT_CONTAINS"].includes(predicate.operator) && !compatible(expectedTypes, types)) add(issues, "TS-008", `${path}/expected`, `expected type ${expectedTypes.join("|") || "unknown"} is incompatible with source type ${types.join("|") || "unknown"}`);
-  if (predicate.expected && ["CONTAINS", "NOT_CONTAINS"].includes(predicate.operator)) {
+  if (predicate.expected && !unexpectedExpected && !["CONTAINS", "NOT_CONTAINS"].includes(predicate.operator) && !compatible(expectedTypes, types)) add(issues, "TS-008", `${path}/expected`, `expected type ${expectedTypes.join("|") || "unknown"} is incompatible with source type ${types.join("|") || "unknown"}`);
+  if (predicate.expected && !unexpectedExpected && ["CONTAINS", "NOT_CONTAINS"].includes(predicate.operator)) {
     const elementTypes = types.includes("array") ? schemaTypes(schema?.items) : types;
     if (!compatible(expectedTypes, elementTypes)) add(issues, "TS-008", `${path}/expected`, `contained value type ${expectedTypes.join("|") || "unknown"} is incompatible with source content type ${elementTypes.join("|") || "unknown"}`);
   }
@@ -263,13 +294,21 @@ function validatePredicate(
 export function validateTestSpecSemantics(spec: TestSpec, registry: CapabilityRegistry): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   validateUnique(spec, issues);
-  validateRefs(spec, issues);
-  validateReferenceOrder(spec, issues);
   const contracts = contractIndex(registry);
+  validateRefs(spec, issues, sanctionedSecretKeyPaths(spec, contracts));
+  validateReferenceOrder(spec, issues);
   const fixtures = new Map(spec.fixtures.map((value) => [value.fixtureId, value]));
   const allSteps = [...spec.setup, ...spec.steps, ...spec.cleanup];
   const steps = new Map(allSteps.map((value) => [value.stepId, value]));
-  validateExpressionOutputPaths(spec, steps, contracts, issues);
+  // A duplicated step ID (already reported as TS-001) makes output-path lookups
+  // ambiguous; suppress the downstream TS-007 cascade for such references.
+  const ambiguousStepIds = new Set(
+    Object.entries(allSteps.reduce<Record<string, number>>((counts, call) => {
+      counts[call.stepId] = (counts[call.stepId] ?? 0) + 1;
+      return counts;
+    }, {})).filter(([, count]) => count > 1).map(([stepId]) => stepId),
+  );
+  validateExpressionOutputPaths(spec, steps, contracts, issues, ambiguousStepIds);
   spec.setup.forEach((call, index) => validateCall(call, `/setup/${index}`, "action", fixtures, steps, contracts, issues));
   spec.steps.forEach((call, index) => validateCall(call, `/steps/${index}`, "action", fixtures, steps, contracts, issues));
   spec.cleanup.forEach((call, index) => validateCall(call, `/cleanup/${index}`, "action", fixtures, steps, contracts, issues));
@@ -286,7 +325,7 @@ export function validateTestSpecSemantics(spec: TestSpec, registry: CapabilityRe
   });
   spec.assertions.forEach((entry, index) => {
     if (entry.source.type === "CAPABILITY_RESULT") validateCall(entry.source.probe, `/assertions/${index}/source/probe`, "probe", fixtures, steps, contracts, issues);
-    const schema = sourceSchema(entry.source, `/assertions/${index}/source`, steps, contracts, issues);
+    const schema = sourceSchema(entry.source, `/assertions/${index}/source`, steps, contracts, issues, ambiguousStepIds);
     validatePredicate(
       entry.predicate,
       schema,

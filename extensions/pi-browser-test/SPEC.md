@@ -116,7 +116,7 @@ The published [JSON Schema](schema/test-spec.schema.json) validates the closed s
 | TS-012 | Probe capabilities have no side effect or external effect |
 | TS-013 | Resolver, browser, environment, locator and executable fields are absent |
 | TS-014 | Risk and policy decisions cannot be self-declared |
-| TS-015 | Raw secret material is absent |
+| TS-015 | Raw secret material is absent. Input keys declared by the referenced Capability Contract count as sanctioned business vocabulary; raw `Bearer`/`Basic` material stays forbidden everywhere |
 
 Fixture validation additionally rejects paths outside the specification directory, unreadable files and digest mismatches.
 

@@ -21,16 +21,24 @@ pi install "$PWD"
 /browser-test validate path/to/case.test-spec.json --registry path/to/capability-registry.json
 ```
 
-省略 `--registry` 时读取当前项目的：
+省略 `--registry` 时从当前目录向上查找：
 
 ```text
 .pi/browser-test/capability-registry.json
 ```
 
+`--registry registry.json` 与 `--registry=registry.json` 两种写法等价；`/browser-test help`（或 `--help`）打印用法。无终端 UI 的环境（`pi -p`、CI 等）下结果输出到 stdout。
+
 只获取规范化哈希：
 
 ```text
 /browser-test hash path/to/case.test-spec.json --registry path/to/capability-registry.json
+```
+
+把目录作为规范路径即可批量处理其中直接子级的 `*.test-spec.json`（不递归），两个动作都支持，输出逐文件摘要：
+
+```text
+/browser-test validate path/to/specs --registry path/to/capability-registry.json
 ```
 
 路径包含空格时使用单引号或双引号。
@@ -62,6 +70,8 @@ identity → intent → actors → fixtures → preconditions
 | TS-010～TS-012 | Cleanup 无豁免；动作与查询种类匹配；Probe 无副作用 |
 | TS-013～TS-015 | 拒绝实现绑定、风险自降级字段和 Secret |
 | FIXTURE-001～003 | Fixture 路径受限于规范目录、文件可读、SHA-256 与声明一致 |
+
+封闭对象中的未知字段（如 `locator`）在第一层即被 `SCHEMA` 规则拒绝；`TS-013` 兜底拦截嵌套或未知位置的同类字段。`TS-015` 的键名扫描把所引用 Capability Contract `inputSchema` 显式声明的输入键视为业务词表——`tokenCount`、`cookieConsent` 这类合法业务字段不会因键名含 `token`/`cookie` 词素被误报；Literal 内嵌对象的键不在豁免范围内，原始 `Bearer`/`Basic` 凭据材料在任何位置仍然拒绝。
 
 错误采用稳定代码与 JSON Pointer 路径，例如：
 

@@ -37,6 +37,10 @@ export function canonicalizeTestSpec(spec: TestSpec): string {
   return JSON.stringify(canonicalValue(spec as unknown as JsonValue));
 }
 
+export function hashCanonical(canonical: string): string {
+  return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
+}
+
 export function testSpecHash(spec: TestSpec): string {
-  return `sha256:${createHash("sha256").update(canonicalizeTestSpec(spec)).digest("hex")}`;
+  return hashCanonical(canonicalizeTestSpec(spec));
 }

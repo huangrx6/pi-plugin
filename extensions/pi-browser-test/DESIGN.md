@@ -28,7 +28,7 @@ Invalid input never receives a hash. A hash therefore identifies a structurally 
 | `fixture-validator.ts` | Local asset containment, readability and SHA-256 verification |
 | `canonical.ts` | Schema-aware ordering and stable hash |
 | `validator.ts` | Validation orchestration |
-| `index.ts` | Pi command adapter only |
+| `index.ts` | Pi command adapter only; a directory argument batches sibling `*.test-spec.json` files, non-recursive |
 
 The core modules do not import Pi. The runtime adapter reads files explicitly named by the user and only reports results.
 
@@ -42,6 +42,8 @@ The core modules do not import Pi. The runtime adapter reads files explicitly na
 - Static fixtures are content-addressed.
 - Canonicalization sorts set-semantic arrays and preserves lifecycle arrays.
 - Cleanup uses its own closed JSON Schema object. This fixes the invalid extension pattern in the freeze candidate without changing its domain model.
+- Contract-declared capability input keys are sanctioned vocabulary for the TS-015 secret scan; literal payload keys and raw credential values are never sanctioned.
+- The command adapter falls back to stdout when the host session has no UI, so headless runs still report results.
 
 ## Next boundary
 

@@ -1,4 +1,5 @@
-import type { ValidationIssue, ValidationResult } from "./types.ts";
+import { basename } from "node:path";
+import type { BatchEntryResult, ValidationIssue, ValidationResult } from "./types.ts";
 
 function clean(value: string): string {
   return value
@@ -28,13 +29,34 @@ export function formatValidation(result: ValidationResult, specPath: string, reg
   return clean(lines.join("\n"));
 }
 
-export function formatUsage(schemaPath: string): string {
+export function formatUsage(schemaPath: string, defaultRegistryRelativePath: string): string {
   return clean([
     "Pi Browser Test · Test Spec v1.0",
-    "校验：/browser-test validate <spec.json> [--registry <capability-registry.json>]",
-    "摘要：/browser-test hash <spec.json> [--registry <capability-registry.json>]",
+    "校验：/browser-test validate <spec.json | specs目录> [--registry <capability-registry.json>]",
+    "摘要：/browser-test hash <spec.json | specs目录> [--registry <capability-registry.json>]",
     `JSON Schema：${schemaPath}`,
-    "默认注册表：<当前项目>/.pi/browser-test/capability-registry.json",
-    "此阶段只校验业务测试语义，不执行浏览器操作。",
+    `默认注册表：从当前目录向上查找 <项目>/${defaultRegistryRelativePath}`,
+    "此阶段只校验业务测试语义，不执行浏览器操作。目录批量只处理直接子级的 *.test-spec.json，不递归。",
   ].join("\n"));
+}
+
+export function formatBatch(action: "validate" | "hash", dirPath: string, registryPath: string, entries: BatchEntryResult[]): string {
+  const okEntries = entries.filter((entry) => entry.result?.ok);
+  const lines = [
+    `Test Spec 批量${action === "hash" ? "哈希" : "校验"}：${okEntries.length} 通过，${entries.length - okEntries.length} 失败（共 ${entries.length}）`,
+    `规范目录：${dirPath}`,
+    `能力注册表：${registryPath}`,
+  ];
+  for (const entry of entries) {
+    const name = basename(entry.file);
+    if (entry.result?.ok) {
+      lines.push(`✓ ${name}${action === "hash" && entry.result.hash ? ` ${entry.result.hash}` : ""}`);
+      continue;
+    }
+    lines.push(`✗ ${name}`);
+    if (entry.error) { lines.push(`  ${entry.error}`); continue; }
+    const issues = [...(entry.result?.schemaIssues ?? []), ...(entry.result?.semanticIssues ?? [])];
+    lines.push(...issueLines(issues).map((line) => line));
+  }
+  return clean(lines.join("\n"));
 }

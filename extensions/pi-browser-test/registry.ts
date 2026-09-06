@@ -21,7 +21,12 @@ function validateSchemaNode(value: unknown, path: string, fail: (path: string, m
     const types = Array.isArray(value.type) ? value.type : [value.type];
     if (!types.length || types.some((type) => typeof type !== "string" || !JSON_TYPES.has(type))) fail(`${path}/type`, "contains an unsupported JSON type");
   }
-  if (Object.hasOwn(value, "x-pi-valueKind") && !["FILE", "BINARY"].includes(String(value["x-pi-valueKind"]))) fail(`${path}/x-pi-valueKind`, "must be FILE or BINARY");
+  if (Object.hasOwn(value, "x-pi-valueKind")) {
+    if (!["FILE", "BINARY"].includes(String(value["x-pi-valueKind"]))) fail(`${path}/x-pi-valueKind`, "must be FILE or BINARY");
+    for (const keyword of ["type", "properties", "required", "items", "additionalProperties", "enum", "const"]) {
+      if (Object.hasOwn(value, keyword)) fail(`${path}/x-pi-valueKind`, `must be the only keyword on its schema node, found alongside ${keyword}`);
+    }
+  }
   if (Object.hasOwn(value, "properties")) {
     if (!record(value.properties)) fail(`${path}/properties`, "must be an object");
     else for (const [name, child] of Object.entries(value.properties)) validateSchemaNode(child, `${path}/properties/${name}`, fail);
@@ -40,6 +45,10 @@ export function parseCapabilityRegistry(input: unknown): { registry?: Capability
     fail("/contracts", "capability registry must contain a contracts array");
     return { issues };
   }
+  if (!input.contracts.length) {
+    fail("/contracts", "capability registry must contain at least one contract");
+    return { issues };
+  }
   const keys = new Set<string>();
   input.contracts.forEach((candidate, index) => {
     const path = `/contracts/${index}`;
@@ -49,7 +58,7 @@ export function parseCapabilityRegistry(input: unknown): { registry?: Capability
     if (!["NONE", "WRITE", "DESTRUCTIVE"].includes(String(candidate.sideEffect))) fail(`${path}/sideEffect`, "must be NONE, WRITE or DESTRUCTIVE");
     if (!["NONE", "READ", "WRITE"].includes(String(candidate.externalEffect))) fail(`${path}/externalEffect`, "must be NONE, READ or WRITE");
     if (!record(candidate.inputSchema) || candidate.inputSchema.type !== "object") fail(`${path}/inputSchema`, "must be an object Capability Schema");
-    validateSchemaNode(candidate.inputSchema, `${path}/inputSchema`, fail);
+    else validateSchemaNode(candidate.inputSchema, `${path}/inputSchema`, fail);
     validateSchemaNode(candidate.outputSchema, `${path}/outputSchema`, fail);
     const key = `${candidate.capabilityId}\0${candidate.contractVersionId}`;
     if (keys.has(key)) fail(path, "duplicates a capabilityId + contractVersionId pair");
@@ -72,7 +81,12 @@ export function schemaAtPointer(root: SchemaNode, pointer: string): SchemaNode |
       if (!/^(?:0|[1-9]\d*)$/.test(token)) return undefined;
       current = current.items;
     }
-    else current = current.properties?.[token];
+    else {
+      const byProperty = current.properties?.[token];
+      // Contracts that declare an open object output (additionalProperties as
+      // a schema) sanction every property name, so the path exists there too.
+      current = byProperty ?? (typeof current.additionalProperties === "object" ? current.additionalProperties : undefined);
+    }
   }
   return current;
 }

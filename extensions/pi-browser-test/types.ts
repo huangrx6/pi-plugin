@@ -117,3 +117,9 @@ export interface ValidationResult {
   canonical?: string;
   hash?: string;
 }
+
+export interface BatchEntryResult {
+  file: string;
+  result?: ValidationResult;
+  error?: string;
+}
