@@ -182,6 +182,8 @@ test("registers an agent-callable validation tool", async () => {
     { cwd: extensionRoot },
   );
   assert.equal(valid.details?.ok, true);
+  assert.equal(valid.details?.hash, "sha256:ccb4dfbeb8cc338c7facd2173c214f3657e6c07a3d49998c25534cbb9b2eb6c3");
+  assert.deepEqual(valid.details?.issues, []);
   assert.match(valid.content[0].text, /Test Spec 校验通过/);
   assert.match(valid.content[0].text, /TestSpecHash：sha256:/);
 
@@ -194,6 +196,10 @@ test("registers an agent-callable validation tool", async () => {
     const invalid = await tool.execute("t2", { path: spec, registry: resolve(extensionRoot, "examples/capability-registry.json") }, undefined, undefined, { cwd: scratch });
     assert.equal(invalid.details?.ok, false);
     assert.match(invalid.content[0].text, /SCHEMA \/revision/);
+    assert.match(invalid.content[0].text, /结构错误修复后将继续运行/);
+    const issues = invalid.details?.issues as Array<{ code: string; path: string; severity: string; message: string }>;
+    assert.ok(Array.isArray(issues) && issues.some((entry) => entry.code === "SCHEMA" && entry.path === "/revision"));
+    assert.equal(invalid.details?.hash, undefined);
 
     const missing = await tool.execute("t3", { path: spec, registry: join(scratch, "ghost-registry.json") }, undefined, undefined, { cwd: scratch });
     assert.equal(missing.details?.ok, false);
@@ -205,6 +211,38 @@ test("registers an agent-callable validation tool", async () => {
   const empty = await tool.execute("t4", {}, undefined, undefined, { cwd: extensionRoot });
   assert.equal(empty.details?.ok, false);
   assert.match(empty.content[0].text, /path is required/);
+});
+
+test("tool batch runs expose per-file structured reports", async () => {
+  let tool: any;
+  extension(makePi({ registerTool(definition: unknown) { tool = definition; } }));
+  const scratch = mkdtempSync(join(tmpdir(), "pi-browser-test-tool-batch-"));
+  try {
+    const example = JSON.parse(readFileSync(resolve(extensionRoot, "examples/document-upload.test-spec.json"), "utf8"));
+    cpSync(resolve(extensionRoot, "examples/fixtures"), join(scratch, "fixtures"), { recursive: true });
+    writeFileSync(join(scratch, "ok.test-spec.json"), JSON.stringify(example));
+    const broken = structuredClone(example);
+    broken.revision = 0;
+    writeFileSync(join(scratch, "broken.test-spec.json"), JSON.stringify(broken));
+    const result = await tool.execute(
+      "t5",
+      { path: scratch, registry: resolve(extensionRoot, "examples/capability-registry.json") },
+      undefined,
+      undefined,
+      { cwd: scratch },
+    );
+    assert.equal(result.details?.ok, false);
+    const files = result.details?.files as Array<{ file: string; ok: boolean; hash?: string; issues: Array<{ code: string }> }>;
+    assert.equal(files.length, 2);
+    const okFile = files.find((entry) => entry.file.endsWith("ok.test-spec.json"))!;
+    assert.equal(okFile.ok, true);
+    assert.match(okFile.hash!, /^sha256:[0-9a-f]{64}$/);
+    const brokenFile = files.find((entry) => entry.file.endsWith("broken.test-spec.json"))!;
+    assert.equal(brokenFile.ok, false);
+    assert.ok(brokenFile.issues.some((entry) => entry.code === "SCHEMA"));
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
 
 test("registry subcommand lints a Capability Registry directly", async () => {

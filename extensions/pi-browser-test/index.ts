@@ -6,7 +6,7 @@ import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@eare
 import { formatBatch, formatRegistry, formatUsage, formatValidation } from "./format.ts";
 import { parseCapabilityRegistry } from "./registry.ts";
 import { validateTestSpecWithFixtures } from "./validator.ts";
-import type { BatchEntryResult, ValidationResult } from "./types.ts";
+import type { BatchEntryResult, ValidationIssue, ValidationResult } from "./types.ts";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = resolve(ROOT, "schema/test-spec.schema.json");
@@ -128,6 +128,9 @@ async function validateBatch(action: "validate" | "hash", dirPath: string, regis
 export interface ValidationRunResult {
   ok: boolean;
   message: string;
+  issues: ValidationIssue[];
+  hash?: string;
+  files?: Array<{ file: string; ok: boolean; hash?: string; error?: string; issues: ValidationIssue[] }>;
 }
 
 export async function runValidation(action: "validate" | "hash", cwd: string, specArg: string, registryArg?: string): Promise<ValidationRunResult> {
@@ -140,15 +143,23 @@ export async function runValidation(action: "validate" | "hash", cwd: string, sp
   if (isDirectory) {
     const registry = await loadJsonFile(registryPath, "Capability Registry ", registryHint);
     const entries = await validateBatch(action, specPath, registry);
-    return { ok: entries.every((entry) => entry.result?.ok), message: formatBatch(action, specPath, registryPath, entries) };
+    const files = entries.map((entry) => ({
+      file: entry.file,
+      ok: !!entry.result?.ok,
+      hash: entry.result?.hash,
+      error: entry.error,
+      issues: entry.result ? [...entry.result.schemaIssues, ...entry.result.semanticIssues] : [],
+    }));
+    return { ok: files.every((file) => file.ok), message: formatBatch(action, specPath, registryPath, entries), issues: [], files };
   }
   const [spec, registry] = await Promise.all([
     loadJsonFile(specPath, "Test Spec "),
     loadJsonFile(registryPath, "Capability Registry ", registryHint),
   ]);
   const result: ValidationResult = await validateTestSpecWithFixtures(spec, registry, dirname(specPath));
-  if (action === "hash" && result.ok && result.hash) return { ok: true, message: result.hash };
-  return { ok: result.ok, message: formatValidation(result, specPath, registryPath) };
+  const issues: ValidationIssue[] = [...result.schemaIssues, ...result.semanticIssues];
+  if (action === "hash" && result.ok && result.hash) return { ok: true, message: result.hash, issues, hash: result.hash };
+  return { ok: result.ok, message: formatValidation(result, specPath, registryPath), issues, ...(result.hash ? { hash: result.hash } : {}) };
 }
 
 function validationErrorMessage(error: unknown): string {
@@ -213,7 +224,14 @@ export default function (pi: ExtensionAPI): void {
       try {
         const cwd = ctx?.cwd ?? process.cwd();
         const run = await runValidation("validate", cwd, specArg, params?.registry ? String(params.registry) : undefined);
-        return { content: [{ type: "text", text: run.message }], details: { ok: run.ok } };
+        return {
+          content: [{ type: "text", text: run.message }],
+          details: {
+            ok: run.ok,
+            ...(run.hash ? { hash: run.hash } : {}),
+            ...(run.files ? { files: run.files } : { issues: run.issues }),
+          },
+        };
       } catch (error) {
         return { content: [{ type: "text", text: validationErrorMessage(error) }], details: { ok: false } };
       }

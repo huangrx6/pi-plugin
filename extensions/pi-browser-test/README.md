@@ -50,7 +50,7 @@ pi install "$PWD"
 - `path`（必填）：Test Spec 文件，或包含 `*.test-spec.json` 的目录（批量，不递归）；
 - `registry`（可选）：Capability Registry 路径，缺省时从工作目录向上查找 `.pi/browser-test/capability-registry.json`。
 
-返回内容与命令一致（稳定错误码 + JSON Pointer，通过时含 `TestSpecHash`）。建议在写入或修改任何 Test Spec 后立即调用，并按错误码迭代直到通过再宣布完成。
+返回内容与命令一致（稳定错误码 + JSON Pointer，通过时含 `TestSpecHash`）。`details` 同时携带结构化结果：单文件为 `ok` / `issues[]`（code、path、severity、message）/ `hash`，目录批量为 `ok` / `files[]`（逐文件 ok、issues、hash）。建议在写入或修改任何 Test Spec 后立即调用，并按错误码迭代直到通过再宣布完成。
 
 ## Test Spec 边界
 

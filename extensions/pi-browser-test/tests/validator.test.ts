@@ -343,6 +343,23 @@ test("input keys and literal payload keys cannot ride the prototype chain", asyn
   assert.ok(validateTestSpec(smuggledLiteral, registry).semanticIssues.some((entry) => entry.code === "TS-006" && entry.path.endsWith("/input/metadata/literal/constructor")));
 });
 
+test("TS-006 type mismatches name the offending expression origin", async () => {
+  const [base, registry] = await fixtures;
+  const fromFixture = structuredClone(base);
+  fromFixture.steps[1]!.input.documentId = { fixtureRef: "fixture_sample_pdf" };
+  assert.ok(validateTestSpec(fromFixture, registry).semanticIssues.some((entry) => entry.code === "TS-006" && /value type FILE \(fixture fixture_sample_pdf\)/.test(entry.message)));
+
+  const fromStep = structuredClone(base);
+  const fromStepRegistry = structuredClone(registry);
+  const uploadContract = fromStepRegistry.contracts.find((entry) => entry.capabilityId === "cap_document_upload")!;
+  uploadContract.outputSchema.properties!.chapterCount = { type: "integer" };
+  const probeSource = fromStep.assertions[0]!.source;
+  if (probeSource.type === "CAPABILITY_RESULT") {
+    probeSource.probe.input.documentId = { stepOutputRef: { stepId: "step_upload", path: "/chapterCount" } };
+  }
+  assert.ok(validateTestSpec(fromStep, fromStepRegistry).semanticIssues.some((entry) => entry.code === "TS-006" && /value type integer \(step step_upload output \/chapterCount\)/.test(entry.message)));
+});
+
 test("published Capability Registry Schema agrees with the runtime parser", async () => {
   const [, base] = await fixtures;
   const schema = await readJson("schema/capability-registry.schema.json");

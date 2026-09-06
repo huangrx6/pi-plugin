@@ -25,6 +25,7 @@ export function formatValidation(result: ValidationResult, specPath: string, reg
   if (result.hash) lines.push(`TestSpecHash：${result.hash}`);
   if (errors.length) lines.push(`错误 ${errors.length}：`, ...issueLines(errors));
   if (warnings.length) lines.push(`警告 ${warnings.length}：`, ...issueLines(warnings));
+  if (result.schemaIssues.length) lines.push("提示：结构错误修复后将继续运行语义、Capability 与 Fixture 校验。");
   if (result.ok && !warnings.length) lines.push("JSON Schema 结构与 TS-001～TS-015 语义规则均通过。");
   return clean(lines.join("\n"));
 }

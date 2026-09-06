@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 - 2026-09-06
+
+- Return structured reports from the `browser_test` tool: `details.issues` (code/path/severity/message) and `details.hash` for single specs, `details.files` with per-file reports for directory batches, so agent iteration no longer parses formatted text.
+- Name the offending expression origin in TS-006 type mismatches (`fixture <id>`, `step <id> output <pointer>`), removing the need to cross-reference the spec when fixing.
+- Tell the reader that semantic, Capability and Fixture layers still run after structural errors are fixed, instead of silently deferring them.
+
 ## 0.4.1 - 2026-09-06
 
 - Fix prototype-chain false negatives: output pointer tokens, capability input keys and literal payload keys named after `Object.prototype` members (`toString`, `constructor`, `hasOwnProperty`, …) resolved to inherited values and skipped the TS-006/TS-007 closed-object checks; all schema property lookups are own-only now.

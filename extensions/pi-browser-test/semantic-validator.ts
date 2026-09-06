@@ -229,7 +229,12 @@ function validateCall(
     const propertySchema = isDeclaredInput(name) ? inputProperties![name] : undefined;
     const expected = schemaTypes(propertySchema);
     const actual = expressionTypes(expression, fixtures, steps, contracts);
-    if (!compatible(actual, expected)) add(issues, "TS-006", `${path}/input/${name}`, `value type ${actual.join("|") || "unknown"} is incompatible with contract type ${expected.join("|") || "unknown"}`);
+    const origin = "fixtureRef" in expression
+      ? ` (fixture ${expression.fixtureRef})`
+      : "stepOutputRef" in expression
+        ? ` (step ${expression.stepOutputRef.stepId} output ${expression.stepOutputRef.path})`
+        : "";
+    if (!compatible(actual, expected)) add(issues, "TS-006", `${path}/input/${name}`, `value type ${actual.join("|") || "unknown"}${origin} is incompatible with contract type ${expected.join("|") || "unknown"}`);
     if ("literal" in expression) validateLiteralAgainstSchema(expression.literal, propertySchema, `${path}/input/${name}/literal`, issues);
   }
   return contract;
