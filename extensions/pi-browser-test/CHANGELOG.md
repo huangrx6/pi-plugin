@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0 - 2026-09-06
+
+- Register the `browser_test` agent tool so pi agents can validate Test Specs inside the session and iterate on stable TS-XXX codes; it shares one `runValidation` path with the `/browser-test` command and stays read-only.
+
 ## 0.2.0 - 2026-09-06
 
 - Emit command results to stdout in headless sessions (`pi -p`, JSON mode) instead of dropping them silently; hard failures now report at `error` level.

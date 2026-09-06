@@ -24,6 +24,21 @@ declare module "@earendil-works/pi-coding-agent" {
 
   export interface ExtensionAPI {
     registerCommand(name: string, options: { description: string; handler: (args: string, ctx: ExtensionContext) => unknown }): void;
+    registerTool(definition: {
+      name: string;
+      label?: string;
+      description: string;
+      promptSnippet?: string;
+      promptGuidelines?: string[];
+      parameters: unknown;
+      execute: (
+        toolCallId: string,
+        params: any,
+        signal: AbortSignal,
+        onUpdate: ((chunk: unknown) => void) | undefined,
+        ctx: any,
+      ) => Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown }>;
+    }): void;
   }
 
   export declare const CONFIG_DIR_NAME: string;

@@ -117,6 +117,50 @@ async function validateBatch(action: "validate" | "hash", dirPath: string, regis
   }));
 }
 
+export interface ValidationRunResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function runValidation(action: "validate" | "hash", cwd: string, specArg: string, registryArg?: string): Promise<ValidationRunResult> {
+  const specPath = resolve(cwd, specArg);
+  const registryPath = registryArg ? resolve(cwd, registryArg) : findDefaultRegistry(cwd);
+  const registryHint = registryArg
+    ? undefined
+    : `未在 ${cwd} 及其上级目录找到 ${DEFAULT_REGISTRY_RELATIVE_PATH}，可用 --registry <path> 显式指定 Capability Registry。`;
+  const isDirectory = await stat(specPath).then((stats) => stats.isDirectory()).catch(() => false);
+  if (isDirectory) {
+    const registry = await loadJsonFile(registryPath, "Capability Registry ", registryHint);
+    const entries = await validateBatch(action, specPath, registry);
+    return { ok: entries.every((entry) => entry.result?.ok), message: formatBatch(action, specPath, registryPath, entries) };
+  }
+  const [spec, registry] = await Promise.all([
+    loadJsonFile(specPath, "Test Spec "),
+    loadJsonFile(registryPath, "Capability Registry ", registryHint),
+  ]);
+  const result: ValidationResult = await validateTestSpecWithFixtures(spec, registry, dirname(specPath));
+  if (action === "hash" && result.ok && result.hash) return { ok: true, message: result.hash };
+  return { ok: result.ok, message: formatValidation(result, specPath, registryPath) };
+}
+
+function validationErrorMessage(error: unknown): string {
+  const lines = [`Browser Test 未完成：${error instanceof Error ? error.message : String(error)}`];
+  if (error instanceof MissingJsonFileError && error.hint) lines.push(error.hint);
+  return lines.join("\n");
+}
+
+const TOOL_NAME = "browser_test";
+
+const VALIDATE_TOOL_PARAMS = {
+  type: "object",
+  properties: {
+    path: { type: "string", description: "Test Spec JSON file, or a directory whose direct children *.test-spec.json are validated as a batch" },
+    registry: { type: "string", description: "Optional Capability Registry JSON path; defaults to .pi/browser-test/capability-registry.json searched upward from the working directory" },
+  },
+  required: ["path"],
+  additionalProperties: false,
+};
+
 export default function (pi: ExtensionAPI): void {
   pi.registerCommand("browser-test", {
     description: "校验 Test Spec v1.0 业务语义、Capability Contract 引用与稳定哈希，支持单文件或目录批量。",
@@ -125,30 +169,34 @@ export default function (pi: ExtensionAPI): void {
         const parsed = parseCommand(String(args ?? ""));
         if (!parsed || parsed.action === "help") { notify(ctx, formatUsage(SCHEMA_PATH, DEFAULT_REGISTRY_RELATIVE_PATH)); return; }
         const cwd = ctx?.cwd ?? process.cwd();
-        const specPath = resolve(cwd, parsed.specPath);
-        const registryPath = parsed.registryPath ? resolve(cwd, parsed.registryPath) : findDefaultRegistry(cwd);
-        const registryHint = parsed.registryPath
-          ? undefined
-          : `未在 ${cwd} 及其上级目录找到 ${DEFAULT_REGISTRY_RELATIVE_PATH}，可用 --registry <path> 显式指定 Capability Registry。`;
-        const isDirectory = await stat(specPath).then((stats) => stats.isDirectory()).catch(() => false);
-        if (isDirectory) {
-          const registry = await loadJsonFile(registryPath, "Capability Registry ", registryHint);
-          const entries = await validateBatch(parsed.action, specPath, registry);
-          notify(ctx, formatBatch(parsed.action, specPath, registryPath, entries), entries.every((entry) => entry.result?.ok) ? "info" : "warning");
-          return;
-        }
-        const [spec, registry] = await Promise.all([
-          loadJsonFile(specPath, "Test Spec "),
-          loadJsonFile(registryPath, "Capability Registry ", registryHint),
-        ]);
-        const result: ValidationResult = await validateTestSpecWithFixtures(spec, registry, dirname(specPath));
-        if (parsed.action === "hash" && result.ok && result.hash) notify(ctx, result.hash, "info");
-        else notify(ctx, formatValidation(result, specPath, registryPath), result.ok ? "info" : "warning");
+        const run = await runValidation(parsed.action, cwd, parsed.specPath, parsed.registryPath);
+        notify(ctx, run.message, run.ok ? "info" : "warning");
       } catch (error) {
-        const lines = [`Browser Test 未完成：${error instanceof Error ? error.message : String(error)}`];
-        if (error instanceof MissingJsonFileError && error.hint) lines.push(error.hint);
-        lines.push(formatUsage(SCHEMA_PATH, DEFAULT_REGISTRY_RELATIVE_PATH));
-        notify(ctx, lines.join("\n"), "error");
+        notify(ctx, `${validationErrorMessage(error)}\n${formatUsage(SCHEMA_PATH, DEFAULT_REGISTRY_RELATIVE_PATH)}`, "error");
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: TOOL_NAME,
+    label: "Browser Test",
+    description: "Validate business-level browser Test Spec v1.0 files (or a directory of *.test-spec.json as a batch) against the frozen schema, semantic rules TS-001..TS-015, fixture integrity and a Capability Registry. Returns stable error codes with JSON Pointer paths, or the TestSpecHash when valid.",
+    promptSnippet: "Validate Test Spec v1.0 files or directories against Capability Contracts",
+    promptGuidelines: [
+      "Use browser_test after creating or editing any *.test-spec.json file, and iterate on the reported TS-XXX codes until validation passes before claiming the test spec is ready.",
+    ],
+    parameters: VALIDATE_TOOL_PARAMS,
+    execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+      const specArg = String(params?.path ?? "").trim();
+      if (!specArg) {
+        return { content: [{ type: "text", text: "path is required: a Test Spec JSON file or a directory of *.test-spec.json files." }], details: { ok: false } };
+      }
+      try {
+        const cwd = ctx?.cwd ?? process.cwd();
+        const run = await runValidation("validate", cwd, specArg, params?.registry ? String(params.registry) : undefined);
+        return { content: [{ type: "text", text: run.message }], details: { ok: run.ok } };
+      } catch (error) {
+        return { content: [{ type: "text", text: validationErrorMessage(error) }], details: { ok: false } };
       }
     },
   });

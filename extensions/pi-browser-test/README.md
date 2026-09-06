@@ -43,6 +43,15 @@ pi install "$PWD"
 
 路径包含空格时使用单引号或双引号。
 
+## Agent 工具
+
+扩展同时注册 `browser_test` 工具，pi agent 可以在会话中直接调用，与 `/browser-test validate` 完全同源：
+
+- `path`（必填）：Test Spec 文件，或包含 `*.test-spec.json` 的目录（批量，不递归）；
+- `registry`（可选）：Capability Registry 路径，缺省时从工作目录向上查找 `.pi/browser-test/capability-registry.json`。
+
+返回内容与命令一致（稳定错误码 + JSON Pointer，通过时含 `TestSpecHash`）。建议在写入或修改任何 Test Spec 后立即调用，并按错误码迭代直到通过再宣布完成。
+
 ## Test Spec 边界
 
 Test Spec 表达长期稳定的业务测试语义：

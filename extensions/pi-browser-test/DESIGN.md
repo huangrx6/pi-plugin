@@ -28,9 +28,9 @@ Invalid input never receives a hash. A hash therefore identifies a structurally 
 | `fixture-validator.ts` | Local asset containment, readability and SHA-256 verification |
 | `canonical.ts` | Schema-aware ordering and stable hash |
 | `validator.ts` | Validation orchestration |
-| `index.ts` | Pi command adapter only; a directory argument batches sibling `*.test-spec.json` files, non-recursive |
+| `index.ts` | Pi command adapter (command + `browser_test` agent tool) sharing one runValidation path; a directory argument batches sibling `*.test-spec.json` files, non-recursive |
 
-The core modules do not import Pi. The runtime adapter reads files explicitly named by the user and only reports results.
+The core modules do not import Pi. The runtime adapter reads files explicitly named by the user or agent and only reports results.
 
 ## Frozen decisions
 

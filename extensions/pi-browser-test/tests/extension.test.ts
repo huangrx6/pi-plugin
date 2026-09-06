@@ -22,6 +22,13 @@ test("command parser supports quoted paths and an explicit registry", () => {
   assert.throws(() => parseCommand("validate test.json --registry="), /缺少文件路径/);
 });
 
+function makePi(handlers: { registerCommand?: (name: string, definition: unknown) => void; registerTool?: (definition: unknown) => void }): any {
+  return {
+    registerCommand: handlers.registerCommand ?? (() => {}),
+    registerTool: handlers.registerTool ?? (() => {}),
+  };
+}
+
 const extensionRoot = resolve(import.meta.dirname, "..");
 
 function makeContext(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
@@ -43,10 +50,10 @@ async function captureConsoleLog(run: () => Promise<void> | void): Promise<strin
 
 test("extension registers one read-only command and validates the example", async () => {
   let command: any;
-  extension({ registerCommand(name: string, definition: unknown) {
+  extension(makePi({ registerCommand(name: string, definition: unknown) {
     assert.equal(name, "browser-test");
     command = definition;
-  } } as any);
+  } }));
   assert.ok(command);
   const messages: Array<{ message: string; level: string }> = [];
   await command.handler(
@@ -60,7 +67,7 @@ test("extension registers one read-only command and validates the example", asyn
 
 test("command output falls back to stdout when the session has no UI", async () => {
   let command: any;
-  extension({ registerCommand(_name: string, definition: unknown) { command = definition; } } as any);
+  extension(makePi({ registerCommand(_name: string, definition: unknown) { command = definition; } }));
   const logs = await captureConsoleLog(() => command.handler(
     "hash examples/document-upload.test-spec.json --registry examples/capability-registry.json",
     makeContext({ hasUI: false, ui: { notify() { throw new Error("notify must not be used without a UI"); } } }),
@@ -79,7 +86,7 @@ test("notify keeps working when the host presentation throws", async () => {
 
 test("missing and malformed files report their role and path", async () => {
   let command: any;
-  extension({ registerCommand(_name: string, definition: unknown) { command = definition; } } as any);
+  extension(makePi({ registerCommand(_name: string, definition: unknown) { command = definition; } }));
   const messages: string[] = [];
   const ctx = makeContext({ ui: { notify(message: string) { messages.push(message); } } });
 
@@ -102,7 +109,7 @@ test("missing and malformed files report their role and path", async () => {
 
 test("default registry search explains itself when nothing is found", async () => {
   let command: any;
-  extension({ registerCommand(_name: string, definition: unknown) { command = definition; } } as any);
+  extension(makePi({ registerCommand(_name: string, definition: unknown) { command = definition; } }));
   const messages: string[] = [];
   const scratch = mkdtempSync(join(tmpdir(), "pi-browser-test-empty-"));
   try {
@@ -144,7 +151,7 @@ test("MissingJsonFileError carries an optional hint", () => {
 
 test("help prints usage without touching any file", async () => {
   let command: any;
-  extension({ registerCommand(_name: string, definition: unknown) { command = definition; } } as any);
+  extension(makePi({ registerCommand(_name: string, definition: unknown) { command = definition; } }));
   const messages: string[] = [];
   await command.handler(
     "help",
@@ -154,9 +161,49 @@ test("help prints usage without touching any file", async () => {
   assert.match(messages.at(-1)!, /此阶段只校验业务测试语义/);
 });
 
+test("registers an agent-callable validation tool", async () => {
+  let tool: any;
+  extension(makePi({ registerTool(definition: unknown) { tool = definition; } }));
+  assert.equal(tool.name, "browser_test");
+  assert.match(tool.description, /TS-001\.\.TS-015/);
+  assert.deepEqual(tool.parameters.required, ["path"]);
+
+  const valid = await tool.execute(
+    "t1",
+    { path: "examples/document-upload.test-spec.json", registry: "examples/capability-registry.json" },
+    undefined,
+    undefined,
+    { cwd: extensionRoot },
+  );
+  assert.equal(valid.details?.ok, true);
+  assert.match(valid.content[0].text, /Test Spec 校验通过/);
+  assert.match(valid.content[0].text, /TestSpecHash：sha256:/);
+
+  const scratch = mkdtempSync(join(tmpdir(), "pi-browser-test-tool-"));
+  try {
+    const example = JSON.parse(readFileSync(resolve(extensionRoot, "examples/document-upload.test-spec.json"), "utf8"));
+    example.revision = 0;
+    const spec = join(scratch, "bad.test-spec.json");
+    writeFileSync(spec, JSON.stringify(example));
+    const invalid = await tool.execute("t2", { path: spec, registry: resolve(extensionRoot, "examples/capability-registry.json") }, undefined, undefined, { cwd: scratch });
+    assert.equal(invalid.details?.ok, false);
+    assert.match(invalid.content[0].text, /SCHEMA \/revision/);
+
+    const missing = await tool.execute("t3", { path: spec, registry: join(scratch, "ghost-registry.json") }, undefined, undefined, { cwd: scratch });
+    assert.equal(missing.details?.ok, false);
+    assert.match(missing.content[0].text, /Capability Registry 文件不存在/);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+
+  const empty = await tool.execute("t4", {}, undefined, undefined, { cwd: extensionRoot });
+  assert.equal(empty.details?.ok, false);
+  assert.match(empty.content[0].text, /path is required/);
+});
+
 test("directory arguments validate every sibling test spec", async () => {
   let command: any;
-  extension({ registerCommand(_name: string, definition: unknown) { command = definition; } } as any);
+  extension(makePi({ registerCommand(_name: string, definition: unknown) { command = definition; } }));
   const scratch = mkdtempSync(join(tmpdir(), "pi-browser-test-batch-"));
   try {
     const example = JSON.parse(readFileSync(resolve(extensionRoot, "examples/document-upload.test-spec.json"), "utf8"));
