@@ -124,6 +124,14 @@ Registry 是验证时输入，不嵌入 Test Spec。每个 Contract 至少包含
 
 v0.1.0 的 Capability Schema 使用明确的最小子集：`type`、`properties`、`required`、`items`、`additionalProperties`、`enum`、`const` 和 `x-pi-valueKind`。出现未实现的 Schema 关键字会直接报告 Registry 错误，不会静默忽略后误判为通过。
 
+注册表同样是封闭对象：顶层与每个 Contract 的未知字段都会被拒绝。正式 JSON Schema 位于 [`schema/capability-registry.schema.json`](schema/capability-registry.schema.json)，`capabilityId + contractVersionId` 组合唯一性属于语义规则，只由运行时校验。单独检查注册表文件：
+
+```text
+/browser-test registry path/to/capability-registry.json
+```
+
+省略路径时检查向上查找命中的默认注册表。
+
 Assertion 与 Precondition Probe 必须引用 `QUERY`，并同时满足 `sideEffect=NONE`、`externalEffect=NONE`。
 
 ## Canonicalization 与哈希

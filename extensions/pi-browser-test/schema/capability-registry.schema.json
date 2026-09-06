@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pi-browser-test.local/schema/capability-registry/1.0.0",
+  "title": "Pi Browser Test - Capability Registry Schema v1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contracts"],
+  "properties": {
+    "contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contract" }
+    }
+  },
+  "$defs": {
+    "stableId": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9._:-]{2,127}$" },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capabilityId", "contractVersionId", "kind", "sideEffect", "externalEffect", "inputSchema", "outputSchema"],
+      "properties": {
+        "capabilityId": { "$ref": "#/$defs/stableId" },
+        "contractVersionId": { "$ref": "#/$defs/stableId" },
+        "kind": { "enum": ["ACTION", "QUERY"] },
+        "sideEffect": { "enum": ["NONE", "WRITE", "DESTRUCTIVE"] },
+        "externalEffect": { "enum": ["NONE", "READ", "WRITE"] },
+        "inputSchema": {
+          "allOf": [
+            { "$ref": "#/$defs/capabilitySchemaNode" },
+            { "required": ["type"], "properties": { "type": { "const": "object" } } }
+          ]
+        },
+        "outputSchema": { "$ref": "#/$defs/capabilitySchemaNode" }
+      }
+    },
+    "capabilitySchemaNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "anyOf": [
+            { "type": "string", "enum": ["null", "boolean", "integer", "number", "string", "array", "object"] },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "enum": ["null", "boolean", "integer", "number", "string", "array", "object"] }
+            }
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/capabilitySchemaNode" }
+        },
+        "required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string" }
+        },
+        "items": { "$ref": "#/$defs/capabilitySchemaNode" },
+        "additionalProperties": {
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/capabilitySchemaNode" }
+          ]
+        },
+        "enum": { "type": "array", "minItems": 1 },
+        "const": {},
+        "x-pi-valueKind": { "enum": ["FILE", "BINARY"] }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["x-pi-valueKind"] },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["type"] },
+                { "required": ["properties"] },
+                { "required": ["required"] },
+                { "required": ["items"] },
+                { "required": ["additionalProperties"] },
+                { "required": ["enum"] },
+                { "required": ["const"] }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

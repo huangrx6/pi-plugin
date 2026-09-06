@@ -29,11 +29,22 @@ export function formatValidation(result: ValidationResult, specPath: string, reg
   return clean(lines.join("\n"));
 }
 
+export function formatRegistry(registryPath: string, issues: ValidationIssue[]): string {
+  const lines = [
+    issues.length ? "Capability Registry 校验失败" : "Capability Registry 校验通过",
+    `注册表：${registryPath}`,
+  ];
+  if (issues.length) lines.push(`错误 ${issues.length}：`, ...issueLines(issues));
+  else lines.push("Contract 结构、封闭字段与 Capability Schema 子集均通过。");
+  return clean(lines.join("\n"));
+}
+
 export function formatUsage(schemaPath: string, defaultRegistryRelativePath: string): string {
   return clean([
     "Pi Browser Test · Test Spec v1.0",
     "校验：/browser-test validate <spec.json | specs目录> [--registry <capability-registry.json>]",
     "摘要：/browser-test hash <spec.json | specs目录> [--registry <capability-registry.json>]",
+    "注册表：/browser-test registry [<capability-registry.json>]",
     `JSON Schema：${schemaPath}`,
     `默认注册表：从当前目录向上查找 <项目>/${defaultRegistryRelativePath}`,
     "此阶段只校验业务测试语义，不执行浏览器操作。目录批量只处理直接子级的 *.test-spec.json，不递归。",

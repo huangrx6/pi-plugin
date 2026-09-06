@@ -24,7 +24,7 @@ Invalid input never receives a hash. A hash therefore identifies a structurally 
 | `schema/test-spec.schema.json` | Published Draft 2020-12 contract |
 | `schema-validator.ts` | Dependency-free runtime enforcement of the frozen structural contract |
 | `semantic-validator.ts` | TS-001 through TS-015 cross-reference and contract rules |
-| `registry.ts` | Capability Registry boundary and output-schema lookup |
+| `registry.ts` | Capability Registry boundary, output-schema lookup and closed-object enforcement; published contract in `schema/capability-registry.schema.json` |
 | `fixture-validator.ts` | Local asset containment, readability and SHA-256 verification |
 | `canonical.ts` | Schema-aware ordering and stable hash |
 | `validator.ts` | Validation orchestration |

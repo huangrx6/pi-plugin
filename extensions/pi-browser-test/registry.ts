@@ -38,6 +38,9 @@ function validateSchemaNode(value: unknown, path: string, fail: (path: string, m
   if (Object.hasOwn(value, "const") && !jsonValue(value.const)) fail(`${path}/const`, "must be a JSON value");
 }
 
+const REGISTRY_KEYS = new Set(["contracts"]);
+const CONTRACT_KEYS = new Set(["capabilityId", "contractVersionId", "kind", "sideEffect", "externalEffect", "inputSchema", "outputSchema"]);
+
 export function parseCapabilityRegistry(input: unknown): { registry?: CapabilityRegistry; issues: ValidationIssue[] } {
   const issues: ValidationIssue[] = [];
   const fail = (path: string, message: string) => issues.push({ code: "REGISTRY", path, severity: "error" as const, message });
@@ -45,6 +48,7 @@ export function parseCapabilityRegistry(input: unknown): { registry?: Capability
     fail("/contracts", "capability registry must contain a contracts array");
     return { issues };
   }
+  for (const key of Object.keys(input)) if (!REGISTRY_KEYS.has(key)) fail(`/${key}`, "is not allowed at the registry top level");
   if (!input.contracts.length) {
     fail("/contracts", "capability registry must contain at least one contract");
     return { issues };
@@ -53,6 +57,7 @@ export function parseCapabilityRegistry(input: unknown): { registry?: Capability
   input.contracts.forEach((candidate, index) => {
     const path = `/contracts/${index}`;
     if (!record(candidate)) { fail(path, "contract must be an object"); return; }
+    for (const key of Object.keys(candidate)) if (!CONTRACT_KEYS.has(key)) fail(`${path}/${key}`, "is not allowed on a capability contract");
     for (const key of ["capabilityId", "contractVersionId"]) if (typeof candidate[key] !== "string" || !candidate[key]) fail(`${path}/${key}`, "must be a non-empty string");
     if (!["ACTION", "QUERY"].includes(String(candidate.kind))) fail(`${path}/kind`, "must be ACTION or QUERY");
     if (!["NONE", "WRITE", "DESTRUCTIVE"].includes(String(candidate.sideEffect))) fail(`${path}/sideEffect`, "must be NONE, WRITE or DESTRUCTIVE");

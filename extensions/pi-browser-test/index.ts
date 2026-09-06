@@ -3,7 +3,8 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { formatBatch, formatUsage, formatValidation } from "./format.ts";
+import { formatBatch, formatRegistry, formatUsage, formatValidation } from "./format.ts";
+import { parseCapabilityRegistry } from "./registry.ts";
 import { validateTestSpecWithFixtures } from "./validator.ts";
 import type { BatchEntryResult, ValidationResult } from "./types.ts";
 
@@ -37,6 +38,7 @@ function tokenize(input: string): string[] {
 
 export type ParsedCommand =
   | { action: "help" }
+  | { action: "registry"; registryPath?: string }
   | { action: "validate" | "hash"; specPath: string; registryPath?: string };
 
 export function parseCommand(args: string): ParsedCommand | undefined {
@@ -44,7 +46,13 @@ export function parseCommand(args: string): ParsedCommand | undefined {
   if (!tokens.length) return;
   const action = tokens.shift()!;
   if (action === "help" || action === "--help" || action === "-h") return { action: "help" };
-  if (action !== "validate" && action !== "hash") throw new Error("仅支持 validate 或 hash");
+  if (action === "registry") {
+    const registryPath = tokens.shift();
+    if (registryPath?.startsWith("--")) throw new Error(`未知参数：${registryPath}`);
+    if (tokens.length) throw new Error(`未知参数：${tokens[0]}`);
+    return { action: "registry", registryPath };
+  }
+  if (action !== "validate" && action !== "hash") throw new Error("仅支持 validate、hash 或 registry");
   const specPath = tokens.shift();
   if (!specPath) throw new Error("缺少 Test Spec 文件路径");
   let registryPath: string | undefined;
@@ -169,6 +177,17 @@ export default function (pi: ExtensionAPI): void {
         const parsed = parseCommand(String(args ?? ""));
         if (!parsed || parsed.action === "help") { notify(ctx, formatUsage(SCHEMA_PATH, DEFAULT_REGISTRY_RELATIVE_PATH)); return; }
         const cwd = ctx?.cwd ?? process.cwd();
+        if (parsed.action === "registry") {
+          const registryPath = parsed.registryPath ? resolve(cwd, parsed.registryPath) : findDefaultRegistry(cwd);
+          const registry = await loadJsonFile(
+            registryPath,
+            "Capability Registry ",
+            parsed.registryPath ? undefined : `未在 ${cwd} 及其上级目录找到 ${DEFAULT_REGISTRY_RELATIVE_PATH}，可显式给出注册表路径。`,
+          );
+          const issues = parseCapabilityRegistry(registry).issues;
+          notify(ctx, formatRegistry(registryPath, issues), issues.length ? "warning" : "info");
+          return;
+        }
         const run = await runValidation(parsed.action, cwd, parsed.specPath, parsed.registryPath);
         notify(ctx, run.message, run.ok ? "info" : "warning");
       } catch (error) {

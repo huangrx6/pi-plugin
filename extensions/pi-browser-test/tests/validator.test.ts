@@ -9,6 +9,7 @@ import test from "node:test";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { canonicalizeTestSpec, testSpecHash } from "../canonical.ts";
 import { validateFixtureIntegrity } from "../fixture-validator.ts";
+import { parseCapabilityRegistry } from "../registry.ts";
 import { validateTestSpecSchema } from "../schema-validator.ts";
 import type { CapabilityRegistry, TestSpec } from "../types.ts";
 import { validateTestSpec, validateTestSpecWithFixtures } from "../validator.ts";
@@ -303,6 +304,56 @@ test("x-pi-valueKind must not be combined with other schema keywords", async () 
   upload.inputSchema.properties!.file = { type: "string", "x-pi-valueKind": "FILE" } as never;
   const issues = validateTestSpec(spec, mixed).semanticIssues.filter((entry) => entry.code === "REGISTRY");
   assert.ok(issues.some((entry) => entry.path.endsWith("/properties/file/x-pi-valueKind") && /only keyword/.test(entry.message)));
+});
+
+test("unknown registry and contract fields fail closed", async () => {
+  const [, registryInput] = await fixtures;
+  const extraTop = { contracts: structuredClone(registryInput.contracts), version: 2 };
+  assert.ok(parseCapabilityRegistry(extraTop).issues.some((entry) => entry.path === "/version"));
+
+  const extraContract = structuredClone(registryInput);
+  (extraContract.contracts[0] as unknown as Record<string, unknown>).owner = "someone";
+  assert.ok(parseCapabilityRegistry(extraContract).issues.some((entry) => entry.path.endsWith("/contracts/0/owner")));
+});
+
+test("published Capability Registry Schema agrees with the runtime parser", async () => {
+  const [, base] = await fixtures;
+  const schema = await readJson("schema/capability-registry.schema.json");
+  // strict: false — the x-pi-valueKind exclusivity uses the standard if/then
+  // idiom, which ajv's strictRequired pedantry flags because the "if"
+  // subschema does not redeclare the property locally.
+  const validate = new Ajv2020({ allErrors: true, strict: false }).compile(schema);
+  const brokenInputSchema = structuredClone(base);
+  (brokenInputSchema.contracts[0] as unknown as Record<string, unknown>).inputSchema = "not a schema";
+  const missingKind = structuredClone(base);
+  delete (missingKind.contracts[0] as unknown as Record<string, unknown>).kind;
+  const badSideEffect = structuredClone(base);
+  badSideEffect.contracts[0]!.sideEffect = "LOW" as never;
+  const unsupportedKeyword = structuredClone(base);
+  (unsupportedKeyword.contracts[0]!.inputSchema.properties!.file as unknown as Record<string, unknown>).anyOf = [{ "x-pi-valueKind": "FILE" }];
+  const mixedValueKind = structuredClone(base);
+  mixedValueKind.contracts[0]!.inputSchema.properties!.file = { type: "string", "x-pi-valueKind": "FILE" } as never;
+  const duplicated = structuredClone(base);
+  duplicated.contracts.push(structuredClone(duplicated.contracts[0]!));
+
+  const cases: Array<{ name: string; registry: unknown; runtimeOk: boolean; ajvOk: boolean }> = [
+    { name: "example registry", registry: base, runtimeOk: true, ajvOk: true },
+    { name: "empty contracts", registry: { contracts: [] }, runtimeOk: false, ajvOk: false },
+    { name: "missing contracts", registry: {}, runtimeOk: false, ajvOk: false },
+    { name: "unknown top-level key", registry: { contracts: base.contracts, version: 2 }, runtimeOk: false, ajvOk: false },
+    { name: "missing kind", registry: missingKind, runtimeOk: false, ajvOk: false },
+    { name: "bad sideEffect", registry: badSideEffect, runtimeOk: false, ajvOk: false },
+    { name: "unsupported schema keyword", registry: unsupportedKeyword, runtimeOk: false, ajvOk: false },
+    { name: "valueKind combined with type", registry: mixedValueKind, runtimeOk: false, ajvOk: false },
+    { name: "inputSchema not an object", registry: brokenInputSchema, runtimeOk: false, ajvOk: false },
+    // Compound-key uniqueness is semantic and cannot be expressed in JSON Schema;
+    // the runtime parser owns it, like TS-001 for the Test Spec.
+    { name: "duplicate contract pair", registry: duplicated, runtimeOk: false, ajvOk: true },
+  ];
+  for (const { name, registry, runtimeOk, ajvOk } of cases) {
+    assert.equal(parseCapabilityRegistry(registry).issues.length === 0, runtimeOk, `runtime drift on "${name}"`);
+    assert.equal(validate(registry) === true, ajvOk, `schema drift on "${name}"`);
+  }
 });
 
 test("published JSON Schema and the runtime validator agree across a mutation battery", async () => {

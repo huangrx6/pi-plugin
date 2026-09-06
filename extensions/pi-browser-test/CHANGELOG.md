@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 - 2026-09-06
+
+- Add the `/browser-test registry [<path>]` action to lint a Capability Registry directly; without a path it lints the registry found by the default upward search.
+- Publish `schema/capability-registry.schema.json` (Draft 2020-12) as the Capability Registry contract and guard it against runtime drift with an ajv case matrix; compound-key uniqueness stays a semantic-only runtime rule.
+- Fail closed on unknown fields at the registry top level and on capability contracts, matching the closed Test Spec model.
+
 ## 0.3.0 - 2026-09-06
 
 - Register the `browser_test` agent tool so pi agents can validate Test Specs inside the session and iterate on stable TS-XXX codes; it shares one `runValidation` path with the `/browser-test` command and stays read-only.

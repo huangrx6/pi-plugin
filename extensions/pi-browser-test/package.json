@@ -1,6 +1,6 @@
 {
   "name": "pi-browser-test",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Validate versioned business-level browser test specifications before capability planning and execution.",
   "license": "MIT",
   "type": "module",
