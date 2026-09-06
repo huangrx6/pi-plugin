@@ -87,7 +87,10 @@ export function schemaAtPointer(root: SchemaNode, pointer: string): SchemaNode |
       current = current.items;
     }
     else {
-      const byProperty = current.properties?.[token];
+      // Property lookups must stay own-only: inherited names such as
+      // "constructor" would otherwise resolve and skip TS-007.
+      const properties = current.properties;
+      const byProperty = properties && Object.hasOwn(properties, token) ? properties[token] : undefined;
       // Contracts that declare an open object output (additionalProperties as
       // a schema) sanction every property name, so the path exists there too.
       current = byProperty ?? (typeof current.additionalProperties === "object" ? current.additionalProperties : undefined);

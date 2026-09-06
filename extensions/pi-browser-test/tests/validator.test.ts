@@ -316,6 +316,33 @@ test("unknown registry and contract fields fail closed", async () => {
   assert.ok(parseCapabilityRegistry(extraContract).issues.some((entry) => entry.path.endsWith("/contracts/0/owner")));
 });
 
+test("output pointer tokens cannot ride the prototype chain", async () => {
+  const [base, registry] = await fixtures;
+  const spec = structuredClone(base);
+  spec.steps[1]!.input.documentId = { stepOutputRef: { stepId: "step_upload", path: "/constructor" } };
+  assert.ok(validateTestSpec(spec, registry).semanticIssues.some((entry) => entry.code === "TS-007" && entry.path.endsWith("/stepOutputRef/path")));
+
+  const hasOwn = structuredClone(base);
+  hasOwn.steps[1]!.input.documentId = { stepOutputRef: { stepId: "step_upload", path: "/hasOwnProperty" } };
+  assert.ok(validateTestSpec(hasOwn, registry).semanticIssues.some((entry) => entry.code === "TS-007"));
+});
+
+test("input keys and literal payload keys cannot ride the prototype chain", async () => {
+  const [base, registryInput] = await fixtures;
+  const registry = structuredClone(registryInput);
+  const upload = registry.contracts.find((entry) => entry.capabilityId === "cap_document_upload")!;
+  upload.inputSchema.properties!.metadata = { type: "object", additionalProperties: false, properties: {} };
+
+  const smuggledInput = structuredClone(base);
+  const inputRecord = smuggledInput.steps[0]!.input as unknown as Record<string, unknown>;
+  inputRecord["toString"] = { literal: "x" };
+  assert.ok(validateTestSpec(smuggledInput, registry).semanticIssues.some((entry) => entry.code === "TS-006" && entry.path.endsWith("/input/toString")));
+
+  const smuggledLiteral = structuredClone(base);
+  smuggledLiteral.steps[0]!.input.metadata = { literal: { constructor: "x" } };
+  assert.ok(validateTestSpec(smuggledLiteral, registry).semanticIssues.some((entry) => entry.code === "TS-006" && entry.path.endsWith("/input/metadata/literal/constructor")));
+});
+
 test("published Capability Registry Schema agrees with the runtime parser", async () => {
   const [, base] = await fixtures;
   const schema = await readJson("schema/capability-registry.schema.json");

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1 - 2026-09-06
+
+- Fix prototype-chain false negatives: output pointer tokens, capability input keys and literal payload keys named after `Object.prototype` members (`toString`, `constructor`, `hasOwnProperty`, …) resolved to inherited values and skipped the TS-006/TS-007 closed-object checks; all schema property lookups are own-only now.
+- Specify canonical key ordering as UTF-16 code unit order so cross-language hash reimplementations match.
+- Pin parser edge cases in tests (unterminated quotes, dangling `--registry`, leftover arguments) and the notify fallback without any context.
+
 ## 0.4.0 - 2026-09-06
 
 - Add the `/browser-test registry [<path>]` action to lint a Capability Registry directly; without a path it lints the registry found by the default upward search.

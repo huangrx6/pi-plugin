@@ -100,7 +100,10 @@ function validateLiteralAgainstSchema(value: JsonValue, schema: SchemaNode | und
   if (value && typeof value === "object" && !Array.isArray(value)) {
     for (const required of schema.required ?? []) if (!Object.hasOwn(value, required)) add(issues, "TS-006", `${path}/${required}`, "required literal object property is missing");
     for (const [key, child] of Object.entries(value)) {
-      const childSchema = schema.properties?.[key];
+      // Own-only lookup: inherited names such as "constructor" would resolve
+      // to Object.prototype members and skip the closed-object check.
+      const properties = schema.properties;
+      const childSchema = properties && Object.hasOwn(properties, key) ? properties[key] : undefined;
       if (!childSchema && schema.additionalProperties === false) add(issues, "TS-006", `${path}/${key}`, "literal object property is not allowed by the contract");
       else validateLiteralAgainstSchema(child, childSchema ?? (typeof schema.additionalProperties === "object" ? schema.additionalProperties : undefined), `${path}/${key}`, issues);
     }
@@ -216,10 +219,14 @@ function validateCall(
   if (role === "probe" && contract.kind !== "QUERY") add(issues, "TS-011", `${path}/capability`, "precondition and assertion probes must use a QUERY capability");
   if (role === "probe" && (contract.sideEffect !== "NONE" || contract.externalEffect !== "NONE")) add(issues, "TS-012", `${path}/capability`, "probe capability must have sideEffect=NONE and externalEffect=NONE");
   const inputSchema = contract.inputSchema;
+  // Own-only lookups: inherited names such as "toString" would otherwise
+  // appear declared and slip past additionalProperties: false.
+  const inputProperties = inputSchema.properties;
+  const isDeclaredInput = (name: string) => inputProperties !== undefined && Object.hasOwn(inputProperties, name);
   for (const required of inputSchema.required ?? []) if (!Object.hasOwn(call.input, required)) add(issues, "TS-006", `${path}/input/${required}`, "required capability input is missing");
-  if (inputSchema.additionalProperties === false) for (const name of Object.keys(call.input)) if (!inputSchema.properties?.[name]) add(issues, "TS-006", `${path}/input/${name}`, "input is not declared by the capability contract");
+  if (inputSchema.additionalProperties === false) for (const name of Object.keys(call.input)) if (!isDeclaredInput(name)) add(issues, "TS-006", `${path}/input/${name}`, "input is not declared by the capability contract");
   for (const [name, expression] of Object.entries(call.input)) {
-    const propertySchema = inputSchema.properties?.[name];
+    const propertySchema = isDeclaredInput(name) ? inputProperties![name] : undefined;
     const expected = schemaTypes(propertySchema);
     const actual = expressionTypes(expression, fixtures, steps, contracts);
     if (!compatible(actual, expected)) add(issues, "TS-006", `${path}/input/${name}`, `value type ${actual.join("|") || "unknown"} is incompatible with contract type ${expected.join("|") || "unknown"}`);

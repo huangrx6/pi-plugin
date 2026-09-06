@@ -85,7 +85,7 @@ Action positions should reference `ACTION`. Preconditions and assertion probes m
 
 ## Canonicalization
 
-Object keys use stable lexical ordering. Lifecycle arrays preserve source order. Set-semantic arrays use these rules:
+Object keys use stable lexical ordering: strings compare by UTF-16 code unit order (JavaScript `Array.prototype.sort` semantics). Reimplementations in other languages must match this comparator, not code-point order, for hashes to agree. Lifecycle arrays preserve source order. Set-semantic arrays use these rules:
 
 | Field | Canonical order |
 | --- | --- |

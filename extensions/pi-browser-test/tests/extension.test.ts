@@ -20,6 +20,9 @@ test("command parser supports quoted paths and an explicit registry", () => {
   assert.equal(parseCommand(""), undefined);
   assert.throws(() => parseCommand("run test.json"), /validate、hash 或 registry/);
   assert.throws(() => parseCommand("validate test.json --registry="), /缺少文件路径/);
+  assert.throws(() => parseCommand("validate test.json --registry"), /缺少文件路径/);
+  assert.throws(() => parseCommand("validate 'unterminated.json"), /引号未闭合/);
+  assert.throws(() => parseCommand("registry a.json extra.json"), /未知参数/);
 });
 
 function makePi(handlers: { registerCommand?: (name: string, definition: unknown) => void; registerTool?: (definition: unknown) => void }): any {
@@ -82,6 +85,9 @@ test("notify keeps working when the host presentation throws", async () => {
     "fallback message",
   ));
   assert.deepEqual(output, ["fallback message"]);
+
+  const headless = await captureConsoleLog(() => notify(undefined, "no context at all"));
+  assert.deepEqual(headless, ["no context at all"]);
 });
 
 test("missing and malformed files report their role and path", async () => {
