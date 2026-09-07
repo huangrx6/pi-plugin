@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   interpretTask,
+  interpretationContext,
   parseRecognitionResponse,
   validateInterpretation,
 } from "../src/core/interpretation.js";
@@ -228,12 +229,13 @@ test("disabled, missing key and oversized context make no network request", asyn
     ],
     [
       config({ maxContextChars: 1000 }),
-      { task: { goal: "a".repeat(1100) } },
+      { task: null, prompt: "a".repeat(1100) },
       "context_too_large",
     ],
   ]) {
+    const oversizedPrompt = reason === "context_too_large" ? "a".repeat(1100) : "继续";
     const r = await interpretTask({
-      prompt: "继续",
+      prompt: oversizedPrompt,
       state: context,
       config: cfg,
       fetcher: () => {
@@ -430,4 +432,96 @@ test("requestBody overrides reach the agent transport via samplingParams", async
   });
   assert.equal(result.reason, "contextual");
   assert.deepEqual(seen[0], { thinking: { type: "disabled" } });
+});
+
+// 0.35.1: the task ledger is append-only, so long tasks used to push the
+// recognition payload over maxContextChars permanently (verified live at
+// ~34k chars on the 智能文档解析平台 project — every turn failed with
+// context_too_large). The payload now shrinks through task tiers.
+
+test("oversized task ledger shrinks through tiers instead of failing", async () => {
+  const ledger = {
+    task: {
+      id: "t1",
+      goal: "解析导入的文档并修正字段校验",
+      requirements: Array.from({ length: 40 }, (_, i) => ({
+        text: `第${i}轮用户要求原文`.padEnd(1200, `详${i}`),
+        source: "user",
+        relation: "response",
+        planVersion: 3,
+      })),
+      constraints: Array.from({ length: 30 }, (_, i) => `不要修改第${i}个模块的公开接口`),
+      plan: {
+        goal: "分步修正",
+        steps: Array.from({ length: 8 }, (_, i) => ({
+          action: `步骤${i}：检查并修正校验逻辑`.padEnd(600, "细"),
+          verification: "跑回归",
+        })),
+      },
+      planVersion: 3,
+    },
+    phase: "executing",
+  };
+  const fullPayload = JSON.stringify(interpretationContext(ledger, "继续", []));
+  assert.ok(fullPayload.length > 48000, `ledger should overflow (got ${fullPayload.length})`);
+
+  const cfg = config({
+    source: "agent",
+    apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
+    timeoutMs: 15,
+    maxContextChars: 24000,
+  });
+  const result = await interpretTask({
+    prompt: "继续",
+    state: ledger,
+    config: cfg,
+    agentClassifier: {
+      model: "host/model",
+      complete: async ({ payload }) => {
+        // The request that ACTUALLY goes out must fit the budget.
+        assert.ok(payload.length <= 24000, `payload ${payload.length} > 24000`);
+        return JSON.stringify(valid);
+      },
+    },
+    fetcher: () => assert.fail("must not call endpoint"),
+  });
+  assert.equal(result.reason, "contextual");
+  assert.ok(["trim", "minimal"].includes(result.taskTier), `tier=${result.taskTier}`);
+  assert.ok(result.contextChars <= 24000);
+});
+
+test("interpretationContext tiers: full keeps everything, minimal caps hard", () => {
+  const state = {
+    task: {
+      id: "t1",
+      goal: "G".repeat(1000),
+      requirements: [{ text: "R".repeat(1000) }, { text: "latest" }],
+      constraints: ["C".repeat(1000)],
+      plan: { goal: "P", steps: [{ action: "A".repeat(1000), verification: "V" }] },
+      planVersion: 2,
+    },
+    phase: "planning",
+  };
+  const full = interpretationContext(state, "继续");
+  assert.equal(full.currentTask.requirements[0].text.length, 1000);
+  assert.equal(full.currentTask.plan.steps[0].action.length, 1000);
+
+  const minimal = interpretationContext(state, "继续", [], "minimal");
+  assert.ok(minimal.currentTask.goal.length <= 301);
+  // minimal keeps the NEWEST entries (slice(-3)), each hard-capped.
+  assert.equal(minimal.currentTask.requirements.length, 2);
+  assert.equal(
+    minimal.currentTask.requirements.at(-1).text,
+    "latest",
+  );
+  assert.ok(minimal.currentTask.requirements[0].text.length <= 161);
+  assert.ok(minimal.currentTask.constraints[0].length <= 121);
+  assert.equal(minimal.currentTask.plan, null);
+  assert.match(minimal.currentTask.note, /truncated/);
+
+  const trim = interpretationContext(state, "继续", [], "trim");
+  assert.ok(trim.currentTask.goal.length <= 601);
+  assert.ok(trim.currentTask.requirements[0].text.length <= 401);
+  assert.ok(trim.currentTask.plan.steps[0].action.length <= 201);
+  assert.equal(trim.currentTask.plan.stepCount, 1);
 });

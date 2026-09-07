@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.35.1
+
+### Fix: oversized task ledger no longer fails recognition on every turn
+
+**Verified live failure (2026-09-07, 智能文档解析平台):** the task
+ledger is append-only by design (exact user text stays authoritative),
+so a long task grew requirements + constraints + plan to ~34k chars.
+The recognition payload budget is 24k and the shrink loop only trimmed
+the CONVERSATION — the ledger never shrank, so recognition failed with
+`context_too_large` on every single turn (policy-less turns until
+`/policy new`).
+
+The payload now shrinks through task-ledger tiers after the
+conversation is exhausted:
+
+- **full** — everything, as before (the common case; unchanged)
+- **trim** — newest 12 requirements capped at 400 chars each, newest
+  12 constraints at 240, plan reduced to a step-action summary
+- **minimal** — goal at 300, newest 3 requirements at 160, newest 6
+  constraints at 120, plan dropped, with an explicit truncation note
+
+The selected tier is recorded in recognition diagnostics (`taskTier`)
+whenever it degrades below full, so `/policy why` shows the ledger was
+bounded. A payload that still exceeds the budget after minimal (e.g. a
+single message longer than the budget) keeps failing with
+`context_too_large` — `recognition.onFailure` remains the escape hatch.
+
+Tests: 48k-char ledger converges under the 24k budget and the request
+actually sent is asserted ≤ budget; tier shape oracles for full/trim/
+minimal; the no-network-request suite now uses an oversized MESSAGE
+(the unshrinkable part) to pin the residual failure path.
+
 ## 0.35.0
 
 ### Automatic recognition tuning across model catalogues

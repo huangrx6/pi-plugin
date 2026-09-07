@@ -32,30 +32,106 @@ Never return approval or autonomy. You interpret work; the host owns authorizati
 const REPAIR_INSTRUCTIONS = `${INSTRUCTIONS}
 The previous response did not satisfy the required JSON contract. Repair its format or schema using the supplied original input. Return one JSON object only. Do not explain the repair and do not wrap it in Markdown.`;
 
-export function interpretationContext(state, prompt, conversation = []) {
+/**
+ * Task-ledger tiers for the recognition payload.
+ *
+ * The ledger is append-only by design (exact user text stays
+ * authoritative), so long tasks grow it without bound. Verified live
+ * failure (2026-09-07, 智能文档解析平台): requirements + constraints +
+ * plan reached ~34k chars, the old shrink loop only trimmed the
+ * conversation, and recognition failed with context_too_large on
+ * EVERY turn. The tiers below let the payload always converge under
+ * maxContextChars while keeping the most recent, most relevant text:
+ *
+ *   full     — everything, as before (the common case)
+ *   trim     — recent entries with per-entry caps; plan reduced to a
+ *              step-action summary
+ *   minimal  — goal + the newest few entries, heavily capped
+ */
+const TASK_TIERS = ["full", "trim", "minimal"];
+
+const capText = (value, max) => {
+  const text = String(value ?? "");
+  return text.length > max ? text.slice(0, max) + "…" : text;
+};
+
+function summarizePlan(plan, actionCap) {
+  if (!plan || typeof plan !== "object") return null;
+  const steps = Array.isArray(plan.steps) ? plan.steps : [];
+  return {
+    goal: capText(plan.goal, actionCap * 2),
+    stepCount: steps.length,
+    steps: steps.slice(0, 12).map((step) => ({
+      action: capText(step?.action, actionCap),
+    })),
+  };
+}
+
+function taskContext(task, tier) {
+  const requirements = (task.requirements ?? []).filter(
+    (r) => r.text !== task.goal,
+  );
+  const constraints = task.constraints ?? [];
+  const base = {
+    id: task.id,
+    goal: task.goal ?? task.prompt,
+    planVersion: task.planVersion,
+    phase: null,
+    plan: null,
+    requirements,
+    constraints,
+    lastDecision: null,
+  };
+  if (tier === "minimal") {
+    return {
+      ...base,
+      goal: capText(base.goal, 300),
+      requirements: requirements.slice(-3).map((r) => ({
+        ...r,
+        text: capText(r.text, 160),
+      })),
+      constraints: constraints.slice(-6).map((c) => capText(c, 120)),
+      note: "task ledger truncated to fit the recognition budget",
+    };
+  }
+  if (tier === "trim") {
+    return {
+      ...base,
+      goal: capText(base.goal, 600),
+      requirements: requirements.slice(-12).map((r) => ({
+        ...r,
+        text: capText(r.text, 400),
+      })),
+      constraints: constraints.slice(-12).map((c) => capText(c, 240)),
+      plan: summarizePlan(task.plan, 200),
+    };
+  }
+  return { ...base, plan: task.plan ?? null };
+}
+
+export function interpretationContext(
+  state,
+  prompt,
+  conversation = [],
+  taskTier = "full",
+) {
+  const currentTask = state.task
+    ? {
+        ...taskContext(state.task, taskTier),
+        phase: state.phase,
+        lastDecision: state.lastDecision
+          ? {
+              taskType: state.lastDecision.taskType,
+              executionIntent: state.lastDecision.executionIntent,
+              domains: state.lastDecision.domains,
+            }
+          : null,
+      }
+    : null;
   return {
     message: prompt,
     conversation: conversation.slice(-24),
-    currentTask: state.task
-      ? {
-          id: state.task.id,
-          goal: state.task.goal ?? state.task.prompt,
-          requirements: (state.task.requirements ?? []).filter(
-            (r) => r.text !== state.task.goal,
-          ),
-          constraints: state.task.constraints ?? [],
-          planVersion: state.task.planVersion,
-          plan: state.task.plan ?? null,
-          phase: state.phase,
-          lastDecision: state.lastDecision
-            ? {
-                taskType: state.lastDecision.taskType,
-                executionIntent: state.lastDecision.executionIntent,
-                domains: state.lastDecision.domains,
-              }
-            : null,
-        }
-      : null,
+    currentTask,
   };
 }
 
@@ -324,21 +400,39 @@ export async function interpretTask({
     recognitionConfig.requestBody !== null
       ? recognitionConfig.requestBody
       : null;
-  let payload = JSON.stringify(
-    interpretationContext(state, prompt, boundedConversation),
-  );
-  while (payload.length > maxContextChars && boundedConversation.length > 0) {
-    boundedConversation = boundedConversation.slice(1);
-    payload = JSON.stringify(
-      interpretationContext(state, prompt, boundedConversation),
+  // Shrink order: oldest conversation entries first (existing
+  // behaviour), then task-ledger tiers full → trim → minimal. The
+  // ledger is append-only and grows without bound, so the tiers are
+  // what rescue long tasks (see taskContext).
+  let taskTierIndex = 0;
+  const buildPayload = () =>
+    JSON.stringify(
+      interpretationContext(
+        state,
+        prompt,
+        boundedConversation,
+        TASK_TIERS[taskTierIndex],
+      ),
     );
+  let payload = buildPayload();
+  while (payload.length > maxContextChars) {
+    if (boundedConversation.length > 0) {
+      boundedConversation = boundedConversation.slice(1);
+    } else if (taskTierIndex < TASK_TIERS.length - 1) {
+      taskTierIndex += 1;
+    } else {
+      break;
+    }
+    payload = buildPayload();
   }
+  const taskTier = TASK_TIERS[taskTierIndex];
   if (payload.length > maxContextChars) {
     const tooLarge = useAgent
       ? { source: "agent", reason: "context_too_large", interpretation: null }
       : failure("context_too_large");
     return {
       ...tooLarge,
+      taskTier,
       contextChars: payload.length,
       limit: maxContextChars,
     };
@@ -491,6 +585,7 @@ export async function interpretTask({
       durationMs: Date.now() - started,
       contextChars: payload.length,
     };
+    if (taskTier !== "full") enriched.taskTier = taskTier;
     if (useAgent && agentClassifier.tuningNote)
       enriched.tuning = agentClassifier.tuningNote;
     return enriched;
