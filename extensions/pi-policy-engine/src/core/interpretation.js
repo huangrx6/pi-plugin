@@ -333,14 +333,12 @@ export async function interpretTask({
       interpretationContext(state, prompt, boundedConversation),
     );
   }
-  if (payload.length > maxContextChars)
-    return {
-      ...(useAgent
-        ? { source: "agent", reason: "context_too_large", interpretation: null }
-        : failure("context_too_large")),
-      contextChars: payload.length,
-      limit: maxContextChars,
-    };
+  if (payload.length > maxContextChars) {
+    const tooLarge = useAgent
+      ? { source: "agent", reason: "context_too_large", interpretation: null }
+      : failure("context_too_large");
+    return { ...tooLarge, contextChars: payload.length, limit: maxContextChars };
+  }
   const anthropic = recognitionConfig.protocol === "anthropic";
   const baseBody = anthropic
     ? {
@@ -425,20 +423,20 @@ export async function interpretTask({
             inspected.parsed.value,
             prompt,
           );
-          return validated.value
-            ? {
-                source: useAgent ? "agent" : "model",
-                reason: "contextual",
-                interpretation: validated.value,
-                responseFormat: inspected.parsed.format,
-                responseChars: inspected.diagnostics.responseChars,
-              }
-            : failure("invalid_schema", {
-                responseFormat: inspected.parsed.format,
-                responseChars: inspected.diagnostics.responseChars,
-                responsePreview: inspected.diagnostics.responsePreview,
-                schemaIssue: validated.issue,
-              });
+          if (!validated.value)
+            return failure("invalid_schema", {
+              responseFormat: inspected.parsed.format,
+              responseChars: inspected.diagnostics.responseChars,
+              responsePreview: inspected.diagnostics.responsePreview,
+              schemaIssue: validated.issue,
+            });
+          return {
+            source: useAgent ? "agent" : "model",
+            reason: "contextual",
+            interpretation: validated.value,
+            responseFormat: inspected.parsed.format,
+            responseChars: inspected.diagnostics.responseChars,
+          };
         };
 
         attemptDiagnostics.attempts = 1;
@@ -452,12 +450,11 @@ export async function interpretTask({
         attemptDiagnostics.initialParseIssue = first.parseIssue;
         attemptDiagnostics.initialSchemaIssue = first.schemaIssue;
 
+        const boundedInvalid =
+          typeof firstContent === "string" ? firstContent.slice(0, 32000) : null;
         const repairPayload = JSON.stringify({
           originalInput: JSON.parse(payload),
-          invalidResponse:
-            typeof firstContent === "string"
-              ? firstContent.slice(0, 32000)
-              : null,
+          invalidResponse: boundedInvalid,
         });
         const repaired = assess(
           await complete(REPAIR_INSTRUCTIONS, repairPayload),
@@ -480,7 +477,7 @@ export async function interpretTask({
       }
     })();
     const result = await Promise.race([request, timeout]);
-    return {
+    const enriched = {
       ...result,
       model: useAgent ? agentClassifier.model : recognitionConfig.model,
       transport: useAgent ? "host" : "endpoint",
@@ -488,6 +485,9 @@ export async function interpretTask({
       durationMs: Date.now() - started,
       contextChars: payload.length,
     };
+    if (useAgent && agentClassifier.tuningNote)
+      enriched.tuning = agentClassifier.tuningNote;
+    return enriched;
   } finally {
     clearTimeout(timer);
   }

@@ -147,24 +147,23 @@ pi install "$PWD"
 - Anthropic 原生 Messages 使用 `protocol: "anthropic"` 和完整 `/v1/messages` 地址，密钥环境变量由你指定。
 - 本地无认证接口可设置 `apiKeyEnvVar: null`。不支持 JSON 格式或 temperature 的服务分别设置 `jsonResponse: false`、`temperature: null`。
 
-### 慢推理模型：requestBody 与 onFailure
+### 模型适配：识别前置调用如何跨模型保持快速
 
-推理型模型（如火山方舟 `ark-code-latest`）服务端默认深度思考，且 `compat.supportsReasoningEffort: false` 时不接受 `reasoning_effort` 参数——识别前置调用可能在默认 15 秒时限内无法返回，导致每轮都阻断。两种治理手段：
+识别会向当前模型发送一次小负载的结构化请求，各家的差异在**思考开销**——深度思考可能超出任何合理时限，而节流参数每家不同。引擎按模型元数据自动分三层处理：
 
-1. `recognition.requestBody`（对象）：合并进识别请求体，覆盖同名命名字段。agent 来源经 `samplingParams` 通道透传（openai-completions 会 as-is 合并），endpoint 来源直接合并进 body。火山方舟可关闭思考：
+| 模型类型 | 自动处理 | 说明 |
+| --- | --- | --- |
+| 适配器托管（`compat.thinkingFormat`：zai / qwen / deepseek / openrouter / string-thinking 等） | 不传 `reasoningEffort` | openai-completions 适配器在调用方不传 effort 时自动发送该厂商的"关思考"开关 |
+| OpenAI 风格 `reasoning_effort`（无 thinkingFormat、`supportsReasoningEffort: true` 且 `reasoning`） | 传 `reasoningEffort: "low"` | 走标准适配器通道，有界推理代替服务端默认 |
+| 不可控推理（如火山方舟：`supportsReasoningEffort: false` 且无 thinkingFormat，服务端默认思考） | 内置已验证补丁表 | 匹配 provider 名或 baseUrl 片段（`volces.com`）时附加 `{"thinking":{"type":"disabled"}}`；未知厂商不动（严格服务端可能拒绝未知字段） |
 
-```json
-{
-  "recognition": {
-    "source": "agent",
-    "requestBody": { "thinking": { "type": "disabled" } }
-  }
-}
-```
+实际生效层会记入识别诊断（`tuning` 字段，`/policy why` 可见）。`recognition.autoTuning: false` 可整体关闭自动层。
 
-- `recognition.onFailure: "block" | "rules"`（默认 `block`）：设为 `rules` 后，识别失败/超时的本轮降级为本地规则路由（活动记录与 `reasons` 注明降级原因），不至于整轮无策略；离线预览两种取值下都保持确定性。
+兜底与覆盖：
 
-`timeoutMs`（默认 15000，上限 60000）可按模型延迟上调；上调会等比增加每轮前置延迟。
+- `recognition.requestBody`（对象）：合并进识别请求体、**后于自动补丁**合并——用户显式配置永远优先。agent 来源经 `samplingParams` 通道透传，endpoint 来源直接合并进 body。
+- `recognition.onFailure: "block" | "rules"`（默认 `block`）：设为 `rules` 后，识别失败/超时的本轮降级为本地规则路由（活动记录与 `reasons` 注明降级原因）；离线预览两种取值下都保持确定性。
+- `timeoutMs`（默认 15000，上限 60000）可按模型延迟上调；上调会等比增加每轮前置延迟。
 
 只有 `endpoint` 来源会把当前任务摘要发送给所配服务；它不发送仓库文件、工具输出、其他会话或完整聊天记录。任务要求原文可能含有用户输入的敏感内容。JSON 或结构校验失败时，会在同一总时限内使用相同来源做一次仅修复格式的调用；网络错误、缺密钥、超时和上下文超限不重试。最终仍不合格时，本轮不加载任务策略，并给主模型追加停止执行与请用户重试的要求。插件通过提示约束主模型，不拦截工具调用。
 

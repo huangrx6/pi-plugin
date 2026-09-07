@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.35.0
+
+### Automatic recognition tuning across model catalogues
+
+0.34.0 made slow reasoning models survivable (requestBody + onFailure),
+but users still had to hand-configure the thinking switch per vendor.
+The preflight now picks the right control from the model metadata
+itself, in three layers:
+
+- **adapter-mediated** (`compat.thinkingFormat`: zai / qwen / deepseek /
+  openrouter / string-thinking / together): no `reasoningEffort` is
+  passed — pi-ai's openai-completions adapter translates that into the
+  provider's thinking-off switch.
+- **OpenAI-style effort** (no thinkingFormat, `supportsReasoningEffort`
+  with `reasoning`): `reasoningEffort: "low"` through the standard
+  adapter channel — bounded reasoning instead of the server default.
+- **verified patch table** for uncontrolled-reasoning providers
+  (no format, no effort support — Volcengine Ark's exact shape):
+  `{"thinking":{"type":"disabled"}}` keyed by provider id or baseUrl
+  fragment (`volces.com`). Unknown providers stay untouched — strict
+  servers may reject unknown fields; the table only grows with
+  verified entries.
+
+The applied layer is recorded in recognition diagnostics (`tuning`),
+`recognition.requestBody` still merges after the auto patch (user
+wins), and `recognition.autoTuning: false` kills the whole layer.
+Options handed to `registry.complete` omit empty samplingParams so
+providers never see a stray `{}`.
+
+9 unit tests for the plan (all layers, kill switch, baseUrl aliasing,
+malformed models) + 3 wiring tests through the real agent-classifier.
+
 ## 0.34.1
 
 - Unknown-setting diagnostics now name the likely cause: a configuration

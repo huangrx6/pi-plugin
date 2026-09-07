@@ -165,6 +165,7 @@ export function validateShape(config) {
             "maxContextChars",
             "onFailure",
             "requestBody",
+            "autoTuning",
           ].includes(k)
         )
           error(`recognition.${k}`, UNKNOWN_HINT);
@@ -182,6 +183,8 @@ export function validateShape(config) {
         )
       )
         error("recognition.requestBody", "must be an object");
+      if (fb.autoTuning !== undefined && typeof fb.autoTuning !== "boolean")
+        error("recognition.autoTuning", "must be boolean");
     }
   }
   const known = new Set([

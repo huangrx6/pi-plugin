@@ -216,7 +216,11 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       prompt,
       state,
       model: state.currentModel,
-      agentClassifier: hostRecognition ? createAgentClassifier(ctx) : null,
+      agentClassifier: hostRecognition
+        ? createAgentClassifier(ctx, {
+            autoTuning: previewConfig.recognition?.autoTuning !== false,
+          })
+        : null,
       conversation: conversationFromMessages(event?.messages),
     });
     let built = turn.inject
