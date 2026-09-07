@@ -2,7 +2,6 @@
 // The classifier receives a bounded, data-only payload and never gets tools.
 import { planRecognitionTuning } from "../../src/core/recognition-tuning.js";
 
-
 /** Options handed to registry.complete: the tuning plan expressed
  *  through the two channels pi-ai honours — samplingParams merged
  *  as-is into openai-completions request bodies (auto patch first,
@@ -29,12 +28,7 @@ export function createAgentClassifier(ctx, options = {}) {
   return {
     model: `${model.provider ?? "unknown"}/${model.id ?? "unknown"}`,
     tuningNote: tuning?.note,
-    async complete({
-      systemPrompt,
-      payload,
-      signal,
-      samplingParams,
-    }) {
+    async complete({ systemPrompt, payload, signal, samplingParams }) {
       const response = await registry.complete(
         model,
         {

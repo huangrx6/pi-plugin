@@ -55,8 +55,7 @@ const THINKING_OFF_PATCHES = [
  */
 export function planRecognitionTuning(modelLike, options = {}) {
   if (options.auto === false) return null;
-  const model =
-    modelLike && typeof modelLike === "object" ? modelLike : null;
+  const model = modelLike && typeof modelLike === "object" ? modelLike : null;
   if (!model) return null;
 
   // Non-reasoning models need no thinking control at all.
@@ -64,7 +63,7 @@ export function planRecognitionTuning(modelLike, options = {}) {
     return { note: "non-reasoning-model" };
   }
 
-  const compat = (model.compat ?? {}) ;
+  const compat = model.compat ?? {};
   const api = typeof model.api === "string" ? model.api : undefined;
 
   // Layer 1: adapter-mediated thinking. Passing no reasoningEffort is

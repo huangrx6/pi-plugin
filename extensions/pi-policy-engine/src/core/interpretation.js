@@ -337,7 +337,11 @@ export async function interpretTask({
     const tooLarge = useAgent
       ? { source: "agent", reason: "context_too_large", interpretation: null }
       : failure("context_too_large");
-    return { ...tooLarge, contextChars: payload.length, limit: maxContextChars };
+    return {
+      ...tooLarge,
+      contextChars: payload.length,
+      limit: maxContextChars,
+    };
   }
   const anthropic = recognitionConfig.protocol === "anthropic";
   const baseBody = anthropic
@@ -451,7 +455,9 @@ export async function interpretTask({
         attemptDiagnostics.initialSchemaIssue = first.schemaIssue;
 
         const boundedInvalid =
-          typeof firstContent === "string" ? firstContent.slice(0, 32000) : null;
+          typeof firstContent === "string"
+            ? firstContent.slice(0, 32000)
+            : null;
         const repairPayload = JSON.stringify({
           originalInput: JSON.parse(payload),
           invalidResponse: boundedInvalid,

@@ -98,11 +98,11 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         content:
           typeof message.content === "string"
             ? message.content.slice(0, 6000)
-            : message.content
+            : (message.content
                 ?.filter?.((part) => part?.type === "text")
                 .map((part) => part.text)
                 .join("\n")
-                .slice(0, 6000) ?? "",
+                .slice(0, 6000) ?? ""),
       }));
   }
 
@@ -374,9 +374,9 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       const { built } = await resolveAndApply({
         event: {
           messages:
-            ctx?.sessionManager?.getBranch?.()?.map?.(
-              (entry) => entry.message,
-            ) ?? [],
+            ctx?.sessionManager
+              ?.getBranch?.()
+              ?.map?.((entry) => entry.message) ?? [],
         },
         ctx,
         state,
@@ -421,7 +421,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       state,
     });
     if (cfg.showStatus !== false)
-      setStatus(ctx, `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`);
+      setStatus(
+        ctx,
+        `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
+      );
     return { messages: event.messages };
   });
   pi.on("before_provider_request", async (event) => {

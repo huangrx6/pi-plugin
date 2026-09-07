@@ -12,7 +12,13 @@ test("non-reasoning models need no thinking control", () => {
 });
 
 test("layer 1: thinkingFormat models are adapter-mediated (no switch sent)", () => {
-  for (const thinkingFormat of ["zai", "qwen", "deepseek", "openrouter", "string-thinking"]) {
+  for (const thinkingFormat of [
+    "zai",
+    "qwen",
+    "deepseek",
+    "openrouter",
+    "string-thinking",
+  ]) {
     assert.deepEqual(
       planRecognitionTuning({
         reasoning: true,
@@ -29,7 +35,10 @@ test("layer 2: openai-style reasoning_effort models get a bounded low effort", (
     api: "openai-completions",
     compat: { supportsReasoningEffort: true },
   });
-  assert.deepEqual(plan, { reasoningEffort: "low", note: "reasoning-effort:low" });
+  assert.deepEqual(plan, {
+    reasoningEffort: "low",
+    note: "reasoning-effort:low",
+  });
 });
 
 test("layer 2 skipped for anthropic transport (unknown option risk)", () => {
