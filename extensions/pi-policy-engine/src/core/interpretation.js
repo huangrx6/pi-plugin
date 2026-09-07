@@ -505,6 +505,10 @@ export async function interpretTask({
     body.temperature = recognitionConfig.temperature ?? 0;
   const controller = new AbortController();
   const attemptDiagnostics = {};
+  // Real per-recognition token usage when the transport reports it
+  // (host usage field or endpoint response usage); surfaced on the
+  // result and persisted into the routing history.
+  let usageTokens = null;
   let timer;
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => {
@@ -517,8 +521,8 @@ export async function interpretTask({
     const request = (async () => {
       try {
         const complete = async (systemPrompt, requestPayload) => {
-          if (useAgent)
-            return agentClassifier.complete({
+          if (useAgent) {
+            const out = await agentClassifier.complete({
               systemPrompt,
               payload: requestPayload,
               signal: controller.signal,
@@ -528,6 +532,12 @@ export async function interpretTask({
               // request body. Requested keys override named fields.
               samplingParams: recognitionConfig.requestBody,
             });
+            if (out && typeof out === "object") {
+              usageTokens = out.usageTokens ?? null;
+              return out.text;
+            }
+            return out;
+          }
           const requestBody = anthropic
             ? {
                 ...body,
@@ -550,6 +560,12 @@ export async function interpretTask({
           });
           if (!response?.ok) return { failure: "http_error" };
           const data = await response.json();
+          const reported =
+            data?.usage?.input_tokens ?? data?.usage?.prompt_tokens;
+          const reportedOut =
+            data?.usage?.output_tokens ?? data?.usage?.completion_tokens;
+          if (Number.isFinite(reported) && Number.isFinite(reportedOut))
+            usageTokens = { input: reported, output: reportedOut };
           return anthropic
             ? data?.content
                 ?.filter((c) => c.type === "text")
@@ -637,6 +653,7 @@ export async function interpretTask({
       contextChars: payload.length,
     };
     enriched.contextProfile = contextProfile;
+    if (usageTokens) enriched.usageTokens = usageTokens;
     if (useAgent && agentClassifier.tuningNote)
       enriched.tuning = agentClassifier.tuningNote;
     return enriched;

@@ -5,15 +5,10 @@ import { globalConfigPath } from "./paths.js";
 import { validateShape } from "./schema.js";
 
 // Persist only explicitly selected settings; unrelated global configuration is preserved.
-export async function saveSelections({
-  mode,
-  recognition,
-}) {
+export async function saveSelections({ mode, recognition }) {
   const patch = mode ? { mode } : {};
   if (!Object.keys(patch).length && !recognition)
-    throw new Error(
-      "Select a mode or recognition option before saving.",
-    );
+    throw new Error("Select a mode or recognition option before saving.");
   const path = globalConfigPath();
   const readPath = path;
   let current = {};

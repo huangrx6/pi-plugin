@@ -179,7 +179,17 @@ pi install "$PWD"
 | `standard` | 最近 8 轮 × 600 + goal 300 | 最新 3 条需求（各 160） | 3–6k |
 | `rich` | 最近 12 轮 × 900 + goal 600 | 需求 8×250、约束 6×120、计划摘要 | 8–15k |
 
-档位可直接在 `/policy` 面板切换（「识别负载」入口，选中即保存并标注当前档），或用 `/policy context minimal|standard|rich`；细粒度键仍走配置文件：
+档位可直接在 `/policy` 面板切换（「识别负载」入口，选中即保存并标注当前档），或用 `/policy context minimal|standard|rich`；细粒度键仍走配置文件。每轮识别的 token 用量显示在活动卡片（↑输入 ↓输出 · 耗时 · 档位）并逐轮写入路由历史，可用 `/policy history` 或 history.jsonl 按真实数据调优：
+
+```json
+{
+  "recognition": {
+    "agentModel": "zai-coding-cn/glm-5.3-flash"
+  }
+}
+```
+
+`recognition.agentModel` 指定识别专用模型（`"provider/model-id"`，null 跟随主模型）——识别是每轮一次的小请求，可选用已配置的便宜模型，主对话模型不受影响；思考适配按该模型的元数据计算。面板「识别模型」入口可从宿主模型目录中直接选择，或用 `/policy model <provider/model-id|auto>`。
 
 ```json
 {

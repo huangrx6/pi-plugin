@@ -197,7 +197,8 @@ test("single-level panel exposes only everyday actions", async () => {
     },
   });
   assert.equal(optionLists.length, 1);
-  assert.equal(optionLists[0].length, 6);
+  assert.equal(optionLists[0].length, 7);
+  assert.ok(optionLists[0].some((option) => option.startsWith("识别模型")));
   assert.ok(optionLists[0].some((option) => option.startsWith("自动处理")));
   assert.ok(optionLists[0].some((option) => option.startsWith("谨慎处理")));
   assert.ok(optionLists[0].some((option) => option.startsWith("识别负载")));
@@ -228,7 +229,9 @@ test("resuming restores the visible branch explanation and ignores malformed rec
 // 0.36.1: recognition-context profile is switchable from the panel.
 
 test("panel 识别负载 picker saves the profile and preserves key overrides", async (t) => {
-  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import("node:fs");
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import(
+    "node:fs"
+  );
   const { tmpdir } = await import("node:os");
   const { join, dirname } = await import("node:path");
   const temp = mkdtempSync(join(tmpdir(), "pi-policy-ctx-panel-"));
@@ -239,21 +242,31 @@ test("panel 识别负载 picker saves the profile and preserves key overrides", 
     else process.env.PI_CODING_AGENT_DIR = previous;
   });
   const configPath = join(
-    temp, "agent", "extensions-data", "pi-policy-engine", "config.json",
+    temp,
+    "agent",
+    "extensions-data",
+    "pi-policy-engine",
+    "config.json",
   );
   mkdirSync(dirname(configPath), { recursive: true });
   // 手写的键覆盖必须在高频切档中幸存（config-writer 深合并）。
-  writeFileSync(configPath, JSON.stringify({
-    recognition: {
-      enabled: true,
-      source: "agent",
-      context: { profile: "minimal", conversationTurns: 6 },
-    },
-  }));
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      recognition: {
+        enabled: true,
+        source: "agent",
+        context: { profile: "minimal", conversationTurns: 6 },
+      },
+    }),
+  );
 
   const state = {
-    runtimeMode: null, runtimeRecognition: null,
-    phase: "idle", task: null, lastActivity: null,
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
   };
   const selects = [];
   const notices = [];
@@ -265,7 +278,8 @@ test("panel 识别负载 picker saves the profile and preserves key overrides", 
     ui: {
       select: async (_title, options) => {
         selects.push(options);
-        if (selects.length === 1) return options.find((o) => o.startsWith("识别负载"));
+        if (selects.length === 1)
+          return options.find((o) => o.startsWith("识别负载"));
         return options.find((o) => o.startsWith("标准"));
       },
       notify: (m, level) => notices.push({ m, level }),
@@ -276,17 +290,28 @@ test("panel 识别负载 picker saves the profile and preserves key overrides", 
   assert.equal(selects.length, 2, "two-level picker");
   // 二级面板：三档 + 返回，当前档标注
   assert.equal(selects[1].length, 4);
-  assert.ok(selects[1].some((o) => o.startsWith("极简（推荐）") && o.endsWith("（当前）")));
+  assert.ok(
+    selects[1].some(
+      (o) => o.startsWith("极简（推荐）") && o.endsWith("（当前）"),
+    ),
+  );
   assert.ok(notices.some((n) => n.level === "success" && /标准/.test(n.m)));
   const saved = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(saved.recognition.context.profile, "standard");
-  assert.equal(saved.recognition.context.conversationTurns, 6, "override preserved");
+  assert.equal(
+    saved.recognition.context.conversationTurns,
+    6,
+    "override preserved",
+  );
 });
 
 test("panel 识别负载 cancel and 返回 stay silent", async () => {
   const state = {
-    runtimeMode: null, runtimeRecognition: null,
-    phase: "idle", task: null, lastActivity: null,
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
   };
   const notices = [];
   const handler = createCommandHandler({
@@ -324,8 +349,11 @@ test("/policy context sets directly and reports usage without arguments", async 
   });
 
   const state = {
-    runtimeMode: null, runtimeRecognition: null,
-    phase: "idle", task: null, lastActivity: null,
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
   };
   const notices = [];
   const handler = createCommandHandler({
@@ -340,8 +368,102 @@ test("/policy context sets directly and reports usage without arguments", async 
   await handler("context rich", ctx);
   assert.ok(notices[1].level === "success" && /完整/.test(notices[1].m));
   const configPath = join(
-    temp, "agent", "extensions-data", "pi-policy-engine", "config.json",
+    temp,
+    "agent",
+    "extensions-data",
+    "pi-policy-engine",
+    "config.json",
   );
   const saved = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(saved.recognition.context.profile, "rich");
+});
+
+// 0.37.0: recognition model selection from the panel + token usage.
+
+test("panel 识别模型 lists configured models and saves agentModel", async (t) => {
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const temp = mkdtempSync(join(tmpdir(), "pi-policy-rm-panel-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(temp, "agent");
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  });
+
+  const state = {
+    runtimeMode: null, runtimeRecognition: null,
+    phase: "idle", task: null, lastActivity: null,
+  };
+  const handler = createCommandHandler({
+    packageRoot: process.cwd(),
+    getState: () => state,
+  });
+  const selects = [];
+  const notices = [];
+  const ctx = {
+    modelRegistry: {
+      getAvailable: () => [
+        { provider: "zai-coding-cn", id: "glm-5.3", name: "GLM 5.3" },
+        { provider: "zai-coding-cn", id: "glm-5.3-flash", name: "GLM 5.3 Flash" },
+      ],
+    },
+    ui: {
+      select: async (_t, options) => {
+        selects.push(options);
+        if (selects.length === 1) return options.find((o) => o.startsWith("识别模型"));
+        return options.find((o) => o.startsWith("zai-coding-cn/glm-5.3-flash"));
+      },
+      notify: (m, level) => notices.push({ m, level }),
+    },
+  };
+  await handler("", ctx);
+  assert.equal(selects.length, 2);
+  // 二级列表：跟随主模型 + 2 个模型 + 返回
+  assert.equal(selects[1].length, 4);
+  assert.ok(selects[1][0].startsWith("跟随主模型"));
+  assert.ok(notices.some((n) => n.level === "success" && /glm-5\.3-flash/.test(n.m)));
+  const configPath = join(
+    temp, "agent", "extensions-data", "pi-policy-engine", "config.json",
+  );
+  const saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.recognition.agentModel, "zai-coding-cn/glm-5.3-flash");
+});
+
+test("/policy model sets and clears the recognition model directly", async (t) => {
+  const { mkdtempSync, readFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const temp = mkdtempSync(join(tmpdir(), "pi-policy-rm-cmd-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(temp, "agent");
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  });
+  const state = {
+    runtimeMode: null, runtimeRecognition: null,
+    phase: "idle", task: null, lastActivity: null,
+  };
+  const handler = createCommandHandler({
+    packageRoot: process.cwd(),
+    getState: () => state,
+  });
+  const notices = [];
+  const ctx = { ui: { notify: (m, level) => notices.push({ m, level }) } };
+
+  await handler("model", ctx);
+  assert.match(notices[0].m, /跟随主模型/);
+  await handler("model bad-name", ctx);
+  assert.equal(notices[1].level, "warning");
+  await handler("model zai-coding-cn/glm-5.3-flash", ctx);
+  assert.equal(notices[2].level, "success");
+  await handler("model auto", ctx);
+  assert.match(notices[3].m, /跟随主模型/);
+  const configPath = join(
+    temp, "agent", "extensions-data", "pi-policy-engine", "config.json",
+  );
+  const saved = JSON.parse(readFileSync(configPath, "utf8"));
+  assert.equal(saved.recognition.agentModel, null);
 });

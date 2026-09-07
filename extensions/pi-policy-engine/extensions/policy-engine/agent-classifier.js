@@ -2,6 +2,22 @@
 // The classifier receives a bounded, data-only payload and never gets tools.
 import { planRecognitionTuning } from "../../src/core/recognition-tuning.js";
 
+/** Parse a "provider/id" override into a Model from the registry.
+ *  Returns null when the override is absent or unresolvable — the
+ *  caller falls back to the active model and says so in diagnostics. */
+function resolveModelOverride(registry, override) {
+  if (typeof override !== "string" || !override.includes("/")) return null;
+  const slash = override.indexOf("/");
+  const provider = override.slice(0, slash);
+  const id = override.slice(slash + 1);
+  if (!provider || !id) return null;
+  try {
+    return registry?.find?.(provider, id) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Options handed to registry.complete: the tuning plan expressed
  *  through the two channels pi-ai honours — samplingParams merged
  *  as-is into openai-completions request bodies (auto patch first,
@@ -17,9 +33,17 @@ function buildCompleteOptions(signal, tuning, userSamplingParams) {
 }
 
 export function createAgentClassifier(ctx, options = {}) {
-  const model = ctx?.model;
   const registry = ctx?.modelRegistry;
-  if (!model || typeof registry?.complete !== "function") return null;
+  if (!registry || typeof registry.complete !== "function") return null;
+  // A recognition.model override ("provider/id") lets the user run the
+  // preflight on a cheap configured model while the session keeps the
+  // expensive primary; unresolvable overrides fall back to the active
+  // model with a diagnostic note.
+  const override =
+    resolveModelOverride(registry, options.modelOverride) ?? null;
+  const model = override ?? ctx?.model;
+  if (!model) return null;
+  const usingOverride = Boolean(override);
   // Provider adaptation planned once from the model metadata: which
   // thinking control (if any) keeps the preflight fast for THIS model.
   const tuning =
@@ -27,6 +51,7 @@ export function createAgentClassifier(ctx, options = {}) {
     undefined;
   return {
     model: `${model.provider ?? "unknown"}/${model.id ?? "unknown"}`,
+    usingOverride,
     tuningNote: tuning?.note,
     async complete({ systemPrompt, payload, signal, samplingParams }) {
       const response = await registry.complete(
@@ -45,10 +70,21 @@ export function createAgentClassifier(ctx, options = {}) {
       );
       if (["error", "aborted"].includes(response?.stopReason))
         throw new Error("Agent classification failed");
-      return response?.content
+      const text = response?.content
         ?.filter((c) => c.type === "text")
         .map((c) => c.text)
         .join("\n");
+      // Real token usage from the provider, when reported: surfaced in
+      // the activity card and persisted into the routing history so
+      // the profile can be tuned from actual measurements later.
+      const usage = response?.usage;
+      const usageTokens =
+        usage &&
+        Number.isFinite(usage.input) &&
+        Number.isFinite(usage.output)
+          ? { input: usage.input, output: usage.output }
+          : null;
+      return { text, usageTokens };
     },
   };
 }

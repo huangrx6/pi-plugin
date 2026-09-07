@@ -191,3 +191,77 @@ test("autoTuning:false disables the layer at classifier construction", async () 
   assert.equal(seen[0].samplingParams, undefined);
   assert.equal(seen[0].reasoningEffort, undefined);
 });
+
+// 0.37.0: model override + token usage through the real classifier.
+import { createAgentClassifier as createClassifier } from "../extensions/policy-engine/agent-classifier.js";
+
+function registryFixture(models, calls) {
+  return {
+    getAvailable: () => models,
+    find: (provider, id) =>
+      models.find((m) => m.provider === provider && m.id === id) ?? null,
+    complete: async (model, _context, options) => {
+      calls.push({ model: `${model.provider}/${model.id}`, options });
+      return {
+        stopReason: "stop",
+        content: [{ type: "text", text: '{"relation":"continue"}' }],
+        usage: { input: 1531, output: 96, cacheRead: 0, cacheWrite: 0 },
+      };
+    },
+  };
+}
+
+test("agentModel override resolves a configured model and reports usage", async () => {
+  const calls = [];
+  const ctx = {
+    model: { provider: "zai-coding-cn", id: "glm-5.3", api: "openai-completions", reasoning: true, compat: { thinkingFormat: "zai" } },
+    modelRegistry: registryFixture(
+      [
+        { provider: "zai-coding-cn", id: "glm-5.3", api: "openai-completions", reasoning: true, compat: { thinkingFormat: "zai" } },
+        { provider: "zai-coding-cn", id: "glm-5.3-flash", api: "openai-completions", reasoning: false },
+      ],
+      calls,
+    ),
+  };
+  const classifier = createClassifier(ctx, {
+    modelOverride: "zai-coding-cn/glm-5.3-flash",
+  });
+  assert.ok(classifier);
+  assert.equal(classifier.model, "zai-coding-cn/glm-5.3-flash");
+  assert.equal(classifier.usingOverride, true);
+  // tuning planned from the OVERRIDE model (flash: non-reasoning)
+  assert.equal(classifier.tuningNote, "non-reasoning-model");
+  const out = await classifier.complete({ systemPrompt: "s", payload: "p" });
+  assert.equal(out.text, '{"relation":"continue"}');
+  assert.deepEqual(out.usageTokens, { input: 1531, output: 96 });
+  assert.equal(calls[0].model, "zai-coding-cn/glm-5.3-flash");
+});
+
+test("unresolvable override falls back to the active model", async () => {
+  const calls = [];
+  const ctx = {
+    model: { provider: "primary", id: "big", reasoning: false },
+    modelRegistry: registryFixture(
+      [{ provider: "primary", id: "big", reasoning: false }],
+      calls,
+    ),
+  };
+  const classifier = createClassifier(ctx, {
+    modelOverride: "ghost/model-x",
+  });
+  assert.equal(classifier.model, "primary/big");
+  assert.equal(classifier.usingOverride, false);
+  await classifier.complete({ systemPrompt: "s", payload: "p" });
+  assert.equal(calls[0].model, "primary/big");
+});
+
+test("no override and null override both follow the active model", () => {
+  const models = [{ provider: "p", id: "m", reasoning: false }];
+  for (const modelOverride of [undefined, null]) {
+    const classifier = createClassifier(
+      { model: models[0], modelRegistry: registryFixture(models, []) },
+      { modelOverride },
+    );
+    assert.equal(classifier.usingOverride, false);
+  }
+});

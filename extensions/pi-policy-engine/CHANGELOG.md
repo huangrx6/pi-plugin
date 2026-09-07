@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.37.0
+
+### 识别 token 用量可见可查 + 识别模型可选
+
+- **每轮识别用量显示**：活动卡片新增「识别用量：↑输入 ↓输出 tokens
+  · N.Ns · 档位」行（提供商上报 usage 时展示真实值——agent 来源取
+  响应 usage 字段，endpoint 来源取 prompt/completion_tokens）；
+  判断方式行同时标注实际使用的识别模型
+- **逐轮持久化**：usageTokens 随 recognition 对象写入路由历史
+  （`/policy history` / history.jsonl）——后续可依据真实用量数据
+  调优负载档位
+- **识别模型可选**：`recognition.agentModel`（`"provider/model-id"`
+  或 null 跟随主模型）。意图识别是每轮一次的小请求，可指定已配置
+  的便宜模型，主对话模型不受影响；tuning（思考适配）按 override
+  模型的元数据计算，无法解析时回退主模型
+- **面板入口**：`/policy` 新增「识别模型 — 可选用已配置的便宜模
+  型」二级选择器（列出宿主模型目录、当前选择标注、跟随主模型/
+  返回/取消静默）；直接命令 `/policy model <provider/model-id|auto>`
+- schema 独立校验 `agentModel`（与 endpoint 路径既有的
+  `recognition.model` 分类器模型名互不冲突）
+
+测试：override 解析/回退/跟随、tuning 按 override 模型计算、
+usage 透传、面板选择与直接命令保存路径。
+
 ## 0.36.1
 
 ### 识别负载可直接在 /policy 面板切换

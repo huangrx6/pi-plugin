@@ -21,7 +21,21 @@ export function formatRecognitionDiagnostics(recognition) {
     parts.push(`response=${recognition.responseChars} chars`);
   if (Number.isFinite(recognition.durationMs))
     parts.push(`${recognition.durationMs}ms`);
+  if (recognition.usageTokens)
+    parts.push(
+      `tokens ↑${recognition.usageTokens.input} ↓${recognition.usageTokens.output}`,
+    );
+  if (recognition.model) parts.push(`model=${recognition.model}`);
   return parts.join("; ");
+}
+
+/** 1234 → "1.2k"；用于识别用量行。 */
+export function formatTokens(n) {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return "--";
+  if (value >= 1000)
+    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k`;
+  return String(Math.round(value));
 }
 
 export function formatHistory(entries, n = 5) {

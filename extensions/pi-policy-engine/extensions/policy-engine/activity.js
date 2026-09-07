@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { formatRecognitionDiagnostics } from "./format.js";
+import { formatRecognitionDiagnostics, formatTokens } from "./format.js";
 import { sanitizeTerminalText, wrapTerminalText } from "./terminal.js";
 import { EXTENSION_VERSION } from "./version.js";
 
@@ -59,13 +59,13 @@ export function activitySnapshot(decision, phase, injected = "") {
   const policyUnchanged = data.recognition?.policyUnchanged === true;
   const next = recognitionBlocked
     ? "插件未加载任务策略；已向主模型追加停止执行并重试识别的要求。"
-    : !injected
-      ? "本轮没有追加策略指令。"
-    : phase === "planning"
+    : injected
+      ? phase === "planning"
       ? "先生成计划，完成后等待你确认。"
       : phase === "awaiting_approval"
         ? "等待你批准计划；可以继续提问或修改约束。"
-        : "模型继续处理当前任务，无需额外操作。";
+        : "模型继续处理当前任务，无需额外操作。"
+    : "本轮没有追加策略指令。";
   return deepFreeze({
     extensionVersion: EXTENSION_VERSION,
     decision: data,
@@ -110,8 +110,13 @@ export function activityText(activity) {
         ? `判断方式：模型识别未成功（${d.recognition?.reason ?? "unknown"}），本轮未使用本地规则继续执行。`
         : d.recognition?.source === "agent" &&
             d.recognition?.reason === "contextual"
-          ? `判断方式：当前模型使用完整对话完成意图识别，并据此选择本轮策略。`
+          ? `判断方式：${d.recognition.model ? `识别模型 ${d.recognition.model}` : "当前模型"}使用完整对话完成意图识别，并据此选择本轮策略。`
           : `判断方式：识别为${tasks[d.taskType] ?? d.taskType ?? "未分类"}；风险 ${d.risk ?? "未知"}。`,
+      ...(!d.preflightBlocked && d.recognition?.usageTokens
+        ? [
+            `识别用量：↑${formatTokens(d.recognition.usageTokens.input)} ↓${formatTokens(d.recognition.usageTokens.output)} tokens${Number.isFinite(d.recognition.durationMs) ? ` · ${(d.recognition.durationMs / 1000).toFixed(1)}s` : ""}${d.recognition.contextProfile ? ` · ${d.recognition.contextProfile} 档` : ""}；逐轮记录在 ${"识别日志"}（/policy history）`,
+          ]
+        : []),
       ...(d.preflightBlocked
         ? [
             `识别诊断：${formatRecognitionDiagnostics(d.recognition)}`,

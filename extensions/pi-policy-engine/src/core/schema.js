@@ -167,6 +167,7 @@ export function validateShape(config) {
             "requestBody",
             "autoTuning",
             "context",
+            "agentModel",
           ].includes(k)
         )
           error(`recognition.${k}`, UNKNOWN_HINT);
@@ -186,6 +187,17 @@ export function validateShape(config) {
         error("recognition.requestBody", "must be an object");
       if (fb.autoTuning !== undefined && typeof fb.autoTuning !== "boolean")
         error("recognition.autoTuning", "must be boolean");
+      // recognition.model: the ENDPOINT classifier model name (any
+      // nonempty string, pre-existing semantics). agentModel: the agent
+      // source's override model as "provider/model-id" or null (follow
+      // the active model).
+      if (
+        fb.agentModel !== undefined &&
+        fb.agentModel !== null &&
+        (typeof fb.agentModel !== "string" ||
+          !/^[^/\s]+\/[^/\s]+$/.test(fb.agentModel))
+      )
+        error("recognition.agentModel", "must be \"provider/model-id\" or null");
       if (fb.context !== undefined) {
         const ctx = fb.context;
         if (!ctx || typeof ctx !== "object" || Array.isArray(ctx))

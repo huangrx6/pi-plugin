@@ -219,6 +219,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       agentClassifier: hostRecognition
         ? createAgentClassifier(ctx, {
             autoTuning: previewConfig.recognition?.autoTuning !== false,
+            modelOverride: previewConfig.recognition?.agentModel ?? null,
           })
         : null,
       conversation: conversationFromMessages(event?.messages),
