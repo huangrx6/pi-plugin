@@ -151,7 +151,8 @@ export function interpretationContext(
   contextOptions = null,
 ) {
   const options = contextOptions ?? resolveContextOptions({});
-  const bounded = conversation.slice(-Math.max(1, options.conversationTurns))
+  const bounded = conversation
+    .slice(-Math.max(1, options.conversationTurns))
     .map((entry) => ({
       role: entry.role,
       content: capText(entry.content, options.conversationChars),
@@ -436,7 +437,7 @@ export async function interpretTask({
   const contextProfile =
     typeof recognitionConfig.context === "object" &&
     recognitionConfig.context !== null
-      ? recognitionConfig.context.profile ?? "minimal"
+      ? (recognitionConfig.context.profile ?? "minimal")
       : "minimal";
   let contextOptions = resolveContextOptions(recognitionConfig.context ?? {});
   // Optional request-body overrides (e.g. provider-specific thinking
@@ -452,7 +453,12 @@ export async function interpretTask({
   // oversized message (unshrinkable) can still overflow.
   const buildPayload = () =>
     JSON.stringify(
-      interpretationContext(state, prompt, incomingConversation, contextOptions),
+      interpretationContext(
+        state,
+        prompt,
+        incomingConversation,
+        contextOptions,
+      ),
     );
   let payload = buildPayload();
   while (payload.length > maxContextChars) {

@@ -479,7 +479,10 @@ test("default minimal profile sends context only — a huge ledger costs nothing
   assert.deepEqual(ctx.currentTask.constraints, []);
   assert.equal(ctx.currentTask.plan, null);
   const payload = JSON.stringify(ctx);
-  assert.ok(payload.length < 400, `minimal payload should be tiny, got ${payload.length}`);
+  assert.ok(
+    payload.length < 400,
+    `minimal payload should be tiny, got ${payload.length}`,
+  );
 
   const cfg = config({
     source: "agent",

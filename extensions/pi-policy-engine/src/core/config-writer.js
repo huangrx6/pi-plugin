@@ -26,8 +26,21 @@ export async function saveSelections({
   if (!current || typeof current !== "object" || Array.isArray(current))
     throw new Error("Configuration must be an object");
   const next = { ...current, ...patch };
-  if (recognition)
+  if (recognition) {
     next.recognition = { ...current.recognition, ...recognition };
+    // context merges one level deeper so a panel-driven profile switch
+    // never drops the user's hand-written key overrides
+    // (conversationTurns & friends) already in the file.
+    if (
+      recognition.context &&
+      current.recognition &&
+      typeof current.recognition.context === "object"
+    )
+      next.recognition.context = {
+        ...current.recognition.context,
+        ...recognition.context,
+      };
+  }
   const issues = validateShape(next);
   if (issues.length) throw new Error(issues.map((i) => i.message).join("; "));
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.36.1
+
+### 识别负载可直接在 /policy 面板切换
+
+- `/policy` 一级面板新增「识别负载 — 意图识别带多少上下文；三档
+  可选，选中后立即保存」入口；二级选择器列出三档（极简/标准/
+  完整，含负载内容与大小说明），当前档标注，取消与「返回」静默
+- 选中档位原子保存到全局配置并立即生效；`saveSelections` 对
+  `recognition.context` 改为深一层合并——面板切档不会丢掉配置
+  文件里手写的键覆盖（如 `conversationTurns`）
+- 直接命令支持：`/policy context minimal|standard|rich`（无参数
+  显示当前档与用法），与面板共用同一保存路径
+
 ## 0.36.0
 
 ### Recognition context profiles: three tiers, configurable, context-only by default

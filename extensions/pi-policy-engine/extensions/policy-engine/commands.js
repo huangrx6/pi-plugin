@@ -76,6 +76,67 @@ export function createCommandHandler({
     }
   }
 
+  // 0.36.1: recognition-context profile switching from the panel.
+  // Three presets with payload-size explanations; selecting one saves
+  // atomically to the global config (per-key overrides in the file
+  // survive via config-writer's deeper context merge).
+  const CONTEXT_PROFILE_ROWS = {
+    minimal: "极简（推荐） — 只带语境：当前消息 + 最近对话 + 任务目标；负载 < 2k",
+    standard: "标准 — 语境 + 最新 3 条需求原文；负载 3–6k",
+    rich: "完整 — 语境 + 需求 + 约束 + 计划摘要；负载 8–15k",
+  };
+
+  function currentContextProfile(state, ctx) {
+    const cfg = buildEffectiveConfig({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      state,
+    });
+    const profile = cfg.recognition?.context?.profile;
+    return ["minimal", "standard", "rich"].includes(profile) ? profile : "minimal";
+  }
+
+  async function applyContextProfile(state, ctx, profile) {
+    state.runtimeRecognition = {
+      ...(state.runtimeRecognition ?? {}),
+      enabled: true,
+      source: "agent",
+    };
+    try {
+      const path = await saveConfig({
+        recognition: { context: { profile } },
+      });
+      notify(
+        ctx,
+        `识别负载已设为「${CONTEXT_PROFILE_ROWS[profile].split(" — ")[0]}」并保存，下一轮识别生效。配置：${path}`,
+        "success",
+      );
+    } catch (error) {
+      notify(ctx, `识别负载保存失败：${error.message}`, "warning");
+    }
+  }
+
+  async function pickContextProfile(state, ctx) {
+    const current = currentContextProfile(state, ctx);
+    const title = `识别负载 · 当前：${CONTEXT_PROFILE_ROWS[current].split(" — ")[0]}
+意图识别需要语境，不需要完整账本；档位只影响识别请求，不影响注入的策略`;
+    const options = [
+      ...Object.entries(CONTEXT_PROFILE_ROWS).map(
+        ([key, row]) =>
+          `${row}${key === current ? "（当前）" : ""}`,
+      ),
+      "返回",
+    ];
+    const choice = await ctx.ui.select(sanitizeTerminalText(title), options);
+    if (choice === undefined || choice === "返回") return; // silent cancel
+    for (const [key, row] of Object.entries(CONTEXT_PROFILE_ROWS)) {
+      if (choice === `${row}（当前）` || choice === row) {
+        await applyContextProfile(state, ctx, key);
+        return;
+      }
+    }
+  }
+
   async function policyCommand(args, ctx) {
     const state = getState();
     const trimmed = String(args ?? "").trim();
@@ -96,6 +157,7 @@ export function createCommandHandler({
         "查看本次状态 — 当前流程、判断方式和下一步",
         "自动处理（推荐）— 当前模型结合完整对话判断；选中后立即保存",
         "谨慎处理 — 所有修改先给计划再等待确认；选中后立即保存",
+        "识别负载 — 意图识别带多少上下文；三档可选，选中后立即保存",
         "检查配置 — 显示个人配置位置并校验是否有效",
       ];
       if (state.phase === "awaiting_approval" && state.task?.plan)
@@ -122,6 +184,7 @@ export function createCommandHandler({
       if (choice?.startsWith("谨慎处理"))
         await applyGlobalPreset(state, ctx, "strict");
       if (choice?.startsWith("结束当前任务")) await policyCommand("new", ctx);
+      if (choice?.startsWith("识别负载")) await pickContextProfile(state, ctx);
       if (choice?.startsWith("检查配置")) {
         const cfg = buildEffectiveConfig({
           packageRoot,
@@ -151,6 +214,19 @@ export function createCommandHandler({
 
     const { action, rest } = parsePolicyCommand(args);
 
+    if (action === "context") {
+      const wanted = (rest[0] ?? "").toLowerCase();
+      if (!["minimal", "standard", "rich"].includes(wanted)) {
+        notify(
+          ctx,
+          `当前识别负载：${CONTEXT_PROFILE_ROWS[currentContextProfile(state, ctx)].split(" — ")[0]}\n用法: /policy context minimal|standard|rich`,
+          "info",
+        );
+        return;
+      }
+      await applyContextProfile(state, ctx, wanted);
+      return;
+    }
     if (action === "task") {
       notify(
         ctx,
