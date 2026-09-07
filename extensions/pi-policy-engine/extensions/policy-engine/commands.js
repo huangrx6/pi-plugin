@@ -194,7 +194,10 @@ export function createCommandHandler({
       );
     const options = [
       `跟随主模型（默认）— 主对话用什么，识别就用什么${configured ? "" : "（当前）"}`,
-      ...rows.map((row) => `${row}${configured === row.split(" — ")[0] ? "（当前）" : ""}`),
+      ...rows.map(
+        (row) =>
+          `${row}${configured === row.split(" — ")[0] ? "（当前）" : ""}`,
+      ),
       "返回",
     ];
     const choice = await ctx.ui.select(
@@ -208,7 +211,10 @@ export function createCommandHandler({
       await applyRecognitionModel(ctx, null);
       return;
     }
-    const picked = choice.split(" — ")[0].replace(/（当前）$/, "").trim();
+    const picked = choice
+      .split(" — ")[0]
+      .replace(/（当前）$/, "")
+      .trim();
     await applyRecognitionModel(ctx, picked);
   }
 
@@ -261,7 +267,8 @@ export function createCommandHandler({
         await applyGlobalPreset(state, ctx, "strict");
       if (choice?.startsWith("结束当前任务")) await policyCommand("new", ctx);
       if (choice?.startsWith("识别负载")) await pickContextProfile(state, ctx);
-      if (choice?.startsWith("识别模型")) await pickRecognitionModel(state, ctx);
+      if (choice?.startsWith("识别模型"))
+        await pickRecognitionModel(state, ctx);
       if (choice?.startsWith("检查配置")) {
         const cfg = buildEffectiveConfig({
           packageRoot,
@@ -312,7 +319,11 @@ export function createCommandHandler({
         return;
       }
       if (!/^[^/\s]+\/[^/\s]+$/.test(wantedRaw)) {
-        notify(ctx, "模型需要 \"provider/model-id\" 格式，或用 auto 跟随主模型。", "warning");
+        notify(
+          ctx,
+          '模型需要 "provider/model-id" 格式，或用 auto 跟随主模型。',
+          "warning",
+        );
         return;
       }
       await applyRecognitionModel(ctx, wantedRaw);

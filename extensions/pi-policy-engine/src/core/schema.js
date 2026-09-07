@@ -197,7 +197,7 @@ export function validateShape(config) {
         (typeof fb.agentModel !== "string" ||
           !/^[^/\s]+\/[^/\s]+$/.test(fb.agentModel))
       )
-        error("recognition.agentModel", "must be \"provider/model-id\" or null");
+        error("recognition.agentModel", 'must be "provider/model-id" or null');
       if (fb.context !== undefined) {
         const ctx = fb.context;
         if (!ctx || typeof ctx !== "object" || Array.isArray(ctx))

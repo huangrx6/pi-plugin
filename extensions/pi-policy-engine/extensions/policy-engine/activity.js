@@ -61,11 +61,11 @@ export function activitySnapshot(decision, phase, injected = "") {
     ? "插件未加载任务策略；已向主模型追加停止执行并重试识别的要求。"
     : injected
       ? phase === "planning"
-      ? "先生成计划，完成后等待你确认。"
-      : phase === "awaiting_approval"
-        ? "等待你批准计划；可以继续提问或修改约束。"
-        : "模型继续处理当前任务，无需额外操作。"
-    : "本轮没有追加策略指令。";
+        ? "先生成计划，完成后等待你确认。"
+        : phase === "awaiting_approval"
+          ? "等待你批准计划；可以继续提问或修改约束。"
+          : "模型继续处理当前任务，无需额外操作。"
+      : "本轮没有追加策略指令。";
   return deepFreeze({
     extensionVersion: EXTENSION_VERSION,
     decision: data,

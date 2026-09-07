@@ -214,11 +214,28 @@ function registryFixture(models, calls) {
 test("agentModel override resolves a configured model and reports usage", async () => {
   const calls = [];
   const ctx = {
-    model: { provider: "zai-coding-cn", id: "glm-5.3", api: "openai-completions", reasoning: true, compat: { thinkingFormat: "zai" } },
+    model: {
+      provider: "zai-coding-cn",
+      id: "glm-5.3",
+      api: "openai-completions",
+      reasoning: true,
+      compat: { thinkingFormat: "zai" },
+    },
     modelRegistry: registryFixture(
       [
-        { provider: "zai-coding-cn", id: "glm-5.3", api: "openai-completions", reasoning: true, compat: { thinkingFormat: "zai" } },
-        { provider: "zai-coding-cn", id: "glm-5.3-flash", api: "openai-completions", reasoning: false },
+        {
+          provider: "zai-coding-cn",
+          id: "glm-5.3",
+          api: "openai-completions",
+          reasoning: true,
+          compat: { thinkingFormat: "zai" },
+        },
+        {
+          provider: "zai-coding-cn",
+          id: "glm-5.3-flash",
+          api: "openai-completions",
+          reasoning: false,
+        },
       ],
       calls,
     ),

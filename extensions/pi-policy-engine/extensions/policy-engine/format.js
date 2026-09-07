@@ -4,7 +4,9 @@ import { EXTENSION_VERSION } from "./version.js";
 
 export function formatRecognitionDiagnostics(recognition) {
   if (!recognition) return "none/not_run";
-  const parts = [`${recognition.source ?? "none"}/${recognition.reason ?? "not_run"}`];
+  const parts = [
+    `${recognition.source ?? "none"}/${recognition.reason ?? "not_run"}`,
+  ];
   if (recognition.attempts) parts.push(`attempts=${recognition.attempts}`);
   if (recognition.initialFailure) {
     const initialDetail =

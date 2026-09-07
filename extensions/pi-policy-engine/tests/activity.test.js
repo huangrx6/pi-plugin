@@ -393,8 +393,11 @@ test("panel 识别模型 lists configured models and saves agentModel", async (t
   });
 
   const state = {
-    runtimeMode: null, runtimeRecognition: null,
-    phase: "idle", task: null, lastActivity: null,
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
   };
   const handler = createCommandHandler({
     packageRoot: process.cwd(),
@@ -406,13 +409,18 @@ test("panel 识别模型 lists configured models and saves agentModel", async (t
     modelRegistry: {
       getAvailable: () => [
         { provider: "zai-coding-cn", id: "glm-5.3", name: "GLM 5.3" },
-        { provider: "zai-coding-cn", id: "glm-5.3-flash", name: "GLM 5.3 Flash" },
+        {
+          provider: "zai-coding-cn",
+          id: "glm-5.3-flash",
+          name: "GLM 5.3 Flash",
+        },
       ],
     },
     ui: {
       select: async (_t, options) => {
         selects.push(options);
-        if (selects.length === 1) return options.find((o) => o.startsWith("识别模型"));
+        if (selects.length === 1)
+          return options.find((o) => o.startsWith("识别模型"));
         return options.find((o) => o.startsWith("zai-coding-cn/glm-5.3-flash"));
       },
       notify: (m, level) => notices.push({ m, level }),
@@ -423,9 +431,15 @@ test("panel 识别模型 lists configured models and saves agentModel", async (t
   // 二级列表：跟随主模型 + 2 个模型 + 返回
   assert.equal(selects[1].length, 4);
   assert.ok(selects[1][0].startsWith("跟随主模型"));
-  assert.ok(notices.some((n) => n.level === "success" && /glm-5\.3-flash/.test(n.m)));
+  assert.ok(
+    notices.some((n) => n.level === "success" && /glm-5\.3-flash/.test(n.m)),
+  );
   const configPath = join(
-    temp, "agent", "extensions-data", "pi-policy-engine", "config.json",
+    temp,
+    "agent",
+    "extensions-data",
+    "pi-policy-engine",
+    "config.json",
   );
   const saved = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(saved.recognition.agentModel, "zai-coding-cn/glm-5.3-flash");
@@ -443,8 +457,11 @@ test("/policy model sets and clears the recognition model directly", async (t) =
     else process.env.PI_CODING_AGENT_DIR = previous;
   });
   const state = {
-    runtimeMode: null, runtimeRecognition: null,
-    phase: "idle", task: null, lastActivity: null,
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
   };
   const handler = createCommandHandler({
     packageRoot: process.cwd(),
@@ -462,7 +479,11 @@ test("/policy model sets and clears the recognition model directly", async (t) =
   await handler("model auto", ctx);
   assert.match(notices[3].m, /跟随主模型/);
   const configPath = join(
-    temp, "agent", "extensions-data", "pi-policy-engine", "config.json",
+    temp,
+    "agent",
+    "extensions-data",
+    "pi-policy-engine",
+    "config.json",
   );
   const saved = JSON.parse(readFileSync(configPath, "utf8"));
   assert.equal(saved.recognition.agentModel, null);

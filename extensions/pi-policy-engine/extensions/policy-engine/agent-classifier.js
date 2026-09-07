@@ -79,9 +79,7 @@ export function createAgentClassifier(ctx, options = {}) {
       // the profile can be tuned from actual measurements later.
       const usage = response?.usage;
       const usageTokens =
-        usage &&
-        Number.isFinite(usage.input) &&
-        Number.isFinite(usage.output)
+        usage && Number.isFinite(usage.input) && Number.isFinite(usage.output)
           ? { input: usage.input, output: usage.output }
           : null;
       return { text, usageTokens };
