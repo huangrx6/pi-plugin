@@ -233,7 +233,8 @@ test("disabled, missing key and oversized context make no network request", asyn
       "context_too_large",
     ],
   ]) {
-    const oversizedPrompt = reason === "context_too_large" ? "a".repeat(1100) : "继续";
+    const oversizedPrompt =
+      reason === "context_too_large" ? "a".repeat(1100) : "继续";
     const r = await interpretTask({
       prompt: oversizedPrompt,
       state: context,
@@ -434,13 +435,16 @@ test("requestBody overrides reach the agent transport via samplingParams", async
   assert.deepEqual(seen[0], { thinking: { type: "disabled" } });
 });
 
-// 0.35.1: the task ledger is append-only, so long tasks used to push the
-// recognition payload over maxContextChars permanently (verified live at
-// ~34k chars on the 智能文档解析平台 project — every turn failed with
-// context_too_large). The payload now shrinks through task tiers.
+// 0.36.0: recognition context profiles. The default (minimal) sends
+// CONTEXT ONLY — message + newest conversation + goal — because
+// requirements/constraints/plan govern execution, not classification,
+// and the append-only ledger was both a per-turn token drain and (at
+// ~34k chars) a permanent context_too_large failure on long tasks.
 
-test("oversized task ledger shrinks through tiers instead of failing", async () => {
-  const ledger = {
+import { resolveContextOptions } from "../src/core/interpretation.js";
+
+function hugeLedger() {
+  return {
     task: {
       id: "t1",
       goal: "解析导入的文档并修正字段校验",
@@ -450,7 +454,10 @@ test("oversized task ledger shrinks through tiers instead of failing", async () 
         relation: "response",
         planVersion: 3,
       })),
-      constraints: Array.from({ length: 30 }, (_, i) => `不要修改第${i}个模块的公开接口`),
+      constraints: Array.from(
+        { length: 30 },
+        (_, i) => `不要修改第${i}个模块的公开接口`,
+      ),
       plan: {
         goal: "分步修正",
         steps: Array.from({ length: 8 }, (_, i) => ({
@@ -462,14 +469,22 @@ test("oversized task ledger shrinks through tiers instead of failing", async () 
     },
     phase: "executing",
   };
-  const fullPayload = JSON.stringify(interpretationContext(ledger, "继续", []));
-  assert.ok(fullPayload.length > 48000, `ledger should overflow (got ${fullPayload.length})`);
+}
+
+test("default minimal profile sends context only — a huge ledger costs nothing", async () => {
+  const ledger = hugeLedger();
+  const ctx = interpretationContext(ledger, "继续", []);
+  assert.ok(ctx.currentTask.goal.length <= 161);
+  assert.deepEqual(ctx.currentTask.requirements, []);
+  assert.deepEqual(ctx.currentTask.constraints, []);
+  assert.equal(ctx.currentTask.plan, null);
+  const payload = JSON.stringify(ctx);
+  assert.ok(payload.length < 400, `minimal payload should be tiny, got ${payload.length}`);
 
   const cfg = config({
     source: "agent",
     apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
     timeoutMs: 15,
-    maxContextChars: 24000,
   });
   const result = await interpretTask({
     prompt: "继续",
@@ -477,51 +492,95 @@ test("oversized task ledger shrinks through tiers instead of failing", async () 
     config: cfg,
     agentClassifier: {
       model: "host/model",
-      complete: async ({ payload }) => {
-        // The request that ACTUALLY goes out must fit the budget.
-        assert.ok(payload.length <= 24000, `payload ${payload.length} > 24000`);
+      complete: async ({ payload: sent }) => {
+        assert.ok(sent.length < 2000, `sent payload ${sent.length}`);
         return JSON.stringify(valid);
       },
     },
     fetcher: () => assert.fail("must not call endpoint"),
   });
   assert.equal(result.reason, "contextual");
-  assert.ok(["trim", "minimal"].includes(result.taskTier), `tier=${result.taskTier}`);
-  assert.ok(result.contextChars <= 24000);
+  assert.equal(result.contextProfile, "minimal");
 });
 
-test("interpretationContext tiers: full keeps everything, minimal caps hard", () => {
-  const state = {
-    task: {
-      id: "t1",
-      goal: "G".repeat(1000),
-      requirements: [{ text: "R".repeat(1000) }, { text: "latest" }],
-      constraints: ["C".repeat(1000)],
-      plan: { goal: "P", steps: [{ action: "A".repeat(1000), verification: "V" }] },
-      planVersion: 2,
+test("rich profile carries ledger entries and a plan summary", async () => {
+  const ledger = hugeLedger();
+  const cfg = config({
+    source: "agent",
+    apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
+    timeoutMs: 15,
+    context: { profile: "rich" },
+  });
+  const result = await interpretTask({
+    prompt: "继续",
+    state: ledger,
+    config: cfg,
+    agentClassifier: {
+      model: "host/model",
+      complete: async ({ payload: sent }) => {
+        const parsed = JSON.parse(sent);
+        assert.equal(parsed.currentTask.requirements.length, 8);
+        assert.ok(parsed.currentTask.requirements[0].text.length <= 251);
+        assert.equal(parsed.currentTask.constraints.length, 6);
+        assert.ok(parsed.currentTask.plan.steps.length);
+        assert.equal(parsed.currentTask.plan.stepCount, 8);
+        assert.ok(sent.length <= 24000);
+        return JSON.stringify(valid);
+      },
     },
-    phase: "planning",
-  };
-  const full = interpretationContext(state, "继续");
-  assert.equal(full.currentTask.requirements[0].text.length, 1000);
-  assert.equal(full.currentTask.plan.steps[0].action.length, 1000);
+    fetcher: () => assert.fail("must not call endpoint"),
+  });
+  assert.equal(result.reason, "contextual");
+  assert.equal(result.contextProfile, "rich");
+});
 
-  const minimal = interpretationContext(state, "继续", [], "minimal");
-  assert.ok(minimal.currentTask.goal.length <= 301);
-  // minimal keeps the NEWEST entries (slice(-3)), each hard-capped.
-  assert.equal(minimal.currentTask.requirements.length, 2);
-  assert.equal(
-    minimal.currentTask.requirements.at(-1).text,
-    "latest",
-  );
-  assert.ok(minimal.currentTask.requirements[0].text.length <= 161);
-  assert.ok(minimal.currentTask.constraints[0].length <= 121);
-  assert.equal(minimal.currentTask.plan, null);
-  assert.match(minimal.currentTask.note, /truncated/);
+test("per-key overrides beat the profile preset", () => {
+  const options = resolveContextOptions({
+    profile: "standard",
+    conversationTurns: 2,
+    requirements: 5,
+  });
+  assert.equal(options.conversationTurns, 2);
+  assert.equal(options.requirements, 5);
+  assert.equal(options.conversationChars, 600, "preset value kept");
+  assert.equal(options.constraints, 0);
+});
 
-  const trim = interpretationContext(state, "继续", [], "trim");
-  assert.ok(trim.currentTask.goal.length <= 601);
-  assert.ok(trim.currentTask.requirements[0].text.length <= 401);
-  assert.ok(trim.currentTask.plan.steps[0].action.length <= 201);
-  assert.equal(trim.currentTask.plan.stepCount, 1);
+test("unknown profile falls back to minimal", () => {
+  const options = resolveContextOptions({ profile: "yolo" });
+  assert.equal(options.conversationTurns, 4);
+  assert.equal(options.plan, false);
+});
+
+test("budget shrink drops conversation turns before requirements", async () => {
+  const ledger = hugeLedger();
+  const cfg = config({
+    source: "agent",
+    apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
+    timeoutMs: 15,
+    context: { profile: "rich", maxContextChars: undefined },
+    maxContextChars: 3000,
+  });
+  let seenTurns = null;
+  const result = await interpretTask({
+    prompt: "继续",
+    state: ledger,
+    config: cfg,
+    conversation: Array.from({ length: 10 }, (_, i) => ({
+      role: "user",
+      content: `历史消息${i}`.padEnd(800, "话"),
+    })),
+    agentClassifier: {
+      model: "host/model",
+      complete: async ({ payload: sent }) => {
+        seenTurns = JSON.parse(sent).conversation.length;
+        assert.ok(sent.length <= 3000, `shrunk payload ${sent.length}`);
+        return JSON.stringify(valid);
+      },
+    },
+    fetcher: () => assert.fail("must not call endpoint"),
+  });
+  assert.equal(result.reason, "contextual");
+  assert.ok(seenTurns < 12, `conversation shrunk to ${seenTurns}`);
+  assert.ok(result.contextChars <= 3000);
 });

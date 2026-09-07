@@ -615,7 +615,9 @@ test("primary model overrides a confident rule classification using full task co
   const payload = JSON.parse(requests[0].messages[1].content);
   assert.equal(payload.currentTask.id, oldId);
   assert.match(payload.currentTask.goal, /不要改公开接口/);
-  assert.ok(payload.currentTask.plan.steps.length);
+  // 0.36.0 默认识别档（minimal）只带语境：goal 在、plan 不在。
+  assert.equal(payload.currentTask.plan, null);
+  assert.deepEqual(payload.currentTask.requirements, []);
   assert.notEqual(s.state.task.id, oldId);
   assert.equal(s.state.lastDecision.executionIntent, "read-only");
   assert.equal(s.state.lastDecision.taskType, "review");

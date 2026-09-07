@@ -166,6 +166,7 @@ export function validateShape(config) {
             "onFailure",
             "requestBody",
             "autoTuning",
+            "context",
           ].includes(k)
         )
           error(`recognition.${k}`, UNKNOWN_HINT);
@@ -185,6 +186,54 @@ export function validateShape(config) {
         error("recognition.requestBody", "must be an object");
       if (fb.autoTuning !== undefined && typeof fb.autoTuning !== "boolean")
         error("recognition.autoTuning", "must be boolean");
+      if (fb.context !== undefined) {
+        const ctx = fb.context;
+        if (!ctx || typeof ctx !== "object" || Array.isArray(ctx))
+          error("recognition.context", "must be an object");
+        else {
+          if (
+            ctx.profile !== undefined &&
+            !["minimal", "standard", "rich"].includes(ctx.profile)
+          )
+            error(
+              "recognition.context.profile",
+              "must be minimal, standard or rich",
+            );
+          for (const [key, max] of [
+            ["conversationTurns", 24],
+            ["conversationChars", 4000],
+            ["goalChars", 4000],
+            ["requirements", 24],
+            ["requirementChars", 4000],
+            ["constraints", 24],
+            ["constraintChars", 4000],
+          ]) {
+            const v = ctx[key];
+            if (v !== undefined && !(Number.isInteger(v) && v >= 0 && v <= max))
+              error(
+                `recognition.context.${key}`,
+                `must be an integer in [0, ${max}]`,
+              );
+          }
+          if (ctx.plan !== undefined && typeof ctx.plan !== "boolean")
+            error("recognition.context.plan", "must be boolean");
+          for (const key of Object.keys(ctx))
+            if (
+              ![
+                "profile",
+                "conversationTurns",
+                "conversationChars",
+                "goalChars",
+                "requirements",
+                "requirementChars",
+                "constraints",
+                "constraintChars",
+                "plan",
+              ].includes(key)
+            )
+              error(`recognition.context.${key}`, "unknown setting");
+        }
+      }
     }
   }
   const known = new Set([

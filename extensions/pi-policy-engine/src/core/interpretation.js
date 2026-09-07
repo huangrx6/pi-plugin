@@ -33,22 +33,68 @@ const REPAIR_INSTRUCTIONS = `${INSTRUCTIONS}
 The previous response did not satisfy the required JSON contract. Repair its format or schema using the supplied original input. Return one JSON object only. Do not explain the repair and do not wrap it in Markdown.`;
 
 /**
- * Task-ledger tiers for the recognition payload.
+ * Recognition context profiles (0.36.0).
  *
- * The ledger is append-only by design (exact user text stays
- * authoritative), so long tasks grow it without bound. Verified live
- * failure (2026-09-07, 智能文档解析平台): requirements + constraints +
- * plan reached ~34k chars, the old shrink loop only trimmed the
- * conversation, and recognition failed with context_too_large on
- * EVERY turn. The tiers below let the payload always converge under
- * maxContextChars while keeping the most recent, most relevant text:
+ * Intent recognition needs CONTEXT, not the whole task ledger: the
+ * message, the newest conversation turns and the task goal are what
+ * decide relation / taskType / intent / risk. Requirements text,
+ * constraints and plans govern EXECUTION — they were removed from the
+ * default payload after live measurement showed a ~34k-char ledger
+ * (and, before that, per-turn token waste) for zero classification
+ * value.
  *
- *   full     — everything, as before (the common case)
- *   trim     — recent entries with per-entry caps; plan reduced to a
- *              step-action summary
- *   minimal  — goal + the newest few entries, heavily capped
+ * Three profiles ship; every field is overridable via
+ * recognition.context.* keys, which take precedence over the profile.
  */
-const TASK_TIERS = ["full", "trim", "minimal"];
+const CONTEXT_PRESETS = {
+  // 默认：只要语境。Message + 最近对话 + 目标一行。
+  minimal: {
+    conversationTurns: 4,
+    conversationChars: 400,
+    goalChars: 160,
+    requirements: 0,
+    requirementChars: 160,
+    constraints: 0,
+    constraintChars: 120,
+    plan: false,
+  },
+  // 语境 + 少量最新需求原文（判"继续/修订"更稳）。
+  standard: {
+    conversationTurns: 8,
+    conversationChars: 600,
+    goalChars: 300,
+    requirements: 3,
+    requirementChars: 160,
+    constraints: 0,
+    constraintChars: 120,
+    plan: false,
+  },
+  // 接近旧全量：给需要识别模型理解约束/计划的场景。
+  rich: {
+    conversationTurns: 12,
+    conversationChars: 900,
+    goalChars: 600,
+    requirements: 8,
+    requirementChars: 250,
+    constraints: 6,
+    constraintChars: 120,
+    plan: true,
+  },
+};
+
+const CONTEXT_KEYS = Object.keys(CONTEXT_PRESETS.minimal);
+
+/** Resolve recognition.context config into a complete options object. */
+export function resolveContextOptions(contextConfig = {}) {
+  const profile =
+    CONTEXT_PRESETS[contextConfig.profile] ?? CONTEXT_PRESETS.minimal;
+  const options = { ...profile };
+  for (const key of CONTEXT_KEYS) {
+    const value = contextConfig[key];
+    if (value !== undefined) options[key] = value;
+  }
+  return options;
+}
 
 const capText = (value, max) => {
   const text = String(value ?? "");
@@ -67,57 +113,52 @@ function summarizePlan(plan, actionCap) {
   };
 }
 
-function taskContext(task, tier) {
+function taskContext(task, options) {
   const requirements = (task.requirements ?? []).filter(
     (r) => r.text !== task.goal,
   );
-  const constraints = task.constraints ?? [];
-  const base = {
+  const context = {
     id: task.id,
-    goal: task.goal ?? task.prompt,
+    goal: capText(task.goal ?? task.prompt, options.goalChars),
     planVersion: task.planVersion,
     phase: null,
     plan: null,
-    requirements,
-    constraints,
+    requirements: [],
+    constraints: [],
     lastDecision: null,
   };
-  if (tier === "minimal") {
-    return {
-      ...base,
-      goal: capText(base.goal, 300),
-      requirements: requirements.slice(-3).map((r) => ({
-        ...r,
-        text: capText(r.text, 160),
-      })),
-      constraints: constraints.slice(-6).map((c) => capText(c, 120)),
-      note: "task ledger truncated to fit the recognition budget",
-    };
+  if (options.requirements > 0) {
+    context.requirements = requirements
+      .slice(-options.requirements)
+      .map((r) => ({ ...r, text: capText(r.text, options.requirementChars) }));
   }
-  if (tier === "trim") {
-    return {
-      ...base,
-      goal: capText(base.goal, 600),
-      requirements: requirements.slice(-12).map((r) => ({
-        ...r,
-        text: capText(r.text, 400),
-      })),
-      constraints: constraints.slice(-12).map((c) => capText(c, 240)),
-      plan: summarizePlan(task.plan, 200),
-    };
+  if (options.constraints > 0) {
+    context.constraints = (task.constraints ?? [])
+      .slice(-options.constraints)
+      .map((c) => capText(c, options.constraintChars));
   }
-  return { ...base, plan: task.plan ?? null };
+  if (options.plan) {
+    const summarized = summarizePlan(task.plan, 200);
+    if (summarized) context.plan = summarized;
+  }
+  return context;
 }
 
 export function interpretationContext(
   state,
   prompt,
   conversation = [],
-  taskTier = "full",
+  contextOptions = null,
 ) {
+  const options = contextOptions ?? resolveContextOptions({});
+  const bounded = conversation.slice(-Math.max(1, options.conversationTurns))
+    .map((entry) => ({
+      role: entry.role,
+      content: capText(entry.content, options.conversationChars),
+    }));
   const currentTask = state.task
     ? {
-        ...taskContext(state.task, taskTier),
+        ...taskContext(state.task, options),
         phase: state.phase,
         lastDecision: state.lastDecision
           ? {
@@ -130,7 +171,7 @@ export function interpretationContext(
     : null;
   return {
     message: prompt,
-    conversation: conversation.slice(-24),
+    conversation: bounded,
     currentTask,
   };
 }
@@ -388,10 +429,16 @@ export async function interpretTask({
   )
     return failure("missing_configuration");
   const maxContextChars = recognitionConfig.maxContextChars ?? 24000;
-  let boundedConversation = conversation.slice(-12).map((entry) => ({
-    role: entry.role,
-    content: String(entry.content ?? "").slice(-1800),
-  }));
+  // lifecycle already pre-bounds entries (24 turns × 6000 chars); the
+  // context profile applies the real per-call caps inside
+  // interpretationContext.
+  const incomingConversation = conversation;
+  const contextProfile =
+    typeof recognitionConfig.context === "object" &&
+    recognitionConfig.context !== null
+      ? recognitionConfig.context.profile ?? "minimal"
+      : "minimal";
+  let contextOptions = resolveContextOptions(recognitionConfig.context ?? {});
   // Optional request-body overrides (e.g. provider-specific thinking
   // switches for slow reasoning models). Merged last so requested keys
   // win over the named fields.
@@ -400,39 +447,37 @@ export async function interpretTask({
     recognitionConfig.requestBody !== null
       ? recognitionConfig.requestBody
       : null;
-  // Shrink order: oldest conversation entries first (existing
-  // behaviour), then task-ledger tiers full → trim → minimal. The
-  // ledger is append-only and grows without bound, so the tiers are
-  // what rescue long tasks (see taskContext).
-  let taskTierIndex = 0;
+  // Budget shrink: drop conversation turns first, then requirement
+  // entries; goal/plan stay at their configured caps. Only a single
+  // oversized message (unshrinkable) can still overflow.
   const buildPayload = () =>
     JSON.stringify(
-      interpretationContext(
-        state,
-        prompt,
-        boundedConversation,
-        TASK_TIERS[taskTierIndex],
-      ),
+      interpretationContext(state, prompt, incomingConversation, contextOptions),
     );
   let payload = buildPayload();
   while (payload.length > maxContextChars) {
-    if (boundedConversation.length > 0) {
-      boundedConversation = boundedConversation.slice(1);
-    } else if (taskTierIndex < TASK_TIERS.length - 1) {
-      taskTierIndex += 1;
+    if (contextOptions.conversationTurns > 1) {
+      contextOptions = {
+        ...contextOptions,
+        conversationTurns: contextOptions.conversationTurns - 1,
+      };
+    } else if (contextOptions.requirements > 0) {
+      contextOptions = {
+        ...contextOptions,
+        requirements: contextOptions.requirements - 1,
+      };
     } else {
       break;
     }
     payload = buildPayload();
   }
-  const taskTier = TASK_TIERS[taskTierIndex];
   if (payload.length > maxContextChars) {
     const tooLarge = useAgent
       ? { source: "agent", reason: "context_too_large", interpretation: null }
       : failure("context_too_large");
     return {
       ...tooLarge,
-      taskTier,
+      contextProfile,
       contextChars: payload.length,
       limit: maxContextChars,
     };
@@ -585,7 +630,7 @@ export async function interpretTask({
       durationMs: Date.now() - started,
       contextChars: payload.length,
     };
-    if (taskTier !== "full") enriched.taskTier = taskTier;
+    enriched.contextProfile = contextProfile;
     if (useAgent && agentClassifier.tuningNote)
       enriched.tuning = agentClassifier.tuningNote;
     return enriched;

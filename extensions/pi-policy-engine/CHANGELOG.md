@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.36.0
+
+### Recognition context profiles: three tiers, configurable, context-only by default
+
+User direction after measuring the live token cost: intent
+recognition needs CONTEXT (message + newest conversation + goal), not
+the task ledger — requirements text, constraints and plans govern
+execution, not classification, and the append-only ledger was a
+per-turn token drain on every long task.
+
+- **`recognition.context.profile`**: `minimal` (new default — 4 turns
+  × 400 chars + goal 160, no ledger; typical payload < 2k), `standard`
+  (+ newest 3 requirements), `rich` (near the old full shape with a
+  plan summary). Every field is overridable via
+  `recognition.context.<key>` (conversationTurns / conversationChars /
+  goalChars / requirements / requirementChars / constraints /
+  constraintChars / plan); explicit keys beat the preset.
+- Budget shrink now drops conversation turns first, then requirement
+  entries; the effective profile is recorded in recognition
+  diagnostics (`contextProfile`, replaces 0.35.1's `taskTier`).
+- The 0.35.1 tier escalation is superseded: with the default profile
+  a ~34k ledger costs NOTHING (its entries never enter the payload).
+- Full schema validation for the context block; defaults.json ships
+  the explicit `context.profile: "minimal"`.
+
+Tests: huge-ledger-costs-nothing under the default, rich-profile
+shape oracle (entries + plan summary), per-key override precedence,
+unknown-profile fallback, budget shrink ordering, and the
+full-context upgrade test pinned to the new default semantics.
+
 ## 0.35.1
 
 ### Fix: oversized task ledger no longer fails recognition on every turn
