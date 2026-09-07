@@ -189,7 +189,7 @@ pi install "$PWD"
 }
 ```
 
-`recognition.agentModel` 指定识别专用模型（`"provider/model-id"`，null 跟随主模型）——识别是每轮一次的小请求，可选用已配置的便宜模型，主对话模型不受影响；思考适配按该模型的元数据计算。面板「识别模型」入口可从宿主模型目录中直接选择，或用 `/policy model <provider/model-id|auto>`。
+`recognition.agentModel` 指定识别专用模型（`"provider/model-id"`，null 跟随主模型）——识别是每轮一次的小请求，可选用已配置的便宜模型，主对话模型不受影响；思考适配按该模型的元数据计算。面板「识别模型」入口可从宿主模型目录中直接选择，或用 `/policy model <provider/model-id|auto>`。`/policy usage` 汇总历史识别成本（token 合计/均值、耗时、成功率、按档位与模型分组），作为调档依据。
 
 ```json
 {

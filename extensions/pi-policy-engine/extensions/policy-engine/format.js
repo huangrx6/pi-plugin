@@ -31,6 +31,90 @@ export function formatRecognitionDiagnostics(recognition) {
   return parts.join("; ");
 }
 
+
+/** Aggregate recognition usage from routing history (0.37.1).
+ *  Surfaces what the per-turn token logging accumulates: totals,
+ *  averages, per-model and per-profile splits — the data basis for
+ *  tuning the context profile against real measurements. */
+export function formatUsageSummary(entries) {
+  const turns = (entries ?? []).filter((e) => e?.recognition);
+  if (turns.length === 0)
+    return "还没有识别记录。发送任务后，这里会汇总每轮识别的 token 用量。";
+  const withUsage = turns.filter((e) => e.recognition.usageTokens);
+  const ok = turns.filter((e) => e.recognition.reason === "contextual");
+  const byModel = new Map();
+  const byProfile = new Map();
+  const failures = new Map();
+  let input = 0;
+  let output = 0;
+  let durationMs = 0;
+  let durationCount = 0;
+  for (const e of turns) {
+    const rec = e.recognition;
+    if (rec.usageTokens) {
+      input += rec.usageTokens.input;
+      output += rec.usageTokens.output;
+    }
+    if (Number.isFinite(rec.durationMs)) {
+      durationMs += rec.durationMs;
+      durationCount++;
+    }
+    const model = rec.model ?? "未标注";
+    byModel.set(model, (byModel.get(model) ?? 0) + 1);
+    if (rec.reason !== "contextual") {
+      const key = `${rec.source}/${rec.reason}`;
+      failures.set(key, (failures.get(key) ?? 0) + 1);
+    }
+    if (rec.usageTokens) {
+      const profile = rec.contextProfile ?? "full";
+      const agg = byProfile.get(profile) ?? { n: 0, input: 0, output: 0 };
+      agg.n += 1;
+      agg.input += rec.usageTokens.input;
+      agg.output += rec.usageTokens.output;
+      byProfile.set(profile, agg);
+    }
+  }
+  const lines = [
+    `# 识别用量汇总（历史 ${turns.length} 轮识别）`,
+    `成功 ${ok.length} 轮（${((ok.length / turns.length) * 100).toFixed(0)}%）`,
+    ...(withUsage.length
+      ? [
+          `token 合计：↑${input.toLocaleString()} ↓${output.toLocaleString()}（${withUsage.length} 轮上报）`,
+          `平均每轮：↑${Math.round(input / withUsage.length).toLocaleString()} ↓${Math.round(output / withUsage.length).toLocaleString()}`,
+        ]
+      : ["token：尚无上报（0.37.0 起的轮次才有 usage）"]),
+    ...(durationCount
+      ? [`平均耗时：${(durationMs / durationCount / 1000).toFixed(1)}s`]
+      : []),
+    ...(failures.size
+      ? [
+          "失败分布：",
+          ...[...failures.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([k, n]) => `  ${k}: ${n} 次`),
+        ]
+      : []),
+    ...(byProfile.size
+      ? [
+          "按负载档：",
+          ...[...byProfile.entries()].map(
+            ([profile, agg]) =>
+              `  ${profile}: ${agg.n} 轮 · ↑${agg.input.toLocaleString()} ↓${agg.output.toLocaleString()} · 均值 ↑${Math.round(agg.input / agg.n).toLocaleString()}`,
+          ),
+        ]
+      : []),
+    ...(byModel.size > 1 || (byModel.size === 1 && ![...byModel.keys()][0].includes("未标注"))
+      ? [
+          "按识别模型：",
+          ...[...byModel.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(([model, n]) => `  ${model}: ${n} 轮`),
+        ]
+      : []),
+  ];
+  return lines.join("\n");
+}
+
 /** 1234 → "1.2k"；用于识别用量行。 */
 export function formatTokens(n) {
   const value = Number(n);

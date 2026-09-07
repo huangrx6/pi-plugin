@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.37.1
+
+### /policy usage：识别成本汇总
+
+- 新增 `/policy usage`：从路由历史聚合每轮识别的真实成本——总轮次
+  与成功率、token 合计与平均（↑输入 ↓输出）、平均耗时、失败原因
+  分布、按负载档（minimal/standard/rich）与按识别模型的用量分组
+- 0.37.0 逐轮记录的 usageTokens 在此形成闭环：积累数据后直接看
+  档位均值差与失败热点，据实调 `recognition.context` 与
+  `recognition.agentModel`
+
 ## 0.37.0
 
 ### 识别 token 用量可见可查 + 识别模型可选

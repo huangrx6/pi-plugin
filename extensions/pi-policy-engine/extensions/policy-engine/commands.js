@@ -12,6 +12,7 @@ import { sanitizeTerminalText } from "./terminal.js";
 import { EXTENSION_VERSION } from "./version.js";
 import {
   formatConfig,
+  formatUsageSummary,
   formatDiff,
   formatHistory,
   formatPreview,
@@ -21,6 +22,7 @@ import {
 import {
   appendHistory,
   clearHistory,
+  readHistory,
   resolveHistoryPath,
 } from "../../src/core/history-store.js";
 import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
@@ -521,6 +523,23 @@ export function createCommandHandler({
       return;
     }
 
+    if (action === "usage") {
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      let entries = state.history ?? [];
+      if (cfg.historyFile) {
+        const path = resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd());
+        if (path) {
+          const disk = await readHistory(path, 500);
+          if (Array.isArray(disk) && disk.length > 0) entries = disk;
+        }
+      }
+      notify(ctx, formatUsageSummary(entries), "info");
+      return;
+    }
     if (action === "injected") {
       notify(ctx, state.lastActivity?.injected || "本轮没有注入指令。", "info");
       return;
