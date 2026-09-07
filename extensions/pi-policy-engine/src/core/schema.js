@@ -159,9 +159,25 @@ export function validateShape(config) {
             "source",
             "protocol",
             "maxContextChars",
+            "onFailure",
+            "requestBody",
           ].includes(k)
         )
           error(`recognition.${k}`, "unknown setting");
+      if (
+        fb.onFailure !== undefined &&
+        !["block", "rules"].includes(fb.onFailure)
+      )
+        error("recognition.onFailure", "must be block or rules");
+      if (
+        fb.requestBody !== undefined &&
+        !(
+          typeof fb.requestBody === "object" &&
+          fb.requestBody !== null &&
+          !Array.isArray(fb.requestBody)
+        )
+      )
+        error("recognition.requestBody", "must be an object");
     }
   }
   const known = new Set([

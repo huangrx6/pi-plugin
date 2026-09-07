@@ -280,14 +280,20 @@ export async function resolveTurn({
     explicitMode: mode,
   });
   // Recognition is the live routing gate. If it is explicitly enabled but
-  // cannot produce a valid interpretation, do not silently route by the old
-  // local rules; surface a blocked turn so the user can retry or switch the
-  // recognition source. Offline previews remain deterministic and unblocked.
+  // cannot produce a valid interpretation, the default is to surface a
+  // blocked turn so the user can retry or switch the recognition source.
+  // recognition.onFailure = "rules" instead degrades to the local rule
+  // classification (with a recorded reason) — for hosts whose active
+  // model reliably exceeds the recognition deadline (slow reasoning
+  // models), so turns still receive policy governance. Offline previews
+  // remain deterministic and unblocked either way.
   const preflightFailed =
     semantic &&
     config.recognition?.enabled === true &&
     recognition.reason !== "contextual";
-  if (preflightFailed) {
+  const recognitionDegrades =
+    preflightFailed && config.recognition?.onFailure === "rules";
+  if (preflightFailed && !recognitionDegrades) {
     decision.taskType = "unknown";
     decision.risk = "unknown";
     decision.executionIntent = "unclear";
@@ -303,6 +309,11 @@ export async function resolveTurn({
     decision.reasons = [`recognition-preflight:${recognition.reason}`];
     state.phase = "idle";
   }
+  if (recognitionDegrades) {
+    decision.reasons = [
+      `recognition-preflight:${recognition.reason} → degraded to rule routing (recognition.onFailure: rules)`,
+    ];
+  }
   if (relation === "uncertain") decision.executionIntent = "unclear";
   if (relation === "discuss") decision.executionIntent = "read-only";
   decision.recognition ??= recognition;
@@ -316,13 +327,14 @@ export async function resolveTurn({
     state.task.autonomy = false;
     delete state.task.approvedVersion;
   }
+  const routed = !preflightFailed || recognitionDegrades;
   if (
-    !preflightFailed &&
+    routed &&
     decision.taskType === "review" &&
     decision.executionIntent === "unclear"
   )
     decision.executionIntent = "read-only";
-  if (!preflightFailed) {
+  if (routed) {
     decision.rigor = chooseRigor(
       { ...classification, executionIntent: decision.executionIntent },
       mode,
@@ -334,6 +346,10 @@ export async function resolveTurn({
       state.task.approvedVersion !== state.task.planVersion
         ? "planning"
         : "executing";
+  }
+  if (recognitionDegrades) {
+    note =
+      `## Recognition degraded\nModel-first intent recognition failed (${recognition.reason}); this turn was routed by the local rule classifier (recognition.onFailure: rules).`;
   }
   if (state.task.autonomy && state.phase === "executing") {
     state.task.approvedVersion = state.task.planVersion;

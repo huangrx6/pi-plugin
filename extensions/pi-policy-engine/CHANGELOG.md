@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.34.0
+
+### Slow-reasoning models: requestBody overrides + degradable preflight
+
+**Motivating failure (verified live, 2026-09-06):** switching the host
+model to `ark-code-latest` made recognition time out on every turn
+(`agent/timeout; attempts=1; 15004ms`) and — since 0.33.0 — every turn
+loaded no policy at all. Root cause chain: ark-code-latest is a
+reasoning coding model whose server-side thinking has no token budget
+in this configuration (`compat.supportsReasoningEffort: false` means
+pi-ai never sends `reasoning_effort`, and no thinkingFormat is set),
+the recognition payload carries up to 24k chars of context, and 15 s
+is a single shot with no retry. Fast models never exposed this.
+
+- **`recognition.requestBody`** (object, optional): merged into the
+  recognition request body, overriding same-name fields. Agent source
+  transports it via `samplingParams` (openai-completions merges
+  samplingParams as-is into the body, after named fields); endpoint
+  source merges directly. Volcengine users can disable thinking for
+  the preflight: `{ "thinking": { "type": "disabled" } }`.
+- **`recognition.onFailure: "block" | "rules"`** (default `block`,
+  preserving 0.33.0): `rules` degrades timed-out / failed turns to
+  local rule routing with a recorded reason and a visible
+  Recognition-degraded note instead of leaving the turn ungoverned.
+  Offline previews stay deterministic either way.
+- Both knobs are validated in schema; agent-classifier forwards
+  `samplingParams`; unused `currentModel` parameter removed.
+
+261/261 tests + check green (requestBody transport coverage for both
+sources, degrade-on-failure and block-on-failure regression tests).
+
 ## 0.33.3 - 2026-09-06
 
 - Show the executing extension version in activity details, status output and the configuration check panel so a long-lived Pi session cannot be mistaken for the package version currently installed on disk.

@@ -255,12 +255,36 @@ export function parseRecognitionResponse(content) {
   return inspectRecognitionResponse(content).parsed;
 }
 
+function buildOpenAiBody(recognitionConfig, payload) {
+  const body = {
+    model: recognitionConfig.model,
+    messages: [
+      { role: "system", content: INSTRUCTIONS },
+      { role: "user", content: payload },
+    ],
+  };
+  if (recognitionConfig.jsonResponse !== false) {
+    body.response_format = { type: "json_object" };
+  }
+  return body;
+}
+
+/** Headers for the endpoint transport: anthropic-version only on the
+ *  Anthropic protocol, x-api-key vs Bearer per credential shape. */
+function buildRequestHeaders(anthropic, apiKey) {
+  const headers = { "content-type": "application/json" };
+  if (anthropic) headers["anthropic-version"] = "2023-06-01";
+  if (!apiKey) return headers;
+  if (anthropic) headers["x-api-key"] = apiKey;
+  else headers.authorization = `Bearer ${apiKey}`;
+  return headers;
+}
+
 export async function interpretTask({
   prompt,
   state,
   config,
   fetcher = globalThis.fetch,
-  currentModel,
   agentClassifier = null,
   conversation = [],
 }) {
@@ -292,6 +316,14 @@ export async function interpretTask({
     role: entry.role,
     content: String(entry.content ?? "").slice(-1800),
   }));
+  // Optional request-body overrides (e.g. provider-specific thinking
+  // switches for slow reasoning models). Merged last so requested keys
+  // win over the named fields.
+  const requestBodyOverrides =
+    typeof recognitionConfig.requestBody === "object" &&
+    recognitionConfig.requestBody !== null
+      ? recognitionConfig.requestBody
+      : null;
   let payload = JSON.stringify(
     interpretationContext(state, prompt, boundedConversation),
   );
@@ -310,23 +342,18 @@ export async function interpretTask({
       limit: maxContextChars,
     };
   const anthropic = recognitionConfig.protocol === "anthropic";
-  const body = anthropic
+  const baseBody = anthropic
     ? {
         model: recognitionConfig.model,
         max_tokens: 1200,
         system: INSTRUCTIONS,
         messages: [{ role: "user", content: payload }],
       }
-    : {
-        model: recognitionConfig.model,
-        messages: [
-          { role: "system", content: INSTRUCTIONS },
-          { role: "user", content: payload },
-        ],
-        ...(recognitionConfig.jsonResponse === false
-          ? {}
-          : { response_format: { type: "json_object" } }),
-      };
+    : buildOpenAiBody(recognitionConfig, payload);
+  // Optional request-body overrides: applied last so requested keys win
+  // (e.g. provider-specific thinking switches for slow reasoning models).
+  const body = { ...baseBody };
+  if (requestBodyOverrides) Object.assign(body, requestBodyOverrides);
   if (recognitionConfig.temperature !== null)
     body.temperature = recognitionConfig.temperature ?? 0;
   const controller = new AbortController();
@@ -348,6 +375,11 @@ export async function interpretTask({
               systemPrompt,
               payload: requestPayload,
               signal: controller.signal,
+              // Optional request-body overrides (e.g. provider-specific
+              // thinking switches) reach openai-completions providers
+              // through samplingParams, which pi-ai merges as-is into the
+              // request body. Requested keys override named fields.
+              samplingParams: recognitionConfig.requestBody,
             });
           const requestBody = anthropic
             ? {
@@ -366,15 +398,7 @@ export async function interpretTask({
             method: "POST",
             signal: controller.signal,
             redirect: "error",
-            headers: {
-              "content-type": "application/json",
-              ...(anthropic ? { "anthropic-version": "2023-06-01" } : {}),
-              ...(apiKey
-                ? anthropic
-                  ? { "x-api-key": apiKey }
-                  : { authorization: `Bearer ${apiKey}` }
-                : {}),
-            },
+            headers: buildRequestHeaders(anthropic, apiKey),
             body: JSON.stringify(requestBody),
           });
           if (!response?.ok) return { failure: "http_error" };

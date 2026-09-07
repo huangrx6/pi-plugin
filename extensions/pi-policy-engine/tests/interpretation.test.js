@@ -352,3 +352,61 @@ test("agent source uses the host model for a validated preflight interpretation"
   assert.equal(result.model, "host/model");
   assert.equal(result.interpretation.relation, "continue");
 });
+
+// 0.34.0: recognition.requestBody reaches the provider transport so slow
+// reasoning models (e.g. ark-code-latest with server-side thinking) can
+// have thinking disabled for the recognition preflight.
+
+test("requestBody overrides reach the endpoint transport body", async () => {
+  const seen = [];
+  const cfg = config({
+    source: "endpoint",
+    endpoint: "http://127.0.0.1:9/v1",
+    model: "test",
+    timeoutMs: 15,
+    apiKeyEnvVar: null,
+    requestBody: { thinking: { type: "disabled" }, max_tokens: 99 },
+  });
+  const result = await interpretTask({
+    prompt: "继续",
+    state,
+    config: cfg,
+    fetcher: async (_url, init) => {
+      seen.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify(valid) } }] }),
+      };
+    },
+  });
+  assert.equal(result.reason, "contextual");
+  const body = seen[0];
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.equal(body.max_tokens, 99, "overrides win over named fields");
+  assert.ok(body.messages, "named fields survive the merge");
+});
+
+test("requestBody overrides reach the agent transport via samplingParams", async () => {
+  const seen = [];
+  const cfg = config({
+    source: "agent",
+    apiKeyEnvVar: "MISSING_AGENT_TEST_KEY",
+    timeoutMs: 15,
+    requestBody: { thinking: { type: "disabled" } },
+  });
+  const result = await interpretTask({
+    prompt: "继续",
+    state,
+    config: cfg,
+    agentClassifier: {
+      model: "host/model",
+      complete: async ({ samplingParams }) => {
+        seen.push(samplingParams);
+        return JSON.stringify(valid);
+      },
+    },
+    fetcher: () => assert.fail("must not call endpoint"),
+  });
+  assert.equal(result.reason, "contextual");
+  assert.deepEqual(seen[0], { thinking: { type: "disabled" } });
+});

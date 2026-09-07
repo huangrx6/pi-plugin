@@ -978,3 +978,45 @@ test("failed endpoint recognition also blocks live routing", async (t) => {
   assert.equal(s.state.lastDecision.recognition.reason, "request_failed");
   assert.match(out.systemPrompt, /Intent preflight blocked/);
 });
+
+test("recognition.onFailure=rules degrades to rule routing on preflight failure", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({
+    recognition: { source: "agent", enabled: true, onFailure: "rules" },
+  });
+  const s = session(cwd);
+  s.ctx.modelRegistry = {
+    complete: async () => {
+      throw new Error("temporary model failure");
+    },
+  };
+  await s.start();
+  const out = await s.turn("修改 parser");
+  // Not blocked: the local rule classifier routed this turn.
+  // "修改 parser" classifies coding/medium/mutate → standard rigor.
+  assert.equal(s.state.lastDecision.preflightBlocked, undefined);
+  assert.equal(s.state.lastDecision.rigor, "standard");
+  assert.equal(s.state.lastDecision.taskType, "coding");
+  assert.match(out.systemPrompt, /Recognition degraded/);
+  assert.doesNotMatch(out.systemPrompt, /Intent preflight blocked/);
+  assert.match(
+    s.state.lastDecision.reasons.join("\n"),
+    /recognition-preflight:.*degraded to rule routing/,
+  );
+});
+
+test("recognition.onFailure=rules still blocks offline previews", async (t) => {
+  const { cwd, configure } = fixture(t);
+  configure({
+    recognition: { source: "agent", enabled: true, onFailure: "rules" },
+  });
+  const p = await preview({
+    packageRoot,
+    cwd,
+    prompt: "检查当前代码",
+    semantic: true,
+    fetcher: () => assert.fail("must not switch providers"),
+  });
+  assert.equal(p.decision.recognition.reason, "agent_unavailable");
+  assert.doesNotMatch(p.injected, /Current Agent Context Interpretation/);
+});

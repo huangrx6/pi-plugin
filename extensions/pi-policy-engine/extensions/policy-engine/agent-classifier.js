@@ -6,7 +6,7 @@ export function createAgentClassifier(ctx) {
   if (!model || typeof registry?.complete !== "function") return null;
   return {
     model: `${model.provider ?? "unknown"}/${model.id ?? "unknown"}`,
-    async complete({ systemPrompt, payload, signal }) {
+    async complete({ systemPrompt, payload, signal, samplingParams }) {
       const response = await registry.complete(
         model,
         {
@@ -19,7 +19,12 @@ export function createAgentClassifier(ctx) {
             },
           ],
         },
-        { signal },
+        // samplingParams is merged as-is into openai-completions request
+        // bodies (last, so overrides win), letting callers pass provider-
+        // specific switches such as thinking mode without touching the
+        // model catalogue. Providers without support ignore or reject
+        // them; that choice belongs to recognition.requestBody config.
+        { signal, samplingParams },
       );
       if (["error", "aborted"].includes(response?.stopReason))
         throw new Error("Agent classification failed");
