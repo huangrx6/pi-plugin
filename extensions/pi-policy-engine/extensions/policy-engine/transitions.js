@@ -348,8 +348,7 @@ export async function resolveTurn({
         : "executing";
   }
   if (recognitionDegrades) {
-    note =
-      `## Recognition degraded\nModel-first intent recognition failed (${recognition.reason}); this turn was routed by the local rule classifier (recognition.onFailure: rules).`;
+    note = `## Recognition degraded\nModel-first intent recognition failed (${recognition.reason}); this turn was routed by the local rule classifier (recognition.onFailure: rules).`;
   }
   if (state.task.autonomy && state.phase === "executing") {
     state.task.approvedVersion = state.task.planVersion;

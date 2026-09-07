@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.34.1
+
+- Unknown-setting diagnostics now name the likely cause: a configuration
+  written against a newer pi-plugin than the installed clone (the
+  `recognition.onFailure: unknown setting` report came from exactly this —
+  the key shipped in 0.34.0 while the managed clone was still on 0.33.x,
+  so the whole config fell back to the last valid one). The message now
+  reads "unknown setting (typo, or this configuration is newer than the
+  installed pi-plugin — update the installed clone and reload)".
+
 ## 0.34.0
 
 ### Slow-reasoning models: requestBody overrides + degradable preflight

@@ -153,7 +153,9 @@ test("invalid model output gets one bounded format repair attempt", async () => 
       model: "host/model",
       complete: async ({ systemPrompt, payload }) => {
         calls.push({ systemPrompt, payload: JSON.parse(payload) });
-        return calls.length === 1 ? "I cannot format this {yet}" : JSON.stringify(valid);
+        return calls.length === 1
+          ? "I cannot format this {yet}"
+          : JSON.stringify(valid);
       },
     },
   });
@@ -324,6 +326,23 @@ test("recognition configuration rejects invalid protocol and context budget", ()
   );
 });
 
+test("unknown settings point at version skew instead of a bare rejection", () => {
+  // A key a future README may document but this runtime does not know yet.
+  const skewed = validateShape(config({ someFutureKnob: 1 }));
+  assert.ok(skewed.length);
+  assert.match(
+    skewed[0].message,
+    /newer than the installed pi-plugin/,
+    `expected the version-skew hint, got: ${skewed[0].message}`,
+  );
+
+  const top = validateShape({ mode: "auto", noSuchKey: 1 });
+  assert.ok(top.length);
+  assert.match(top[0].message, /newer than the installed pi-plugin/);
+
+  assert.deepEqual(validateShape({ mode: "auto" }), []);
+});
+
 test("agent source uses the host model for a validated preflight interpretation", async () => {
   const cfg = config({
     source: "agent",
@@ -375,7 +394,9 @@ test("requestBody overrides reach the endpoint transport body", async () => {
       seen.push(JSON.parse(init.body));
       return {
         ok: true,
-        json: async () => ({ choices: [{ message: { content: JSON.stringify(valid) } }] }),
+        json: async () => ({
+          choices: [{ message: { content: JSON.stringify(valid) } }],
+        }),
       };
     },
   });

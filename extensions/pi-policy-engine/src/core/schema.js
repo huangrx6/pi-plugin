@@ -1,4 +1,12 @@
 // Shared configuration shape checks. No host or filesystem dependencies.
+
+// An allowlisted key that the current README documents but this runtime
+// rejects is almost always version skew: the configuration was written
+// against a newer pi-plugin than the installed clone. Say so at the
+// report site instead of leaving a bare "unknown setting".
+const UNKNOWN_HINT =
+  "unknown setting (typo, or this configuration is newer than the installed pi-plugin — update the installed clone and reload)";
+
 export const MODES = ["auto", "quick", "standard", "strict", "off"];
 export const PROFILES = [
   "auto",
@@ -65,9 +73,7 @@ export function validateShape(config) {
   )
     error("historyFile", "must be a path string or null");
   if (config.modelRules !== undefined) {
-    if (!Array.isArray(config.modelRules))
-      error("modelRules", "must be an array");
-    else
+    if (Array.isArray(config.modelRules))
       for (const [i, r] of config.modelRules.entries()) {
         if (
           !r ||
@@ -84,6 +90,7 @@ export function validateShape(config) {
         )
           error(`modelRules[${i}]`, "requires provider/model and a policy id");
       }
+    else error("modelRules", "must be an array");
   }
   const fb = config.recognition;
   if (fb !== undefined) {
@@ -142,10 +149,7 @@ export function validateShape(config) {
           fb.temperature <= 2
         )
       )
-        error(
-          "recognition.temperature",
-          "must be null or a number in [0, 2]",
-        );
+        error("recognition.temperature", "must be null or a number in [0, 2]");
       for (const k of Object.keys(fb))
         if (
           ![
@@ -163,7 +167,7 @@ export function validateShape(config) {
             "requestBody",
           ].includes(k)
         )
-          error(`recognition.${k}`, "unknown setting");
+          error(`recognition.${k}`, UNKNOWN_HINT);
       if (
         fb.onFailure !== undefined &&
         !["block", "rules"].includes(fb.onFailure)
@@ -194,6 +198,6 @@ export function validateShape(config) {
     "recognition",
   ]);
   for (const key of Object.keys(config))
-    if (!known.has(key) && !key.startsWith("_")) error(key, "unknown setting");
+    if (!known.has(key) && !key.startsWith("_")) error(key, UNKNOWN_HINT);
   return issues;
 }
