@@ -97,6 +97,28 @@ pi install "$PWD"
 | 删除为终态 | 删除的任务保留墓碑，不能再编辑或恢复；归档可恢复 |
 | 冲突明确返回 | 并发提交冲突返回 `cas-conflict`，不以自动重试覆盖其他写入 |
 
+## 批量创建：createMany
+
+一次工具调用里需要创建多个任务时，使用 `createMany` action 代替连续 `create`。一次提交、一次原子写入，省去 N 次 CAS 风险与轮次。
+
+```json
+{
+  "action": "createMany",
+  "items": [
+    { "subject": "梳理现有测试", "activeForm": "梳理现有测试" },
+    { "subject": "补齐核心场景", "blockedBy": [1000] },
+    { "subject": "接通 CI" }
+  ]
+}
+```
+
+- `items` 接受 1–50 条；每条携带 `subject` 与可选 `description` / `activeForm` / `blockedBy`。
+- **原子回滚**：任一条因 subject 为空、blockedBy 缺失、循环依赖等原因被拒，**整批不写**；返回的错误以第一条失败为准。
+- **blockedBy 范围**：只解析“初始 state 中已存在的任务” + “本批前序已成功 items”。**不支持**本批后向引用（`items[k].blockedBy` 不能引用 `items[k+1..]`）；如需新任务互相依赖，分两次 `create` 调用（PR1 的 CAS 重试会自动处理）。
+- **id 分配**：按 `initial.nextId, +1, +2, ...` 顺序，确保前向引用可解析。
+- **与 `create` 的关系**：模型在 3+ 任务同属一个计划时优先选 `createMany`；逐条状态/编辑操作仍走 `update` / `finish` / `reopen`。
+- **持久化冲突**走与单条相同的 `cas-conflict` 返回，并自动走 3 次线性 backoff 重试（15ms / 30ms），重试耗尽后才向模型报告。
+
 ## 存储与边界
 
 默认数据保存在 `~/.pi/agent/extensions-data/pi-todo/state/` 下的 JSON 文件中；如果宿主设置了 `PI_CODING_AGENT_DIR`，则跟随对应目录。每次提交保存版本号、任务状态和下一个编号。

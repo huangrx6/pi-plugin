@@ -1,6 +1,6 @@
 {
   "name": "pi-todo",
-  "version": "0.12.0",
+  "version": "0.14.0",
   "description": "Session-scoped durable tasks for Pi with a focused current/history/archive window, contextual actions, search, and an optional editor status strip.",
   "license": "MIT",
   "type": "module",

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.14.0 - 2026-09-08
+
+- Add `createMany` action to the `todo` tool for batched task creation. Pass an `items` array (1–50 entries, each with `subject` and optional `description` / `activeForm` / `blockedBy`); the reducer applies them in order and commits atomically. Partial failures roll back the whole batch — no tasks are written if any item is rejected.
+- Compose `createMany` with the CAS retry helper from 0.13.0: same-session batched commits no longer surface as cross-session conflicts even before the retry budget kicks in.
+- The new action reuses the existing replay material format: N items materialize into N single-create replay actions, so the replay path needs no new branch.
+- Prompt snippet now suggests `createMany` over multiple `create` calls whenever 3+ tasks belong to one plan.
+
+## 0.13.0 - 2026-09-08
+
+- Retry CAS conflicts inside the `todo` tool up to 3 times with 15/30ms linear backoff, so a back-to-back burst of creates from the same session no longer collapses to "Todo state changed in another session" after the first commit. Genuinely concurrent sessions still surface the conflict after the retry budget is spent.
+- Extract the retry loop into a small `withCasRetry` helper with its own test coverage, so future batched paths (e.g. `createMany`) can compose the same retry semantics without duplicating the loop.
+
 ## 0.12.0 - 2026-09-06
 
 - Scope durable todo identity by session instead of workspace: each session owns a private list, and concurrent sessions in the same directory no longer share state.

@@ -157,7 +157,8 @@ export type MutationErrorCode =
  | "CLOSE_REQUIRES_ACTIVE"
  | "TASK_REFERENCED"
  | "MUTABLE_FIELDS_REQUIRED"
- | "UNKNOWN_ACTION";
+ | "UNKNOWN_ACTION"
+ | "CREATE_MANY_EMPTY";
 
 /** Structured error returned by applyTaskMutation on rejected mutations.
  *  `code` is the primary dispatch key; remaining fields are contextual
@@ -185,7 +186,8 @@ export type MutationError =
  | { code: "CLOSE_REQUIRES_ACTIVE"; id: number }
  | { code: "TASK_REFERENCED"; id: number; referencedBy: number[] }
  | { code: "MUTABLE_FIELDS_REQUIRED" }
- | { code: "UNKNOWN_ACTION"; action: string };
+ | { code: "UNKNOWN_ACTION"; action: string }
+ | { code: "CREATE_MANY_EMPTY" };
 
 /** Result of normalizeAndValidateBlockedBy (defined in reducer.ts):
  *  either the cleaned blockedBy array (deduped + validated), or the
@@ -368,6 +370,23 @@ export interface TaskMutationParams {
  includeDeleted?: boolean;
  /** Task ids for batch operations (archive, restore). */
  ids?: number[];
+ /** Items for `createMany`. Each item is a single-task create applied
+  *  in order; the reducer commits them atomically (all-or-nothing).
+  *  blockedBy entries resolve against the EXISTING task state, not
+  *  against other items in the same batch — if you need a new task to
+  *  block on another new task, use two `create` calls (PR1's CAS
+  *  retry handles back-to-back commits without conflicts). */
+ items?: CreateTaskItem[];
+}
+
+/** Single-task create payload for `createMany`. Mirrors the relevant
+ *  subset of TaskMutationParams — `action` is implicit ("create") and
+ *  the lifecycle / archive / mutation-only fields do not apply. */
+export interface CreateTaskItem {
+ subject: string;
+ description?: string;
+ activeForm?: string;
+ blockedBy?: number[];
 }
 
 export const TODO_PARAMS_SCHEMA = {
@@ -377,6 +396,7 @@ export const TODO_PARAMS_SCHEMA = {
    type: "string",
    enum: [
     "create",
+    "createMany",
     "update",
     "list",
     "get",
@@ -390,7 +410,7 @@ export const TODO_PARAMS_SCHEMA = {
     "restore",
    ],
    description:
-    "Operation: create (new task), update (change fields/status/deps), list (all tasks), get (one task), delete (tombstone), clear (reset all), start (pending → in_progress), finish (in_progress → completed), reopen (completed or closed → pending), close (intentionally end an active task without claiming completion), archive (visibility off, completed only), restore (visibility on, batch via ids).",
+    "Operation: create (new task), createMany (atomic batch of N creates in one CAS commit; pass `items`), update (change fields/status/deps), list (all tasks), get (one task), delete (tombstone), clear (reset all), start (pending → in_progress), finish (in_progress → completed), reopen (completed or closed → pending), close (intentionally end an active task without claiming completion), archive (visibility off, completed only), restore (visibility on, batch via ids).",
   },
   subject: {
    type: "string",
@@ -446,6 +466,31 @@ export const TODO_PARAMS_SCHEMA = {
    type: "array",
    items: { type: "number" },
    description: "Task ids for batch operations (archive, restore).",
+  },
+  items: {
+   type: "array",
+   minItems: 1,
+   maxItems: 50,
+   items: {
+    type: "object",
+    properties: {
+     subject: {
+      type: "string",
+      description: "Short imperative task title (required per item).",
+     },
+     description: { type: "string" },
+     activeForm: { type: "string" },
+     blockedBy: {
+      type: "array",
+      items: { type: "number" },
+      description:
+       "Initial blockedBy task ids per item. Resolves against existing tasks only \u2014 cross-item blockedBy within the same batch is not supported.",
+     },
+    },
+    required: ["subject"],
+   },
+   description:
+    "Items to create atomically in one commit (required for createMany, 1\u201350 entries).",
   },
  },
  required: ["action"],
