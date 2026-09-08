@@ -1,11 +1,19 @@
 # Changelog
 
+## 0.41.0 - 2026-09-09
+
+### Plan 展示友好化：卡片、兜底与审批对话框
+
+- `policy_plan` 工具行从单行摘要升级为计划卡片：折叠显示「版本 · 步数 · 目标预览 · ctrl+o 展开」，展开显示完整步骤（编号）与 ✓ 验证清单；行生成在新的纯函数模块 `plan-card.js`（CJK 安全折行，无 pi 依赖）。工具 execute 现在附带 `details.plan` 供展开渲染。
+- 显示层兑底：新增 `src/core/plan-display.js`，通过 `registerMarkdownTransformer` 把模型未走工具时硬打印的 ```policy-plan JSON 块（含旧会话恢复的块、坏 JSON）在屏幕上折叠为一行摘要；纯显示变换，session 与 LLM context 不变。
+- 审批对话框：计划就绪进入 `awaiting_approval` 时，交互式宿主弹出 Execute / Refine / Cancel。Execute/Cancel 发送规范短语（对 `resolvePlanResponse` 单测锚定为 approve/cancel），Refine 经 `ui.editor` 收文本后走普通 revise 路径——不旁路状态机。新配置 `planApprovalDialog`（默认开启，`false` 关闭）；非交互宿主自动跳过。
+- 新模块均纳入现有 glob 检查；新增 plan-card / plan-display / plan-approval-dialog 单测，并在 plan-tool 测试中补充 details 与展开渲染断言。
+
 ## 0.40.0 - 2026-09-08
 
 - New `policy_plan` tool replaces the "print a ```policy-plan JSON block" plan-reporting protocol. Tool rows render as one collapsed summary line (`policy_plan v3 · 3 步 · 目标摘要` / `✓ 计划已记录`), removing the wall of raw JSON from the transcript while keeping the report inside LLM context for audit.
 - The tool validates its structured payload with the same `validatePlanPayload` used by the legacy text parser (extracted from `readPlanReport`), stashes it as `state.planToolReport`, and the turn-end handler consumes it with identical phase semantics (planning → awaiting_approval). The text-block path remains as a backward-compatible fallback.
 - Registration is guarded (`pi.registerTool?.`) so minimal hosts and older pi versions keep working via the fallback.
-
 
 ## 0.39.2
 

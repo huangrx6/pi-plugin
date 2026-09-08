@@ -53,6 +53,11 @@ export function validateShape(config) {
   }
   if (config.showStatus !== undefined && typeof config.showStatus !== "boolean")
     error("showStatus", "must be boolean");
+  if (
+    config.planApprovalDialog !== undefined &&
+    typeof config.planApprovalDialog !== "boolean"
+  )
+    error("planApprovalDialog", "must be boolean");
   for (const key of [
     "domainHints",
     "includePolicies",
@@ -252,6 +257,7 @@ export function validateShape(config) {
     "mode",
     "profile",
     "showStatus",
+    "planApprovalDialog",
     ...Object.keys(caps),
     "domainHints",
     "includePolicies",

@@ -32,7 +32,7 @@ Each task has an ID, full original goal, user requirement records, extracted con
 | Current phase | Event | Result |
 | --- | --- | --- |
 | idle | strict mutation without authorization | planning |
-| planning | valid current-task/current-version `policy-plan` report with steps and verification | awaiting_approval |
+| planning | valid current-task/current-version plan report via the `policy_plan` tool (legacy `policy-plan` text block as fallback), with steps and verification | awaiting_approval |
 | planning | no valid plan report or model error | planning, with missing_plan or failed/interrupted outcome |
 | awaiting_approval | question / unrecognized response | remain awaiting_approval |
 | awaiting_approval | plan revision | planning |
@@ -41,7 +41,7 @@ Each task has an ID, full original goal, user requirement records, extracted con
 | executing | normal round end | idle, outcome unverified |
 | executing | error / abort | outcome failed / interrupted |
 
-The `policy-plan` JSON report must bind taskId and planVersion and contain a nonempty goal and steps with action/verification strings. A request for a file path or plain text does not qualify. The stored evidence is explicitly assistant_reported; structural validity is not semantic proof that the plan is adequate. The engine has no authoritative verification-result protocol and never marks the task verified-complete merely from a round ending.
+The plan report (normally the `policy_plan` tool call; the `policy-plan` JSON text block remains a backward-compatible fallback) must bind taskId and planVersion and contain a nonempty goal and steps with action/verification strings. A request for a file path or plain text does not qualify. The stored evidence is explicitly assistant_reported; structural validity is not semantic proof that the plan is adequate. The engine has no authoritative verification-result protocol and never marks the task verified-complete merely from a round ending. Display is decoupled from protocol: the tool row renders as a collapsible plan card, a markdown transformer folds any raw `policy-plan` blocks to a one-line summary on screen only (session and LLM context keep the original text), and an interactive approval dialog (config `planApprovalDialog`, default on) dispatches Execute/Refine/Cancel through the same conservative response resolution as typed replies.
 
 Mutation planning and awaiting approval both load `rigor.strict-plan`; only executing an authorized mutation loads `rigor.strict-execute`. A pinned strict read-only request uses `rigor.strict-review` without claiming implementation approval. A pending approval is not bypassed by a depth setting. The daily panel exposes automatic, strict and off presets; choosing one immediately writes the validated global user config. One level is enough for daily control; parameterized commands are reserved for diagnostics and explicit approval.
 

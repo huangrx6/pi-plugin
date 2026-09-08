@@ -19,6 +19,7 @@ import { findPackageRoot } from "./helpers.js";
 import { registerLifecycleHandlers } from "./lifecycle.js";
 import { registerPlanTool } from "./plan-tool.js";
 import { createState } from "./state.js";
+import { transformPlanBlocks } from "../../src/core/plan-display.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = findPackageRoot(here);
@@ -44,6 +45,14 @@ export default function policyEngine(pi) {
   });
 
   registerPlanTool(pi, { getState: () => state });
+
+  // 显示层兑底:模型不遵守工具协议时硬打印的 ```policy-plan JSON 块,
+  // 以及旧会话恢复的历史块,在屏幕上折叠为一行摘要。纯显示变换,
+  // session 与 LLM context 保持原样;仅在最终助手文本上运行。
+  pi.registerMarkdownTransformer?.((markdown, { messageType, isStreaming }) => {
+    if (isStreaming || messageType !== "assistant") return markdown;
+    return transformPlanBlocks(markdown);
+  });
 
   registerLifecycleHandlers(pi, {
     packageRoot: PACKAGE_ROOT,

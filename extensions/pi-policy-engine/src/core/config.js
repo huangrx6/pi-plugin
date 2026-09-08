@@ -237,6 +237,8 @@ export function normalizeEffectiveConfig(cfg) {
       .filter((v) => DOMAINS.includes(v))
       .slice(0, out.maxDomains);
   if (typeof out.showStatus !== "boolean") out.showStatus = true;
+  if (typeof out.planApprovalDialog !== "boolean")
+    out.planApprovalDialog = true;
   if (out.historyFile !== null && typeof out.historyFile !== "string")
     out.historyFile = null;
   if (validateShape({ modelRules: out.modelRules }).length) out.modelRules = [];

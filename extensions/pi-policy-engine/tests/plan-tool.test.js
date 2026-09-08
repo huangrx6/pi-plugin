@@ -75,7 +75,7 @@ describe("validatePlanPayload", () => {
 });
 
 describe("policy_plan tool", () => {
-	it("stashes a valid report into state", async () => {
+	it("stashes a valid report into state and attaches plan details", async () => {
 		const { def, pi } = captureTool();
 		const state = createState();
 		state.task = TASK;
@@ -84,6 +84,37 @@ describe("policy_plan tool", () => {
 		assert.ok(!result.content[0].text.startsWith("Error"));
 		assert.equal(state.planToolReport.planVersion, 3);
 		assert.equal(state.planToolReport.steps.length, 2);
+		assert.equal(result.details?.plan?.planVersion, 3);
+	});
+
+	it("renderCall collapses to the summary line and expands to the card", () => {
+		const { def, pi } = captureTool();
+		registerPlanTool(pi, { getState: () => createState() });
+		const collapsed = def()
+			.renderCall(VALID, null, { expanded: false })
+			.render(80);
+		assert.equal(collapsed.length, 1);
+		assert.match(collapsed[0], /Policy Plan v3 · 2 步/);
+		const expanded = def().renderCall(VALID, null, { expanded: true }).render(80);
+		assert.ok(expanded.some((t) => t.includes("01")));
+		assert.ok(expanded.at(-1).includes("等待审批"));
+	});
+
+	it("renderResult shows the confirmation line, or the card when expanded", async () => {
+		const { def, pi } = captureTool();
+		const state = createState();
+		state.task = TASK;
+		registerPlanTool(pi, { getState: () => state });
+		const result = await def().execute("call-1", VALID);
+		const collapsed = def()
+			.renderResult(result, { expanded: false }, null)
+			.render(80);
+		assert.equal(collapsed.length, 1);
+		assert.match(collapsed[0], /^✓ 计划已记录/);
+		const expanded = def()
+			.renderResult(result, { expanded: true }, null)
+			.render(80);
+		assert.ok(expanded.some((t) => t.includes("01")));
 	});
 
 	it("rejects an invalid report without stashing", async () => {

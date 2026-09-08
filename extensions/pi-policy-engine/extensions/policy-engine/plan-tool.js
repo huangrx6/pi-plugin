@@ -1,15 +1,19 @@
 /**
- * plan-tool.js — policy_plan 工具(0.40.0)。
+ * plan-tool.js — policy_plan 工具(0.40.0,0.41.0 卡片化)。
  *
- * 规划阶段的计划上报改为工具调用:pi 的工具行默认折叠为一行摘要,
- * 取代在对话里打印整块 ```policy-plan JSON(视觉噪音大且解析脆弱)。
- * 工具 execute 只校验并把结构化计划暂存到 state.planToolReport,
- * 由 lifecycle 的 turn_end 消费——与旧文本块走完全相同的转移语义
- * (validatePlanPayload 共享校验,phase planning → awaiting_approval)。
- * 文本块路径保留为向后兼容回退。
+ * 规划阶段的计划上报改为工具调用,取代在对话里打印整块 ```policy-plan JSON
+ * (视觉噪音大且解析脆弱)。工具 execute 只校验并把结构化计划暂存到
+ * state.planToolReport,由 lifecycle 的 turn_end 消费——与旧文本块走完全
+ * 相同的转移语义(validatePlanPayload 共享校验,phase planning →
+ * awaiting_approval)。文本块路径保留为向后兼容回退。
+ *
+ * 0.41.0:工具行从单行摘要升级为计划卡片——折叠一行
+ * (`Policy Plan v4 · 2 步 · 目标首行 · ctrl+o 展开`),展开显示完整步骤与
+ * 验证清单;行生成在 plan-card.js(纯函数,无 pi 依赖)。
  */
 
 import { validatePlanPayload } from "../../src/core/task-contract.js";
+import { planCardRows, planSummaryLine } from "./plan-card.js";
 
 const PLAN_TOOL_PARAMS = {
 	type: "object",
@@ -76,30 +80,34 @@ export function registerPlanTool(pi, { getState }) {
 						text: `计划已记录(v${plan.planVersion},${plan.steps.length} 步),等待审批。`,
 					},
 				],
+				details: { plan },
 			};
 		},
-		renderCall(args, theme) {
-			const a = args ?? {};
-			const goal = firstLine(a.goal).slice(0, 48);
-			const steps = Array.isArray(a.steps) ? a.steps.length : "?";
-			const line =
-				(theme ? theme.fg("accent", "policy_plan ") : "policy_plan ") +
-				(theme
-					? theme.fg("dim", `v${a.planVersion ?? "?"} · ${steps} 步 · ${goal}`)
-					: `v${a.planVersion ?? "?"} · ${steps} 步 · ${goal}`);
-			return toolLine((width) => [line.slice(0, width)]);
+		renderCall(args, theme, context) {
+			return toolLine((width) => {
+				if (context?.expanded) {
+					return planCardRows(args, width).map((row) =>
+						theme ? theme.fg(row.tone, row.text) : row.text,
+					);
+				}
+				const summary = planSummaryLine(args, width);
+				return [theme ? theme.fg("accent", summary) : summary];
+			});
 		},
-		renderResult(result, _opts, theme) {
-			const text = firstLine(
-				result?.content?.[0]?.text ?? "",
-			);
+		renderResult(result, options, theme) {
+			const text = firstLine(result?.content?.[0]?.text ?? "");
 			const failed = text.startsWith("Error");
-			const line = theme
-				? theme.fg(failed ? "error" : "success", failed ? text : `✓ ${text}`)
-				: failed
-					? text
-					: `✓ ${text}`;
-			return toolLine((width) => [line.slice(0, width)]);
+			const plan = result?.details?.plan;
+			const expanded = options?.expanded === true;
+			return toolLine((width) => {
+				if (!failed && expanded && plan)
+					return planCardRows(plan, width).map((row) =>
+						theme ? theme.fg(row.tone, row.text) : row.text,
+					);
+				const label = failed ? text : `✓ ${text}`;
+				const line = theme ? theme.fg(failed ? "error" : "success", label) : label;
+				return [line.slice(0, width)];
+			});
 		},
 	});
 }

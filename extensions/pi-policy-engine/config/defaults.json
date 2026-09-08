@@ -2,6 +2,7 @@
   "mode": "auto",
   "profile": "auto",
   "showStatus": true,
+  "planApprovalDialog": true,
   "projectPolicyMaxFiles": 12,
   "projectPolicyMaxBytes": 24000,
   "policyMaxBytes": 24000,

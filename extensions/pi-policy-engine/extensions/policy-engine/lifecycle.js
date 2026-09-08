@@ -18,6 +18,7 @@ import {
 import { appendUsageBadge, cleanModel, notify, setStatus } from "./helpers.js";
 import { createAgentClassifier } from "./agent-classifier.js";
 import { buildTurnBlock } from "./policy-block.js";
+import { offerPlanApprovalDialog } from "./plan-approval-dialog.js";
 import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
 import { readPlanReport } from "../../src/core/task-contract.js";
 import { appendPolicyToProviderPayload } from "../../src/core/provider-payload.js";
@@ -449,6 +450,9 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (!injected) return undefined;
     return appendPolicyToProviderPayload(event.payload, injected);
   });
+  // 审批对话框(0.41.0):strict 计划就绪后提供 Execute/Refine/Cancel,
+  // 实现在 plan-approval-dialog.js;这里只在“本轮刚产出计划且转入
+  // awaiting_approval”时触发一次,状态持久化与状态行刷新之后。
   pi.on("agent_end", async (event, ctx) => {
     const state = getState();
     if (state.turnRelation === "conversation") {
@@ -497,6 +501,8 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (cfg.showStatus !== false)
       setStatus(ctx, `policy:${state.phase}/${state.outcome}`);
     workingMessage(ctx);
+    if (state.phase === "awaiting_approval" && plan)
+      await offerPlanApprovalDialog(pi, ctx, cfg);
   });
   pi.on("agent_settled", (_event, ctx) => {
     // Pi can auto-retry or auto-compact after agent_end. Keep the selected
