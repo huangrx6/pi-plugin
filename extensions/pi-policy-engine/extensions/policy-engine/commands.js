@@ -113,7 +113,7 @@ export function createCommandHandler({
           : String(n)
         : "?";
     const usageText = usage
-      ? `最近识别 ↑${fmt(usage.input)}↓${fmt(usage.output)}`
+      ? `最近识别 ↑${fmt(usage.input)} ↓${fmt(usage.output)}`
       : "暂无识别用量";
     const historyCount = state?.history?.length ?? 0;
     const choice = await ctx.ui.select(

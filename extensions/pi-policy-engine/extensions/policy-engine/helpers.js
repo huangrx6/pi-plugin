@@ -44,7 +44,7 @@ export function appendUsageBadge(state, text) {
         ? `${(n / 1000).toFixed(1)}k`
         : String(n)
       : "?";
-  return `${text} ↑${fmt(usage.input)}↓${fmt(usage.output)}`;
+  return `${text} ↑${fmt(usage.input)} ↓${fmt(usage.output)}`;
 }
 
 export function cleanModel(model) {

@@ -577,13 +577,13 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
   };
   assert.equal(
     appendUsageBadge(state, "policy:standard/executing"),
-    "policy:standard/executing ↑1.6k↓96",
+    "policy:standard/executing ↑1.6k ↓96",
   );
   // 千以下原样显示
   state.lastDecision.recognition.usageTokens = { input: 720, output: 48 };
   assert.equal(
     appendUsageBadge(state, "policy:standard/executing"),
-    "policy:standard/executing ↑720↓48",
+    "policy:standard/executing ↑720 ↓48",
   );
   // 阻断轮不显示（识别没有成功产出用量）
   assert.equal(
@@ -612,7 +612,7 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
       { lastUsageTokens: { input: 1122, output: 77 } },
       "policy:auto/idle",
     ),
-    "policy:auto/idle ↑1.1k↓77",
+    "policy:auto/idle ↑1.1k ↓77",
   );
   // 本轮识别无 usage（如失败降级）时也不回退缓存——失败轮不该显示旧值
   // 上一断言组（preflightBlocked）已覆盖 decision 存在的场景。
@@ -662,7 +662,7 @@ test("panel 诊断 opens the diagnostics submenu and routes to usage", async (t)
   });
   assert.equal(selects.length, 2, "panel → 诊断");
   // 标题带 badge 与历史深度，不进二级也能看到关键值
-  assert.match(selects[1].title, /最近识别 ↑1\.1k↓77/);
+  assert.match(selects[1].title, /最近识别 ↑1\.1k ↓77/);
   assert.match(selects[1].title, /路由历史 3 轮/);
   // 四个诊断入口 + 返回
   assert.equal(selects[1].options.length, 5);
