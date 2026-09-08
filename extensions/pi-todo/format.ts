@@ -32,7 +32,10 @@ export function sanitizeTerminalText(value: string): string {
 
       // CSI: consume through its final byte. An incomplete sequence owns
       // the remainder, which must not become visible terminal text.
-      if (code === 0x9b || (code === 0x1b && value.charCodeAt(i + 1) === 0x5b)) {
+      if (
+         code === 0x9b ||
+         (code === 0x1b && value.charCodeAt(i + 1) === 0x5b)
+      ) {
          i += code === 0x1b ? 2 : 1;
          while (i < value.length && !isEscapeFinal(value.charCodeAt(i))) i += 1;
          continue;
@@ -41,11 +44,12 @@ export function sanitizeTerminalText(value: string): string {
       // OSC, DCS, SOS, PM and APC control strings. They end at BEL (OSC)
       // or ST; an unterminated string is discarded through end-of-input.
       const next = value.charCodeAt(i + 1);
-      const stringKind = code === 0x1b && [0x5d, 0x50, 0x58, 0x5e, 0x5f].includes(next)
-         ? next
-         : [0x9d, 0x90, 0x98, 0x9e, 0x9f].includes(code)
-           ? code
-           : undefined;
+      const stringKind =
+         code === 0x1b && [0x5d, 0x50, 0x58, 0x5e, 0x5f].includes(next)
+            ? next
+            : [0x9d, 0x90, 0x98, 0x9e, 0x9f].includes(code)
+              ? code
+              : undefined;
       if (stringKind !== undefined) {
          const osc = stringKind === 0x5d || stringKind === 0x9d;
          i += code === 0x1b ? 2 : 1;
@@ -65,11 +69,22 @@ export function sanitizeTerminalText(value: string): string {
       // byte (for example charset selection). Consume the complete unit.
       if (code === 0x1b) {
          i += 1;
-         while (i < value.length && value.charCodeAt(i) >= 0x20 && value.charCodeAt(i) <= 0x2f) i += 1;
+         while (
+            i < value.length &&
+            value.charCodeAt(i) >= 0x20 &&
+            value.charCodeAt(i) <= 0x2f
+         )
+            i += 1;
          continue;
       }
 
-      if (code === 0x2028 || code === 0x2029 || code === 0x0a || code === 0x0d || code === 0x09) {
+      if (
+         code === 0x2028 ||
+         code === 0x2029 ||
+         code === 0x0a ||
+         code === 0x0d ||
+         code === 0x09
+      ) {
          result += " ";
       } else if (
          (code >= 0x00 && code <= 0x1f) ||
@@ -122,7 +137,8 @@ function formatGetLines(task: Task, state: TaskState): string {
    }
    if (blocks.length > 0) lines.push(`  blocks: ${blocks.join(", ")}`);
    if (task.owner) lines.push(`  owner: ${sanitizeTerminalText(task.owner)}`);
-   if (task.closedReason) lines.push(`  closedReason: ${sanitizeTerminalText(task.closedReason)}`);
+   if (task.closedReason)
+      lines.push(`  closedReason: ${sanitizeTerminalText(task.closedReason)}`);
    return lines.join("\n");
 }
 
@@ -134,6 +150,19 @@ export function formatContent(op: Op, state: TaskState): string {
          return t
             ? `Created #${t.id}: ${sanitizeTerminalText(t.subject)} (pending)`
             : `Created #${op.taskId}`;
+      }
+      case "createMany": {
+         // op.taskIds is the N ids assigned during this batch. Walk
+         // state.tasks in id order so the listing matches the input
+         // order the agent passed (ids are assigned sequentially).
+         const created = op.taskIds
+            .map((id) => state.tasks.find((x) => x.id === id))
+            .filter((t): t is Task => t !== undefined);
+         if (created.length === 0) return `Created ${op.taskIds.length} tasks`;
+         const summary = created
+            .map((t) => `#${t.id} ${sanitizeTerminalText(t.subject)}`)
+            .join(", ");
+         return `Created ${created.length}: ${summary}`;
       }
       case "update": {
          if (!op.changed) {
@@ -254,6 +283,8 @@ export function formatMutationError(error: MutationError): string {
          return "Error: update requires at least one mutable field: subject, description, activeForm, status, owner, metadata, addBlockedBy, removeBlockedBy";
       case "UNKNOWN_ACTION":
          return `Error: unknown action (${error.action})`;
+      case "CREATE_MANY_EMPTY":
+         return "Error: createMany requires at least one item";
       default: {
          const _exhaustive: never = error;
          void _exhaustive;
@@ -270,7 +301,8 @@ export function countsOf(state: TaskState): {
    closed: number;
 } {
    const visible = state.tasks.filter((t) => t.status !== "deleted");
-   const by = (s: TaskStatus) => visible.filter((t) => t.status === s && t.closedAt === undefined).length;
+   const by = (s: TaskStatus) =>
+      visible.filter((t) => t.status === s && t.closedAt === undefined).length;
    return {
       total: visible.length,
       pending: by("pending"),
@@ -283,7 +315,10 @@ export function countsOf(state: TaskState): {
 /** Multi-line /todos body, grouped by status. */
 export function formatTodosCommand(state: TaskState): string {
    const visible = state.tasks.filter((t) => t.status !== "deleted");
-   const groups: Record<"pending" | "in_progress" | "completed" | "closed", Task[]> = {
+   const groups: Record<
+      "pending" | "in_progress" | "completed" | "closed",
+      Task[]
+   > = {
       pending: [],
       in_progress: [],
       completed: [],
@@ -307,7 +342,12 @@ export function formatTodosCommand(state: TaskState): string {
       completed: "✓",
       closed: "·",
    };
-   for (const key of ["in_progress", "pending", "completed", "closed"] as const) {
+   for (const key of [
+      "in_progress",
+      "pending",
+      "completed",
+      "closed",
+   ] as const) {
       if (groups[key].length === 0) continue;
       lines.push(`── ${key.replace("_", " ")} ──`);
       for (const t of groups[key]) {

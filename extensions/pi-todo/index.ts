@@ -16,7 +16,7 @@ import {
  resolveSelectorIds,
  validateMutationCommand,
 } from "./mutation-selector.ts";
-import { applyTaskMutation } from "./reducer.ts";
+import { applyTaskMutation, applyCreateMany } from "./reducer.ts";
 import { buildMutationPlan, applyMutationPlan } from "./mutation-executor.ts";
 import { buildMutationOutcome } from "./mutation-outcome.ts";
 import {
@@ -80,6 +80,7 @@ import {
  formatMutationOutcome,
 } from "./mutation-format.ts";
 import { parseTodosCommand } from "./parse-todos-command.ts";
+import { withCasRetry } from "./cas-retry.ts";
 import {
  TaskBrowserComponent,
  type TaskBrowserIntent,
@@ -96,10 +97,12 @@ const COMMAND_NAME = "todos";
 const DEFAULT_PROMPT_SNIPPET =
  "Plan and track multi-step work via `todo`. When the user asks you to " +
  "plan, break work into tasks, or make a todo list, CREATE todo items " +
- "with the tool — never list the plan as plain text. Mark each task " +
- "in_progress BEFORE starting it and completed the moment its success " +
- "criterion holds — do not batch, do not defer, do not leave tasks open " +
- "'just in case'.";
+ "with the tool — never list the plan as plain text. When you need 3 " +
+ "or more tasks for one plan, prefer `createMany` (one call, atomic " +
+ "commit) over multiple `create` calls. Mark each task in_progress " +
+ "BEFORE starting it and completed the moment its success criterion " +
+ "holds — do not batch, do not defer, do not leave tasks open 'just " +
+ "in case'.";
 
 const DEFAULT_PROMPT_GUIDELINES: string[] = [
  "When to CREATE: (1) the user asks you to plan, break down work, or make tasks / a todo list (e.g. 制定任务, 列个计划, 拆解一下, create a plan, break this down) — ALWAYS create todo items via the tool; presenting the plan as plain text instead is a failure mode; (2) the work has 3+ steps; (3) the user hands you a list of tasks; (4) new multi-step instructions arrive. Skip it only for single trivial tasks.",
@@ -780,39 +783,100 @@ export default function factory(
   content: Array<{ type: "text"; text: string }>;
   details?: TodoDetails;
  }> {
+  const outcome = await withCasRetry(() => executeTodoOnce(params, ctx));
+  if (outcome.kind === "ok") return outcome.value;
+  // Retry budget exhausted: surface the most recent CAS conflict
+  // verbatim. Genuinely concurrent sessions still see the original
+  // "Todo state changed in another session (now at revision X)"
+  // message; only same-session back-to-back commits are masked.
+  return {
+   content: [
+    {
+     type: "text",
+     text: formatInfrastructureNotice({
+      kind: "cas-conflict",
+      actualRevision: outcome.actualRevision,
+     }),
+    },
+   ],
+  };
+ }
+
+ /** Single-attempt body of executeTodo. Returns CasOutcome so the
+  *  caller (executeTodo) can retry only on cas-conflict; reducer /
+  *  load errors are surfaced as `ok` with the existing error
+  *  content, preserving the original short-circuit semantics.
+  *  Each call re-loads the envelope so the next attempt sees a
+  *  fresh baseRevision. */
+ async function executeTodoOnce(
+  params: TaskMutationParams,
+  ctx: unknown,
+ ): Promise<
+  import("./cas-retry.ts").CasOutcome<{
+   content: Array<{ type: "text"; text: string }>;
+   details?: TodoDetails;
+  }>
+ > {
   const loaded = await loadEnvelope(ctx, persistence);
   if (loaded.ok !== true) {
    return {
-    content: [
-     {
-      type: "text",
-      text: reportLoadFailureText(loaded),
-     },
-    ],
+    kind: "ok",
+    value: {
+     content: [
+      {
+       type: "text",
+       text: reportLoadFailureText(loaded),
+      },
+     ],
+    },
    };
   }
   const { scope, envelope } = loaded;
   const initial: TaskState = envelope.state;
   const paramsTyped = params as TaskMutationParams;
   const observed = createObservedReduceContext();
-  const reducerResult = applyTaskMutation(
-   initial,
-   paramsTyped,
-   observed.reduceContext,
-  );
+  // createMany is dispatched directly to applyCreateMany because it
+  // composes applyTaskMutation internally per item; routing it through
+  // applyTaskMutation's switch would require duplicating the create
+  // case. Both paths share the same reduce-context observation so
+  // timestamps stay deterministic across the batch.
+  const items = paramsTyped.items;
+  const isCreateMany =
+   paramsTyped.action === "createMany" && Array.isArray(items);
+  const reducerResult = isCreateMany
+   ? applyCreateMany(initial, items, observed.reduceContext)
+   : applyTaskMutation(initial, paramsTyped, observed.reduceContext);
   if (reducerResult.op.kind === "error") {
    const text = formatContent(reducerResult.op, reducerResult.state);
    const details: TodoDetails = {
     tasks: reducerResult.state.tasks,
     nextId: reducerResult.state.nextId,
    };
-   return { content: [{ type: "text", text }], details };
+   return {
+    kind: "ok",
+    value: { content: [{ type: "text", text }], details },
+   };
   }
   // Provisional material (LOCK §38).
+  // For createMany we materialize the N items into individual create
+  // actions so the existing replay path (which iterates a flat list of
+  // single-task mutations) does not need a new branch.
+  let replayActions: TaskMutationParams[];
+  if (isCreateMany) {
+   replayActions = items.map((item) => ({
+    action: "create" as const,
+    subject: item.subject,
+    description: item.description,
+    activeForm: item.activeForm,
+    blockedBy: Array.isArray(item.blockedBy) ? [...item.blockedBy] : undefined,
+   }));
+  } else {
+   replayActions = [structuredClone(paramsTyped)];
+  }
   const provisionalMaterial: ReplayMutationMaterial = {
    baseRevision: envelope.revision,
    revision: envelope.revision + 1,
-   actions: [structuredClone(paramsTyped)],
+   actions: replayActions,
    replayContext: { nowValues: observed.snapshotNowValues() },
   };
   void provisionalMaterial;
@@ -823,15 +887,8 @@ export default function factory(
   );
   if (commitResult.kind === "conflict") {
    return {
-    content: [
-     {
-      type: "text",
-      text: formatInfrastructureNotice({
-       kind: "cas-conflict",
-       actualRevision: commitResult.actualRevision,
-      }),
-     },
-    ],
+    kind: "cas-conflict",
+    actualRevision: commitResult.actualRevision,
    };
   }
   overlayCache.update(scope, commitResult.envelope);
@@ -840,10 +897,11 @@ export default function factory(
    tasks: commitResult.envelope.state.tasks,
    nextId: commitResult.envelope.state.nextId,
   };
-  return { content: [{ type: "text", text }], details };
- }
-
- /**
+  return {
+   kind: "ok",
+   value: { content: [{ type: "text", text }], details },
+  };
+ } /**
   * Interactive task window. Each pass renders one freshly loaded durable
   * snapshot. Mutations close only the focused component, commit through the
   * existing tool path, then reopen the same view and selection.
@@ -1001,7 +1059,7 @@ export default function factory(
   name: TOOL_NAME,
   label: "Todo",
   description:
-   "Plan and track multi-step work as a task list. Actions: create, update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
+   "Plan and track multi-step work as a task list. Actions: create, createMany (atomic batch of N creates in one CAS commit), update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
   promptSnippet: DEFAULT_PROMPT_SNIPPET,
   promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
   parameters: TODO_PARAMS_SCHEMA,

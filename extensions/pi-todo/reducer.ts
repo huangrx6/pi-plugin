@@ -36,6 +36,7 @@
 import { wouldCreateCycle, reverseDependencies } from "./graph.ts";
 import type {
   BlockedByValidationResult,
+  CreateTaskItem,
   MutationError,
   ReduceContext,
   Task,
@@ -47,6 +48,7 @@ import type {
 
 export type Op =
   | { kind: "create"; taskId: number }
+  | { kind: "createMany"; taskIds: number[] }
   | {
       kind: "update";
       id: number;
@@ -545,7 +547,11 @@ export function applyTaskMutation(
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
-      if (!current || current.status !== "pending" || current.closedAt !== undefined) {
+      if (
+        !current ||
+        current.status !== "pending" ||
+        current.closedAt !== undefined
+      ) {
         return errorResult(state, {
           code: "INVALID_TRANSITION",
           from: current?.status ?? "deleted",
@@ -574,7 +580,11 @@ export function applyTaskMutation(
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
-      if (!current || current.status !== "in_progress" || current.closedAt !== undefined) {
+      if (
+        !current ||
+        current.status !== "in_progress" ||
+        current.closedAt !== undefined
+      ) {
         return errorResult(state, {
           code: "INVALID_TRANSITION",
           from: current?.status ?? "deleted",
@@ -620,7 +630,11 @@ export function applyTaskMutation(
           to: "pending",
         });
       }
-      const reopened: Task = { ...current, status: "pending", updatedAt: ctx.now() };
+      const reopened: Task = {
+        ...current,
+        status: "pending",
+        updatedAt: ctx.now(),
+      };
       delete reopened.closedAt;
       delete reopened.closedReason;
       const tasks = [...state.tasks];
@@ -646,7 +660,10 @@ export function applyTaskMutation(
         return errorResult(state, { code: "ALREADY_CLOSED", id: current.id });
       }
       if (current.status !== "pending" && current.status !== "in_progress") {
-        return errorResult(state, { code: "CLOSE_REQUIRES_ACTIVE", id: current.id });
+        return errorResult(state, {
+          code: "CLOSE_REQUIRES_ACTIVE",
+          id: current.id,
+        });
       }
       const now = ctx.now();
       const closed: Task = { ...current, closedAt: now, updatedAt: now };
@@ -691,4 +708,76 @@ export function applyTaskMutation(
       });
     }
   }
+}
+
+/** Atomic batch create. Iterates items through the regular create path
+ *  so subject validation, blockedBy normalization, cycle detection,
+ *  and timestamp semantics stay in one place (applyTaskMutation case
+ *  "create"). If any item fails validation, returns errorResult
+ *  against the ORIGINAL state — the partial in-memory mutations are
+ *  discarded so the caller can surface a single, faithful error and
+ *  commit zero changes. Each successful item increments state.nextId
+ *  once, so items[k] gets id (initial.nextId + k) when no items were
+ *  dropped due to validation failure.
+ *
+ *  blockedBy cross-references between items in the same batch are NOT
+ *  resolved against later items (forward refs don't exist yet). They
+ *  resolve against the existing task state plus any earlier items in
+ *  the batch. Callers that need A→B (new) deps should issue two
+ *  `create` calls — PR1's CAS retry handles the back-to-back commits.
+ */
+export function applyCreateMany(
+  state: TaskState,
+  items: readonly CreateTaskItem[],
+  ctx: ReduceContext,
+): ApplyResult {
+  if (items.length === 0) {
+    return errorResult(state, { code: "CREATE_MANY_EMPTY" });
+  }
+  const initialState = state;
+  const taskIds: number[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    // Synthesize the create params the applyTaskMutation case expects.
+    // We deliberately bypass the schema layer — items are already
+    // validated by JSON Schema at the tool boundary, and we want
+    // validation errors from the create path (subject empty,
+    // blockedBy cycle) to surface as the canonical MutationError.
+    const r = applyTaskMutation(
+      state,
+      {
+        action: "create",
+        subject: item.subject,
+        description: item.description,
+        activeForm: item.activeForm,
+        blockedBy: item.blockedBy,
+      },
+      ctx,
+    );
+    if (r.op.kind === "error") {
+      // Atomic rollback: surface the underlying error against the
+      // ORIGINAL state so the caller knows nothing committed. The
+      // error already carries enough context (depId, subject, etc.)
+      // to identify the offending item — we don't enrich with an
+      // itemIndex because the MutationError union is closed and
+      // adding fields per-callsite would defeat the schema.
+      return errorResult(initialState, r.op.error);
+    }
+    if (r.op.kind !== "create") {
+      // Defensive: applyTaskMutation's create case can only return
+      // { kind: "create" } or { kind: "error" }. Reaching here means
+      // applyTaskMutation's switch regressed; surface via UNKNOWN_ACTION
+      // rather than introducing a new code for an internal-only state.
+      return errorResult(initialState, {
+        code: "UNKNOWN_ACTION",
+        action: `createMany.item[${i}].op.kind=${r.op.kind}`,
+      });
+    }
+    taskIds.push(r.op.taskId);
+    state = r.state;
+  }
+  return {
+    state,
+    op: { kind: "createMany", taskIds },
+  };
 }

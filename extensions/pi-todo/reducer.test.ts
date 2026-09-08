@@ -26,6 +26,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import { applyTaskMutation } from "./reducer.ts";
+import { applyCreateMany } from "./reducer.ts";
 import { replayFromBranch } from "./store.ts";
 import { EMPTY_STATE, normalizeTask } from "./types.ts";
 import type { MutationError, ReduceContext, Task, TaskState } from "./types.ts";
@@ -129,28 +130,36 @@ describe("normalizeTask", () => {
 });
 
 describe("unfinished task recovery", () => {
- it("close preserves unfinished semantics and records the reason", () => {
-  const state = mkState(taskWithTimestamps({ id: 17, status: "in_progress" }));
-  const result = applyTaskMutation(
-   state,
-   { action: "close", id: 17, closeReason: "用户决定暂缓" },
-   fixedCtx(900),
-  );
-  assert.equal(result.op.kind, "close");
-  const task = result.state.tasks[0];
-  assert.equal(task?.status, "in_progress");
-  assert.equal(task?.closedAt, 900);
-  assert.equal(task?.closedReason, "用户决定暂缓");
- });
+  it("close preserves unfinished semantics and records the reason", () => {
+    const state = mkState(
+      taskWithTimestamps({ id: 17, status: "in_progress" }),
+    );
+    const result = applyTaskMutation(
+      state,
+      { action: "close", id: 17, closeReason: "用户决定暂缓" },
+      fixedCtx(900),
+    );
+    assert.equal(result.op.kind, "close");
+    const task = result.state.tasks[0];
+    assert.equal(task?.status, "in_progress");
+    assert.equal(task?.closedAt, 900);
+    assert.equal(task?.closedReason, "用户决定暂缓");
+  });
 
- it("reopen clears the close marker and returns the task to pending", () => {
-  const state = mkState(taskWithTimestamps({ id: 17, status: "in_progress", closedAt: 800 }));
-  const result = applyTaskMutation(state, { action: "reopen", id: 17 }, fixedCtx(900));
-  assert.equal(result.op.kind, "reopen");
-  const task = result.state.tasks[0];
-  assert.equal(task?.status, "pending");
-  assert.equal(task?.closedAt, undefined);
- });
+  it("reopen clears the close marker and returns the task to pending", () => {
+    const state = mkState(
+      taskWithTimestamps({ id: 17, status: "in_progress", closedAt: 800 }),
+    );
+    const result = applyTaskMutation(
+      state,
+      { action: "reopen", id: 17 },
+      fixedCtx(900),
+    );
+    assert.equal(result.op.kind, "reopen");
+    const task = result.state.tasks[0];
+    assert.equal(task?.status, "pending");
+    assert.equal(task?.closedAt, undefined);
+  });
 });
 
 // ── create timestamps ───────────────────────────────────────────────────
@@ -2136,5 +2145,135 @@ describe("A2.4 cross-mutation integration", () => {
       fixedCtx(999),
     );
     assert.equal(r3.op.kind, "delete");
+  });
+});
+
+describe("applyCreateMany", () => {
+  it("3 valid items → op.kind=createMany, state.tasks gains 3 new pending tasks", () => {
+    const state = mkState();
+    const r = applyCreateMany(
+      state,
+      [
+        { subject: "alpha" },
+        { subject: "beta", activeForm: "doing beta" },
+        { subject: "gamma", description: "g detail" },
+      ],
+      fixedCtx(2000),
+    );
+    assert.equal(r.op.kind, "createMany");
+    if (r.op.kind !== "createMany") return;
+    assert.equal(r.op.taskIds.length, 3);
+    const added = r.state.tasks.slice(-3);
+    assert.deepEqual(
+      added.map((t) => t.subject),
+      ["alpha", "beta", "gamma"],
+    );
+    assert.deepEqual(
+      added.map((t) => t.id),
+      [state.nextId, state.nextId + 1, state.nextId + 2],
+    );
+    assert.equal(r.state.nextId, state.nextId + 3);
+    assert.ok(added.every((t) => t.status === "pending"));
+    assert.ok(added.every((t) => t.createdAt === 2000));
+  });
+
+  it("empty items → CREATE_MANY_EMPTY, state reference unchanged", () => {
+    const state = mkState(taskWithTimestamps({ id: 17 }));
+    const before = state;
+    const r = applyCreateMany(state, [], fixedCtx(2000));
+    assert.equal(r.op.kind, "error");
+    if (r.op.kind === "error") {
+      assert.equal(r.op.error.code, "CREATE_MANY_EMPTY");
+    }
+    assert.equal(r.state, before);
+    assert.equal(r.state.tasks.length, 1);
+  });
+
+  it("items[1] empty subject → atomic rollback (initial state, SUBJECT_REQUIRED)", () => {
+    const state = mkState();
+    const before = state;
+    const r = applyCreateMany(
+      state,
+      [
+        { subject: "valid" },
+        { subject: "   " }, // whitespace-only — trimmed → empty
+        { subject: "never reached" },
+      ],
+      fixedCtx(2000),
+    );
+    assert.equal(r.op.kind, "error");
+    if (r.op.kind === "error") {
+      assert.equal(r.op.error.code, "SUBJECT_REQUIRED");
+    }
+    assert.equal(r.state, before);
+    assert.equal(r.state.tasks.length, 0);
+    assert.equal(r.state.nextId, state.nextId);
+  });
+
+  it("items[0] blockedBy referencing existing task → succeeds with resolved dep", () => {
+    const state = mkState(taskWithTimestamps({ id: 17 }));
+    const r = applyCreateMany(
+      state,
+      [{ subject: "child", blockedBy: [17] }],
+      fixedCtx(2000),
+    );
+    assert.equal(r.op.kind, "createMany");
+    // Inspect via the new state (the task subject uniquely identifies
+    // it here) so we don't depend on narrowing through r.op.taskIds.
+    const created = r.state.tasks.find((t) => t.subject === "child");
+    assert.ok(created);
+    assert.deepEqual(created.blockedBy, [17]);
+  });
+
+  it("items[1] blockedBy to non-existent id → atomic rollback (DEPENDENCY_NOT_FOUND)", () => {
+    const state = mkState(taskWithTimestamps({ id: 17 }));
+    const before = state;
+    const r = applyCreateMany(
+      state,
+      [{ subject: "first" }, { subject: "second", blockedBy: [999] }],
+      fixedCtx(2000),
+    );
+    assert.equal(r.op.kind, "error");
+    if (r.op.kind === "error") {
+      assert.equal(r.op.error.code, "DEPENDENCY_NOT_FOUND");
+    }
+    assert.equal(r.state, before);
+    assert.equal(r.state.tasks.length, 1); // only #17
+    assert.equal(r.state.nextId, state.nextId);
+  });
+
+  it("cycle via item blockedBy → atomic rollback (DEPENDENCY_CYCLE)", () => {
+    // #17 already blocks on id=1000 (the new id). Adding #1000 with
+    // blockedBy=[17] closes a cycle 1000→17→1000. Cycle detection is
+    // delegated to graph.wouldCreateCycle via applyTaskMutation.
+    const state = mkState(taskWithTimestamps({ id: 17, blockedBy: [1000] }));
+    const before = state;
+    const r = applyCreateMany(
+      state,
+      [{ subject: "loops", blockedBy: [17] }],
+      fixedCtx(2000),
+    );
+    assert.equal(r.op.kind, "error");
+    if (r.op.kind === "error") {
+      assert.equal(r.op.error.code, "DEPENDENCY_CYCLE");
+    }
+    assert.equal(r.state, before);
+    assert.equal(r.state.tasks.length, 1);
+  });
+
+  it("dedupes blockedBy within an item (matches single-create semantics)", () => {
+    const state = mkState(
+      taskWithTimestamps({ id: 17 }),
+      taskWithTimestamps({ id: 18 }),
+    );
+    const r = applyCreateMany(
+      state,
+      [{ subject: "x", blockedBy: [17, 18, 17] }],
+      fixedCtx(2000),
+    );
+    assert.equal(r.op.kind, "createMany");
+    const created = r.state.tasks.find((t) => t.subject === "x");
+    assert.ok(created);
+    assert.deepEqual(created.blockedBy, [17, 18]);
   });
 });
