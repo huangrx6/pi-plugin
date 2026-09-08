@@ -783,12 +783,29 @@ export default function factory(
   content: Array<{ type: "text"; text: string }>;
   details?: TodoDetails;
  }> {
-  const outcome = await withCasRetry(() => executeTodoOnce(params, ctx));
+  // Per-scope in-process serialization (0.16.0): parallel tool calls
+  // from ONE agent turn (e.g. five creates in a single message) used
+  // to race the load→reduce→commit cycle and exhaust the CAS retry
+  // budget against each other, surfacing spurious "Todo state
+  // changed in another session" errors. Serializing mutations per
+  // scope inside the process makes that structurally impossible;
+  // cross-process contention still relies on CAS + withCasRetry.
+  let lockScope: ScopeKey | undefined;
+  try {
+   lockScope = await persistence.scopeResolver.resolve(ctx);
+  } catch {
+   lockScope = undefined; // executeTodoOnce re-resolves and reports
+  }
+  const isReadOnly =
+   params.action === "list" || params.action === "get";
+  const attempt = () => withCasRetry(() => executeTodoOnce(params, ctx));
+  const outcome = lockScope && !isReadOnly
+   ? await withScopeMutationLock(lockScope, attempt)
+   : await attempt();
   if (outcome.kind === "ok") return outcome.value;
   // Retry budget exhausted: surface the most recent CAS conflict
   // verbatim. Genuinely concurrent sessions still see the original
-  // "Todo state changed in another session (now at revision X)"
-  // message; only same-session back-to-back commits are masked.
+  // conflict notice; only same-session back-to-back commits are masked.
   return {
    content: [
     {
@@ -800,6 +817,31 @@ export default function factory(
     },
    ],
   };
+ }
+
+ // Per-scope promise-chain mutex. Next mutation waits for the previous
+ // one (success or failure) before starting its load→reduce→commit
+ // cycle, so each sees a fresh baseRevision and commits without
+ // intra-process CAS contention.
+ const scopeMutationLocks = new Map<ScopeKey, Promise<unknown>>();
+
+ function withScopeMutationLock<T>(
+  scope: ScopeKey,
+  fn: () => Promise<T>,
+ ): Promise<T> {
+  const prev = scopeMutationLocks.get(scope) ?? Promise.resolve();
+  const run = prev.then(fn, fn);
+  const tail = run.then(
+   () => undefined,
+   () => undefined,
+  );
+  scopeMutationLocks.set(scope, tail);
+  void tail.then(() => {
+   if (scopeMutationLocks.get(scope) === tail) {
+    scopeMutationLocks.delete(scope);
+   }
+  });
+  return run;
  }
 
  /** Single-attempt body of executeTodo. Returns CasOutcome so the
@@ -847,6 +889,21 @@ export default function factory(
    ? applyCreateMany(initial, items, observed.reduceContext)
    : applyTaskMutation(initial, paramsTyped, observed.reduceContext);
   if (reducerResult.op.kind === "error") {
+   const text = formatContent(reducerResult.op, reducerResult.state);
+   const details: TodoDetails = {
+    tasks: reducerResult.state.tasks,
+    nextId: reducerResult.state.nextId,
+   };
+   return {
+    kind: "ok",
+    value: { content: [{ type: "text", text }], details },
+   };
+  }
+  // Reads (list/get) return the loaded state verbatim: no commit, no
+  // revision bump, no CAS participation (0.16.0). Every read used to
+  // commit an unchanged envelope — inflating the revision counter and
+  // making read calls race concurrent mutations for no benefit.
+  if (reducerResult.op.kind === "list" || reducerResult.op.kind === "get") {
    const text = formatContent(reducerResult.op, reducerResult.state);
    const details: TodoDetails = {
     tasks: reducerResult.state.tasks,

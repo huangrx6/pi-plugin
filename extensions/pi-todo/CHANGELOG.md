@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0 - 2026-09-08
+
+- Serialize same-scope mutations in-process around the whole load→reduce→commit cycle. An agent emitting five parallel `todo create` calls in one message used to race each other and exhaust the CAS retry budget, surfacing spurious "Todo state changed in another session" errors (with low single-digit revisions — there was never another session). Parallel mutations from one process now queue per scope and all succeed; cross-process contention still goes through CAS + retry.
+- Stop committing on read actions (`list` / `get`): reads returned the loaded state unchanged but still committed the envelope, bumping the revision on every read. This inflated the revision counter and made read calls race concurrent mutations for no benefit. Reads now return directly with zero storage writes.
+- Reads skip the mutation lock entirely, so a mutation retrying with backoff cannot block parallel reads.
+- New `mutation-serialization.test.ts` coverage: reads leave the revision untouched; five parallel creates and mixed create/update/list bursts all succeed sequentially.
+
+
 ## 0.15.0 - 2026-09-08
 
 - Raise the CAS retry budget from 3 attempts / 45ms to 8 attempts with 30ms linear steps (~840ms worst case). The old budget assumed single-process contention (<100ms); it lost against the real-world case of the SAME conversation opened in two pi processes (resume in another terminal), which share one sessionId and therefore one todo scope file, with both sides committing bursts. Agents saw "Todo state changed in another session" and stale task statuses even though a retry a moment later would succeed.
