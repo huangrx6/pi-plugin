@@ -107,15 +107,17 @@ export function createCommandHandler({
   async function pickDiagnostics(state, ctx) {
     const usage = state?.lastUsageTokens;
     const fmt = (n) =>
-      Number.isFinite(n) ? (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)) : "?";
+      Number.isFinite(n)
+        ? n >= 1000
+          ? `${(n / 1000).toFixed(1)}k`
+          : String(n)
+        : "?";
     const usageText = usage
       ? `最近识别 ↑${fmt(usage.input)}↓${fmt(usage.output)}`
       : "暂无识别用量";
     const historyCount = state?.history?.length ?? 0;
     const choice = await ctx.ui.select(
-      sanitizeTerminalText(
-        `诊断\n${usageText} · 路由历史 ${historyCount} 轮`,
-      ),
+      sanitizeTerminalText(`诊断\n${usageText} · 路由历史 ${historyCount} 轮`),
       [
         "识别用量汇总 — 总量、均值、按负载档与识别模型分组",
         "路由历史 — 最近 10 条识别与路由记录",
@@ -124,11 +126,15 @@ export function createCommandHandler({
         "返回",
       ],
     );
-    if (choice === undefined || choice === "返回") return; // silent cancel
+    // Navigation contract (0.39.1): "back" reopens the parent panel,
+    // "cancel" (Esc) exits the whole panel, "done" exits after an action.
+    if (choice === undefined) return "cancel";
+    if (choice === "返回") return "back";
     if (choice.startsWith("识别用量汇总")) await policyCommand("usage", ctx);
     if (choice.startsWith("路由历史")) await policyCommand("history 10", ctx);
     if (choice.startsWith("运行配置")) await showConfigCheck(state, ctx);
     if (choice.startsWith("校验配置")) await policyCommand("validate", ctx);
+    return "done";
   }
 
   // 0.38.1: low-frequency settings live one level down so the daily
@@ -158,9 +164,23 @@ export function createCommandHandler({
         "返回",
       ],
     );
-    if (choice === undefined || choice === "返回") return; // silent cancel
-    if (choice.startsWith("识别负载")) await pickContextProfile(state, ctx);
-    if (choice.startsWith("识别模型")) await pickRecognitionModel(state, ctx);
+    // Navigation contract (0.39.1): Esc exits the whole panel; 返回
+    // reopens the top level; a completed action exits after notify.
+    if (choice === undefined) return "cancel";
+    if (choice === "返回") return "back";
+    if (choice.startsWith("识别负载")) {
+      const nav = await pickContextProfile(state, ctx);
+      if (nav === "back") return "back";
+      if (nav === "cancel") return "cancel";
+      return "done";
+    }
+    if (choice.startsWith("识别模型")) {
+      const nav = await pickRecognitionModel(state, ctx);
+      if (nav === "back") return "back";
+      if (nav === "cancel") return "cancel";
+      return "done";
+    }
+    return "back";
   }
 
   // 0.36.1: recognition-context profile switching from the panel.
@@ -217,13 +237,16 @@ export function createCommandHandler({
       "返回",
     ];
     const choice = await ctx.ui.select(sanitizeTerminalText(title), options);
-    if (choice === undefined || choice === "返回") return; // silent cancel
+    // Navigation contract (0.39.1): "back" reopens 设置, Esc exits all.
+    if (choice === undefined) return "cancel";
+    if (choice === "返回") return "back";
     for (const [key, row] of Object.entries(CONTEXT_PROFILE_ROWS)) {
       if (choice === `${row}（当前）` || choice === row) {
         await applyContextProfile(state, ctx, key);
-        return;
+        return "done";
       }
     }
+    return "back";
   }
 
   // 0.37.0: pick the recognition model from the host's configured
@@ -293,16 +316,19 @@ export function createCommandHandler({
       ),
       options,
     );
-    if (choice === undefined || choice === "返回") return;
+    // Navigation contract (0.39.1): "back" reopens 设置, Esc exits all.
+    if (choice === undefined) return "cancel";
+    if (choice === "返回") return "back";
     if (choice.startsWith("跟随主模型")) {
       await applyRecognitionModel(ctx, null);
-      return;
+      return "done";
     }
     const picked = choice
       .split(" — ")[0]
       .replace(/（当前）$/, "")
       .trim();
     await applyRecognitionModel(ctx, picked);
+    return "done";
   }
 
   async function policyCommand(args, ctx) {
@@ -335,25 +361,51 @@ export function createCommandHandler({
         options.splice(1, 0, "批准当前计划 — 只批准当前任务的当前计划版本");
       if (state.task)
         options.splice(3, 0, "结束当前任务 — 清除任务关联；下一条请求重新开始");
-      const choice = await ctx.ui.select(title, options);
-      if (choice?.startsWith("查看本次状态"))
-        notify(
-          ctx,
-          activityText(state.lastActivity) +
-            `\n当前：${phaseText(state.phase)}`,
-          "info",
-        );
-      if (choice?.startsWith("批准当前计划"))
-        await policyCommand("approve", ctx);
-      if (choice?.startsWith("自动处理"))
-        await applyGlobalPreset(state, ctx, "auto");
-      if (choice?.startsWith("谨慎处理"))
-        await applyGlobalPreset(state, ctx, "strict");
-      if (choice?.startsWith("结束当前任务")) await policyCommand("new", ctx);
-      if (choice?.startsWith("诊断")) await pickDiagnostics(state, ctx);
-      if (choice?.startsWith("设置")) await pickSettings(state, ctx);
-      if (choice?.startsWith("关闭策略"))
-        await applyGlobalPreset(state, ctx, "off");
+      // 0.39.1: "返回" in a submenu reopens this top level instead of
+      // dismissing the whole panel; Esc or a completed action exits.
+      let navigating = true;
+      while (navigating) {
+        const choice = await ctx.ui.select(title, options);
+        if (choice === undefined) return; // Esc — silent cancel
+        if (choice?.startsWith("查看本次状态")) {
+          notify(
+            ctx,
+            activityText(state.lastActivity) +
+              `\n当前：${phaseText(state.phase)}`,
+            "info",
+          );
+          return;
+        }
+        if (choice?.startsWith("批准当前计划")) {
+          await policyCommand("approve", ctx);
+          return;
+        }
+        if (choice?.startsWith("自动处理")) {
+          await applyGlobalPreset(state, ctx, "auto");
+          return;
+        }
+        if (choice?.startsWith("谨慎处理")) {
+          await applyGlobalPreset(state, ctx, "strict");
+          return;
+        }
+        if (choice?.startsWith("结束当前任务")) {
+          await policyCommand("new", ctx);
+          return;
+        }
+        if (choice?.startsWith("诊断")) {
+          navigating = (await pickDiagnostics(state, ctx)) === "back";
+          continue;
+        }
+        if (choice?.startsWith("设置")) {
+          navigating = (await pickSettings(state, ctx)) === "back";
+          continue;
+        }
+        if (choice?.startsWith("关闭策略")) {
+          await applyGlobalPreset(state, ctx, "off");
+          return;
+        }
+        return;
+      }
       return;
     }
 

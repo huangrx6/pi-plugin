@@ -206,7 +206,8 @@ test("single-level panel exposes only everyday actions", async () => {
   assert.ok(optionLists[0].some((option) => option.startsWith("关闭策略")));
   assert.ok(
     optionLists[0].every(
-      (option) => !/^(识别负载|识别模型|检查配置|识别用量|路由历史)/.test(option),
+      (option) =>
+        !/^(识别负载|识别模型|检查配置|识别用量|路由历史)/.test(option),
     ),
   );
   assert.ok(
@@ -670,4 +671,94 @@ test("panel 诊断 opens the diagnostics submenu and routes to usage", async (t)
   assert.ok(selects[1].options.some((o) => o.startsWith("校验配置")));
   // usage 汇总送达（无识别记录的提示）
   assert.ok(notices.some((n) => /还没有识别记录/.test(n.m)));
+});
+
+// 0.39.1: 「返回」reopens the parent panel instead of dismissing all.
+
+test("panel 返回 goes back one level, Esc exits everywhere", async (t) => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(
+    mkdtempSync(join(tmpdir(), "pi-policy-back-")),
+    "agent",
+  );
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  });
+  const state = {
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
+  };
+  const selects = [];
+  const notices = [];
+  const handler = createCommandHandler({
+    packageRoot: process.cwd(),
+    getState: () => state,
+  });
+  await handler("", {
+    ui: {
+      select: async (_title, options) => {
+        selects.push(options);
+        if (selects.length === 1)
+          return options.find((o) => o.startsWith("设置"));
+        if (selects.length === 2) return "返回";
+        return undefined; // 回到一级后 Esc
+      },
+      notify: (m, level) => notices.push({ m, level }),
+    },
+  });
+  // 一级 → 设置 → 返回 → 一级（第三次 select 是一级选项列表）→ Esc
+  assert.equal(selects.length, 3);
+  assert.ok(selects[2].some((o) => o.startsWith("自动处理")));
+  assert.ok(selects[2].some((o) => o.startsWith("关闭策略")));
+  // 纯导航无副作用、无通知
+  assert.equal(notices.length, 0);
+});
+
+test("panel 诊断 返回 also reopens the top level", async (t) => {
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(
+    mkdtempSync(join(tmpdir(), "pi-policy-back2-")),
+    "agent",
+  );
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  });
+  const state = {
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
+  };
+  const selects = [];
+  const handler = createCommandHandler({
+    packageRoot: process.cwd(),
+    getState: () => state,
+  });
+  await handler("", {
+    ui: {
+      select: async (_title, options) => {
+        selects.push(options);
+        if (selects.length === 1)
+          return options.find((o) => o.startsWith("诊断"));
+        if (selects.length === 2) return "返回";
+        return undefined;
+      },
+      notify() {},
+    },
+  });
+  assert.equal(selects.length, 3);
+  assert.ok(selects[1].some((o) => o.startsWith("识别用量汇总")));
+  assert.ok(selects[2].some((o) => o.startsWith("诊断")));
 });

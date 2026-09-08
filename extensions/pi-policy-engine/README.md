@@ -59,7 +59,7 @@ pi install "$PWD"
 | 设置 | 二级面板：识别负载、识别模型（标题显示当前值） |
 | 关闭策略 | 停止注入并立即保存 |
 
-归类原则：一级放每轮可能用的动作，诊断只看不改，设置改行为。跳过面板可用直接命令（`/policy once quick`、`/policy context standard`、`/policy model <id>`、`/policy usage` 等）。
+归类原则：一级放每轮可能用的动作，诊断只看不改，设置改行为。子面板「返回」回上一级，Esc 随处退出整个面板，动作执行完自动退出。跳过面板可用直接命令（`/policy once quick`、`/policy context standard`、`/policy model <id>`、`/policy usage` 等）。
 
 <details>
 <summary>诊断与路由调试</summary>
