@@ -26,7 +26,7 @@ export function findPackageRoot(startDir) {
 }
 
 /** 0.38.2: append the latest recognition token usage to the footer
- *  status line (policy:rigor/phase ↑1.6k↓96). Self-contained — no
+ *  status line (policy:rigor/phase ↑1.6k ↓96). Self-contained — no
  *  cross-extension coupling; the footer merely renders host status. */
 export function appendUsageBadge(state, text) {
   const decision = state?.lastDecision;
