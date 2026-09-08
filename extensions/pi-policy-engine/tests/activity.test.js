@@ -197,13 +197,17 @@ test("single-level panel exposes only everyday actions", async () => {
     },
   });
   assert.equal(optionLists.length, 1);
-  assert.equal(optionLists[0].length, 7);
-  assert.ok(optionLists[0].some((option) => option.startsWith("识别模型")));
+  // 0.38.1: five fixed actions; settings grouped one level down.
+  assert.equal(optionLists[0].length, 5);
   assert.ok(optionLists[0].some((option) => option.startsWith("自动处理")));
   assert.ok(optionLists[0].some((option) => option.startsWith("谨慎处理")));
-  assert.ok(optionLists[0].some((option) => option.startsWith("识别负载")));
-  assert.ok(optionLists[0].some((option) => option.startsWith("检查配置")));
+  assert.ok(optionLists[0].some((option) => option.startsWith("设置")));
   assert.ok(optionLists[0].some((option) => option.startsWith("关闭策略")));
+  assert.ok(
+    optionLists[0].every(
+      (option) => !/^(识别负载|识别模型|检查配置)/.test(option),
+    ),
+  );
   assert.ok(
     optionLists[0].every((option) => !/单次模式|配置档|保存到/.test(option)),
   );
@@ -279,6 +283,8 @@ test("panel 识别负载 picker saves the profile and preserves key overrides", 
       select: async (_title, options) => {
         selects.push(options);
         if (selects.length === 1)
+          return options.find((o) => o.startsWith("设置"));
+        if (selects.length === 2)
           return options.find((o) => o.startsWith("识别负载"));
         return options.find((o) => o.startsWith("标准"));
       },
@@ -287,11 +293,13 @@ test("panel 识别负载 picker saves the profile and preserves key overrides", 
   };
   await handler("", ctx);
 
-  assert.equal(selects.length, 2, "two-level picker");
-  // 二级面板：三档 + 返回，当前档标注
+  assert.equal(selects.length, 3, "panel → 设置 → 识别负载");
+  // 设置面板四项：负载/模型/检查/返回
   assert.equal(selects[1].length, 4);
+  // 档位面板：三档 + 返回，当前档标注
+  assert.equal(selects[2].length, 4);
   assert.ok(
-    selects[1].some(
+    selects[2].some(
       (o) => o.startsWith("极简（推荐）") && o.endsWith("（当前）"),
     ),
   );
@@ -420,6 +428,8 @@ test("panel 识别模型 lists configured models and saves agentModel", async (t
       select: async (_t, options) => {
         selects.push(options);
         if (selects.length === 1)
+          return options.find((o) => o.startsWith("设置"));
+        if (selects.length === 2)
           return options.find((o) => o.startsWith("识别模型"));
         return options.find((o) => o.startsWith("zai-coding-cn/glm-5.3-flash"));
       },
@@ -427,10 +437,10 @@ test("panel 识别模型 lists configured models and saves agentModel", async (t
     },
   };
   await handler("", ctx);
-  assert.equal(selects.length, 2);
-  // 二级列表：跟随主模型 + 2 个模型 + 返回
-  assert.equal(selects[1].length, 4);
-  assert.ok(selects[1][0].startsWith("跟随主模型"));
+  assert.equal(selects.length, 3, "panel → 设置 → 识别模型");
+  // 模型列表：跟随主模型 + 2 个模型 + 返回
+  assert.equal(selects[2].length, 4);
+  assert.ok(selects[2][0].startsWith("跟随主模型"));
   assert.ok(
     notices.some((n) => n.level === "success" && /glm-5\.3-flash/.test(n.m)),
   );

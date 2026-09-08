@@ -78,6 +78,63 @@ export function createCommandHandler({
     }
   }
 
+  async function showConfigCheck(state, ctx) {
+    const cfg = buildEffectiveConfig({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      state,
+    });
+    const checked = validateConfig({
+      config: buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+        raw: true,
+      }),
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+    });
+    notify(
+      ctx,
+      `运行版本：${EXTENSION_VERSION}\n个人配置：${globalConfigPath()}\n识别日志：${cfg.historyFile ? resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd()) : "未启用"}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（Working 阶段前置识别）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
+      checked.ok ? "info" : "warning",
+    );
+  }
+
+  // 0.38.1: low-frequency settings live one level down so the daily
+  // panel stays five actions + contextual entries.
+  async function pickSettings(state, ctx) {
+    const cfg = buildEffectiveConfig({
+      packageRoot,
+      cwd: ctx?.cwd ?? process.cwd(),
+      state,
+    });
+    const profile = ["minimal", "standard", "rich"].includes(
+      cfg.recognition?.context?.profile,
+    )
+      ? cfg.recognition.context.profile
+      : "minimal";
+    const profileName = { minimal: "极简", standard: "标准", rich: "完整" }[
+      profile
+    ];
+    const model = cfg.recognition?.agentModel ?? "跟随主模型";
+    const choice = await ctx.ui.select(
+      sanitizeTerminalText(
+        `设置\n识别负载：${profileName} · 识别模型：${model}`,
+      ),
+      [
+        "识别负载 — 意图识别带多少上下文；三档可选",
+        "识别模型 — 识别用哪个模型；可选用已配置的便宜模型",
+        "检查配置 — 显示个人配置位置并校验",
+        "返回",
+      ],
+    );
+    if (choice === undefined || choice === "返回") return; // silent cancel
+    if (choice.startsWith("识别负载")) await pickContextProfile(state, ctx);
+    if (choice.startsWith("识别模型")) await pickRecognitionModel(state, ctx);
+    if (choice.startsWith("检查配置")) await showConfigCheck(state, ctx);
+  }
+
   // 0.36.1: recognition-context profile switching from the panel.
   // Three presets with payload-size explanations; selecting one saves
   // atomically to the global config (per-key overrides in the file
@@ -236,23 +293,19 @@ export function createCommandHandler({
       const title = sanitizeTerminalText(
         `${state.lastActivity?.summary ?? "策略 · 尚未处理请求"}\n${phaseText(state.phase)}`,
       );
+      // 0.38.1: five fixed daily actions + contextual entries only;
+      // settings moved one level down (设置 → 识别负载/识别模型/检查配置).
       const options = [
         "查看本次状态 — 当前流程、判断方式和下一步",
         "自动处理（推荐）— 当前模型结合完整对话判断；选中后立即保存",
         "谨慎处理 — 所有修改先给计划再等待确认；选中后立即保存",
-        "识别负载 — 意图识别带多少上下文；三档可选，选中后立即保存",
-        "识别模型 — 识别用哪个模型；可选用已配置的便宜模型，选中后立即保存",
-        "检查配置 — 显示个人配置位置并校验是否有效",
+        "设置 — 识别负载、识别模型与配置检查",
+        "关闭策略 — 停止策略注入并立即保存",
       ];
       if (state.phase === "awaiting_approval" && state.task?.plan)
         options.splice(1, 0, "批准当前计划 — 只批准当前任务的当前计划版本");
       if (state.task)
-        options.splice(
-          options.length - 1,
-          0,
-          "结束当前任务 — 清除任务关联；下一条请求重新开始",
-        );
-      options.push("关闭策略 — 停止策略注入并立即保存");
+        options.splice(3, 0, "结束当前任务 — 清除任务关联；下一条请求重新开始");
       const choice = await ctx.ui.select(title, options);
       if (choice?.startsWith("查看本次状态"))
         notify(
@@ -268,31 +321,7 @@ export function createCommandHandler({
       if (choice?.startsWith("谨慎处理"))
         await applyGlobalPreset(state, ctx, "strict");
       if (choice?.startsWith("结束当前任务")) await policyCommand("new", ctx);
-      if (choice?.startsWith("识别负载")) await pickContextProfile(state, ctx);
-      if (choice?.startsWith("识别模型"))
-        await pickRecognitionModel(state, ctx);
-      if (choice?.startsWith("检查配置")) {
-        const cfg = buildEffectiveConfig({
-          packageRoot,
-          cwd: ctx?.cwd ?? process.cwd(),
-          state,
-        });
-        const checked = validateConfig({
-          config: buildEffectiveConfig({
-            packageRoot,
-            cwd: ctx?.cwd ?? process.cwd(),
-            state,
-            raw: true,
-          }),
-          packageRoot,
-          cwd: ctx?.cwd ?? process.cwd(),
-        });
-        notify(
-          ctx,
-          `运行版本：${EXTENSION_VERSION}\n个人配置：${globalConfigPath()}\n识别日志：${cfg.historyFile ? resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd()) : "未启用"}\n当前模式：${cfg.mode}；意图理解：${cfg.recognition?.enabled ? "当前模型（Working 阶段前置识别）" : "已关闭"}\n配置校验：${checked.ok ? "通过" : "存在问题，可用 /policy validate 查看详情"}`,
-          checked.ok ? "info" : "warning",
-        );
-      }
+      if (choice?.startsWith("设置")) await pickSettings(state, ctx);
       if (choice?.startsWith("关闭策略"))
         await applyGlobalPreset(state, ctx, "off");
       return;
@@ -526,7 +555,13 @@ export function createCommandHandler({
     // 0.38.0: direct mode commands are back — the escape hatches that
     // 0.29/0.33 removed from the panel. Losing them meant the only way
     // out of a misbehaving turn was two selector steps.
-    const MODE_COMMANDS = new Set(["off", "auto", "strict", "quick", "standard"]);
+    const MODE_COMMANDS = new Set([
+      "off",
+      "auto",
+      "strict",
+      "quick",
+      "standard",
+    ]);
     if (MODE_COMMANDS.has(action)) {
       await applyGlobalPreset(state, ctx, action);
       return;
