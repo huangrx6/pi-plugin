@@ -50,20 +50,20 @@ describe("validatePlanPayload", () => {
 
 	it("rejects taskId / planVersion mismatch", () => {
 		assert.equal(validatePlanPayload({ ...VALID, taskId: "other" }, TASK), null);
-		assert.equal(
-			validatePlanPayload({ ...VALID, planVersion: 4 }, TASK),
-			null,
-		);
+		assert.equal(validatePlanPayload({ ...VALID, planVersion: 4 }, TASK), null);
 	});
 
 	it("rejects empty goal / empty or malformed steps", () => {
 		assert.equal(validatePlanPayload({ ...VALID, goal: "  " }, TASK), null);
 		assert.equal(validatePlanPayload({ ...VALID, steps: [] }, TASK), null);
 		assert.equal(
-			validatePlanPayload({
-				...VALID,
-				steps: [{ action: "x", verification: "" }],
-			}, TASK),
+			validatePlanPayload(
+				{
+					...VALID,
+					steps: [{ action: "x", verification: "" }],
+				},
+				TASK,
+			),
 			null,
 		);
 	});

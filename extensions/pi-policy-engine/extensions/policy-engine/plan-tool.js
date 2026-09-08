@@ -23,7 +23,8 @@ const PLAN_TOOL_PARAMS = {
 			type: "array",
 			minItems: 1,
 			maxItems: 30,
-			description: '计划步骤,{"action":"具体工作","verification":"检查与预期结果"}',
+			description:
+				'计划步骤,{"action":"具体工作","verification":"检查与预期结果"}',
 			items: {
 				type: "object",
 				additionalProperties: false,
@@ -61,7 +62,8 @@ export function registerPlanTool(pi, { getState }) {
 					content: [
 						{
 							type: "text",
-							text: "Error: 计划上报无效。taskId/planVersion 必须与当前任务契约一致;goal 为非空字符串;steps 为 1-30 项,每项含非空 action 与 verification。",
+							text:
+								"Error: 计划上报无效。taskId/planVersion 必须与当前任务契约一致;goal 为非空字符串;steps 为 1-30 项,每项含非空 action 与 verification。",
 						},
 					],
 				};

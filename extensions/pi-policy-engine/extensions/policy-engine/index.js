@@ -35,8 +35,7 @@ export default function policyEngine(pi) {
   }));
 
   pi.registerCommand("policy", {
-    description:
-      "查看策略行为；在一级面板选择自动处理、谨慎处理或关闭策略。",
+    description: "查看策略行为；在一级面板选择自动处理、谨慎处理或关闭策略。",
     handler: createCommandHandler({
       pi,
       packageRoot: PACKAGE_ROOT,
