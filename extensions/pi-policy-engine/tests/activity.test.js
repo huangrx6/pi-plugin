@@ -197,15 +197,16 @@ test("single-level panel exposes only everyday actions", async () => {
     },
   });
   assert.equal(optionLists.length, 1);
-  // 0.38.1: five fixed actions; settings grouped one level down.
-  assert.equal(optionLists[0].length, 5);
+  // 0.39.0: six fixed actions — diagnostics joined settings one level down.
+  assert.equal(optionLists[0].length, 6);
   assert.ok(optionLists[0].some((option) => option.startsWith("自动处理")));
   assert.ok(optionLists[0].some((option) => option.startsWith("谨慎处理")));
+  assert.ok(optionLists[0].some((option) => option.startsWith("诊断")));
   assert.ok(optionLists[0].some((option) => option.startsWith("设置")));
   assert.ok(optionLists[0].some((option) => option.startsWith("关闭策略")));
   assert.ok(
     optionLists[0].every(
-      (option) => !/^(识别负载|识别模型|检查配置)/.test(option),
+      (option) => !/^(识别负载|识别模型|检查配置|识别用量|路由历史)/.test(option),
     ),
   );
   assert.ok(
@@ -294,8 +295,8 @@ test("panel 识别负载 picker saves the profile and preserves key overrides", 
   await handler("", ctx);
 
   assert.equal(selects.length, 3, "panel → 设置 → 识别负载");
-  // 设置面板四项：负载/模型/检查/返回
-  assert.equal(selects[1].length, 4);
+  // 0.39.0: 设置面板三项：负载/模型/返回（检查配置移入诊断）
+  assert.equal(selects[1].length, 3);
   // 档位面板：三档 + 返回，当前档标注
   assert.equal(selects[2].length, 4);
   assert.ok(
@@ -614,4 +615,59 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
   );
   // 本轮识别无 usage（如失败降级）时也不回退缓存——失败轮不该显示旧值
   // 上一断言组（preflightBlocked）已覆盖 decision 存在的场景。
+});
+
+// 0.39.0: diagnostics submenu groups usage / history / config / validate.
+
+test("panel 诊断 opens the diagnostics submenu and routes to usage", async (t) => {
+  // 隔离 agent-dir：usage 会读磁盘历史，不能碰真实用户数据。
+  const { mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(
+    mkdtempSync(join(tmpdir(), "pi-policy-diag-")),
+    "agent",
+  );
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  });
+  const state = {
+    runtimeMode: null,
+    runtimeRecognition: null,
+    phase: "idle",
+    task: null,
+    lastActivity: null,
+    lastUsageTokens: { input: 1122, output: 77 },
+    history: [{}, {}, {}],
+  };
+  const selects = [];
+  const notices = [];
+  const handler = createCommandHandler({
+    packageRoot: process.cwd(),
+    getState: () => state,
+  });
+  await handler("", {
+    ui: {
+      select: async (title, options) => {
+        selects.push({ title, options });
+        if (selects.length === 1)
+          return options.find((o) => o.startsWith("诊断"));
+        return options.find((o) => o.startsWith("识别用量汇总"));
+      },
+      notify: (m, level) => notices.push({ m, level }),
+    },
+  });
+  assert.equal(selects.length, 2, "panel → 诊断");
+  // 标题带 badge 与历史深度，不进二级也能看到关键值
+  assert.match(selects[1].title, /最近识别 ↑1\.1k↓77/);
+  assert.match(selects[1].title, /路由历史 3 轮/);
+  // 四个诊断入口 + 返回
+  assert.equal(selects[1].options.length, 5);
+  assert.ok(selects[1].options.some((o) => o.startsWith("路由历史")));
+  assert.ok(selects[1].options.some((o) => o.startsWith("运行配置")));
+  assert.ok(selects[1].options.some((o) => o.startsWith("校验配置")));
+  // usage 汇总送达（无识别记录的提示）
+  assert.ok(notices.some((n) => /还没有识别记录/.test(n.m)));
 });

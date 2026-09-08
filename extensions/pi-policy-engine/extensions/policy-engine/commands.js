@@ -101,6 +101,36 @@ export function createCommandHandler({
     );
   }
 
+  // 0.39.0: read-only diagnostics grouped one level down. The title
+  // always shows the latest usage and history depth, mirroring how
+  // pickSettings surfaces the current profile and model.
+  async function pickDiagnostics(state, ctx) {
+    const usage = state?.lastUsageTokens;
+    const fmt = (n) =>
+      Number.isFinite(n) ? (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)) : "?";
+    const usageText = usage
+      ? `最近识别 ↑${fmt(usage.input)}↓${fmt(usage.output)}`
+      : "暂无识别用量";
+    const historyCount = state?.history?.length ?? 0;
+    const choice = await ctx.ui.select(
+      sanitizeTerminalText(
+        `诊断\n${usageText} · 路由历史 ${historyCount} 轮`,
+      ),
+      [
+        "识别用量汇总 — 总量、均值、按负载档与识别模型分组",
+        "路由历史 — 最近 10 条识别与路由记录",
+        "运行配置 — 版本、个人配置位置与校验结果",
+        "校验配置 — 结构错误与修复建议",
+        "返回",
+      ],
+    );
+    if (choice === undefined || choice === "返回") return; // silent cancel
+    if (choice.startsWith("识别用量汇总")) await policyCommand("usage", ctx);
+    if (choice.startsWith("路由历史")) await policyCommand("history 10", ctx);
+    if (choice.startsWith("运行配置")) await showConfigCheck(state, ctx);
+    if (choice.startsWith("校验配置")) await policyCommand("validate", ctx);
+  }
+
   // 0.38.1: low-frequency settings live one level down so the daily
   // panel stays five actions + contextual entries.
   async function pickSettings(state, ctx) {
@@ -125,14 +155,12 @@ export function createCommandHandler({
       [
         "识别负载 — 意图识别带多少上下文；三档可选",
         "识别模型 — 识别用哪个模型；可选用已配置的便宜模型",
-        "检查配置 — 显示个人配置位置并校验",
         "返回",
       ],
     );
     if (choice === undefined || choice === "返回") return; // silent cancel
     if (choice.startsWith("识别负载")) await pickContextProfile(state, ctx);
     if (choice.startsWith("识别模型")) await pickRecognitionModel(state, ctx);
-    if (choice.startsWith("检查配置")) await showConfigCheck(state, ctx);
   }
 
   // 0.36.1: recognition-context profile switching from the panel.
@@ -299,7 +327,8 @@ export function createCommandHandler({
         "查看本次状态 — 当前流程、判断方式和下一步",
         "自动处理（推荐）— 当前模型结合完整对话判断；选中后立即保存",
         "谨慎处理 — 所有修改先给计划再等待确认；选中后立即保存",
-        "设置 — 识别负载、识别模型与配置检查",
+        "诊断 — 识别用量汇总、路由历史与配置检查",
+        "设置 — 识别负载与识别模型",
         "关闭策略 — 停止策略注入并立即保存",
       ];
       if (state.phase === "awaiting_approval" && state.task?.plan)
@@ -321,6 +350,7 @@ export function createCommandHandler({
       if (choice?.startsWith("谨慎处理"))
         await applyGlobalPreset(state, ctx, "strict");
       if (choice?.startsWith("结束当前任务")) await policyCommand("new", ctx);
+      if (choice?.startsWith("诊断")) await pickDiagnostics(state, ctx);
       if (choice?.startsWith("设置")) await pickSettings(state, ctx);
       if (choice?.startsWith("关闭策略"))
         await applyGlobalPreset(state, ctx, "off");
