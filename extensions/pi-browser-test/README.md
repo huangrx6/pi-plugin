@@ -3,6 +3,11 @@
 
 <p align="center">先冻结可审计的业务测试语义，再进入浏览器规划与执行。</p>
 
+<p align="center">
+  <img alt="Node.js 22.19+" src="https://img.shields.io/badge/node-%E2%89%A522.19-555?style=flat-square" />
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
+</p>
+
 `pi-browser-test` 当前实现 Test Spec Schema v1.0 的验证层。它检查测试身份、固定资产、前置条件、Capability Contract 引用、输入、业务断言和清理语义，并生成稳定的 `TestSpecHash`。
 
 本版本不点击页面，也不生成 locator 或 Playwright 脚本。通过验证只说明 Test Spec 结构和业务引用有效，不代表任何动作获得授权或已经执行。
