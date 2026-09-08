@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.38.0
+
+### 把控制权还回来：默认降级 + 直接命令恢复
+
+用户反馈"越来越难用、越来越难以控制"，用路由历史量化证实：
+
+- 180 轮里 73 轮（40%）以 blocked 结束；识别失败率 49.7%
+  （invalid_json 39 / context_too_large 31 / timeout 14——三个根因
+  已分别在 0.35/0.36/0.35 修复，但阻断语义把每次识别故障放大成
+  整轮不可用）
+- 0.29/0.33 删除的 `/policy off` 等直接命令让"失控时刻"只剩面板
+  两步操作一条路
+
+修复：
+
+- **`recognition.onFailure` 默认 `block` → `rules`**：识别失败降级
+  本地规则路由并显著标注（活动卡片 + reasons），不再阻断整轮。
+  需要严格阻断的可显式配 `"onFailure": "block"`
+- **直接命令恢复**：`/policy off|auto|strict|quick|standard`（选中
+  即保存，与面板同路径）；`/policy once <mode>` 仅下一轮生效、用
+  后即焚、不落盘——临时逃生不再改全局配置
+- 三个失效根因虽已修复，历史数据佐证了默认值的代价；本次为
+  数据驱动的默认值修正而非行为新增
+
+测试：默认降级回归（未配置 onFailure 时失败 → Recognition
+degraded 而非 blocked）、block 路径测试显式钉住 onFailure:
+"block"、once 用后即焚。
+
 ## 0.37.1
 
 ### /policy usage：识别成本汇总

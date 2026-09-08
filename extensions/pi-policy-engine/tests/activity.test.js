@@ -492,20 +492,56 @@ test("/policy model sets and clears the recognition model directly", async (t) =
 // 0.37.1: /policy usage aggregates per-turn recognition cost.
 
 test("formatUsageSummary aggregates tokens, profiles, models and failures", async () => {
-  const { formatUsageSummary } = await import("../extensions/policy-engine/format.js");
+  const { formatUsageSummary } = await import(
+    "../extensions/policy-engine/format.js"
+  );
   const empty = formatUsageSummary([]);
   assert.match(empty, /还没有识别记录/);
 
   const entries = [
-    { recognition: { source: "agent", reason: "contextual", model: "zai-coding-cn/glm-5.3-flash", contextProfile: "minimal", usageTokens: { input: 1500, output: 90 }, durationMs: 2900 } },
-    { recognition: { source: "agent", reason: "contextual", model: "zai-coding-cn/glm-5.3-flash", contextProfile: "minimal", usageTokens: { input: 1700, output: 110 }, durationMs: 3300 } },
-    { recognition: { source: "agent", reason: "timeout", model: "zai-coding-cn/glm-5.3-flash", durationMs: 15000 } },
-    { recognition: { source: "agent", reason: "contextual", model: "volcengine-coding/ark-code-latest", contextProfile: "rich", usageTokens: { input: 9000, output: 400 }, durationMs: 5000 } },
+    {
+      recognition: {
+        source: "agent",
+        reason: "contextual",
+        model: "zai-coding-cn/glm-5.3-flash",
+        contextProfile: "minimal",
+        usageTokens: { input: 1500, output: 90 },
+        durationMs: 2900,
+      },
+    },
+    {
+      recognition: {
+        source: "agent",
+        reason: "contextual",
+        model: "zai-coding-cn/glm-5.3-flash",
+        contextProfile: "minimal",
+        usageTokens: { input: 1700, output: 110 },
+        durationMs: 3300,
+      },
+    },
+    {
+      recognition: {
+        source: "agent",
+        reason: "timeout",
+        model: "zai-coding-cn/glm-5.3-flash",
+        durationMs: 15000,
+      },
+    },
+    {
+      recognition: {
+        source: "agent",
+        reason: "contextual",
+        model: "volcengine-coding/ark-code-latest",
+        contextProfile: "rich",
+        usageTokens: { input: 9000, output: 400 },
+        durationMs: 5000,
+      },
+    },
   ];
   const summary = formatUsageSummary(entries);
   assert.match(summary, /历史 4 轮识别/);
   assert.match(summary, /成功 3 轮（75%）/);
-  assert.match(summary, /↑12,200 ↓600/);           // 合计
+  assert.match(summary, /↑12,200 ↓600/); // 合计
   assert.match(summary, /平均每轮：↑4,067 ↓200/);
   assert.match(summary, /minimal: 2 轮 · ↑3,200 ↓200 · 均值 ↑1,600/);
   assert.match(summary, /agent\/timeout: 1 次/);

@@ -523,6 +523,32 @@ export function createCommandHandler({
       return;
     }
 
+    // 0.38.0: direct mode commands are back — the escape hatches that
+    // 0.29/0.33 removed from the panel. Losing them meant the only way
+    // out of a misbehaving turn was two selector steps.
+    const MODE_COMMANDS = new Set(["off", "auto", "strict", "quick", "standard"]);
+    if (MODE_COMMANDS.has(action)) {
+      await applyGlobalPreset(state, ctx, action);
+      return;
+    }
+    if (action === "once") {
+      const wanted = (rest[0] ?? "").toLowerCase();
+      if (!MODE_COMMANDS.has(wanted)) {
+        notify(
+          ctx,
+          "用法: /policy once off|auto|strict|quick|standard（仅下一轮生效，不保存）",
+          "info",
+        );
+        return;
+      }
+      state.onceMode = wanted;
+      notify(
+        ctx,
+        `下一轮将按「${wanted}」处理（仅此一轮，不改保存的配置）。`,
+        "success",
+      );
+      return;
+    }
     if (action === "usage") {
       const cfg = buildEffectiveConfig({
         packageRoot,
@@ -531,7 +557,10 @@ export function createCommandHandler({
       });
       let entries = state.history ?? [];
       if (cfg.historyFile) {
-        const path = resolveHistoryPath(cfg.historyFile, ctx?.cwd ?? process.cwd());
+        const path = resolveHistoryPath(
+          cfg.historyFile,
+          ctx?.cwd ?? process.cwd(),
+        );
         if (path) {
           const disk = await readHistory(path, 500);
           if (Array.isArray(disk) && disk.length > 0) entries = disk;

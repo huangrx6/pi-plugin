@@ -31,7 +31,6 @@ export function formatRecognitionDiagnostics(recognition) {
   return parts.join("; ");
 }
 
-
 /** Aggregate recognition usage from routing history (0.37.1).
  *  Surfaces what the per-turn token logging accumulates: totals,
  *  averages, per-model and per-profile splits — the data basis for
@@ -103,7 +102,8 @@ export function formatUsageSummary(entries) {
           ),
         ]
       : []),
-    ...(byModel.size > 1 || (byModel.size === 1 && ![...byModel.keys()][0].includes("未标注"))
+    ...(byModel.size > 1 ||
+    (byModel.size === 1 && ![...byModel.keys()][0].includes("未标注"))
       ? [
           "按识别模型：",
           ...[...byModel.entries()]

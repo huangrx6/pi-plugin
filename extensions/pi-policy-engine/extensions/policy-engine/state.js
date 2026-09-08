@@ -32,6 +32,9 @@ export function createState() {
     lastValidConfig: null,
     runtimeMode: null,
     runtimeRecognition: null,
+    // One-shot mode override for the NEXT turn only (0.38.0): set via
+    // /policy once <mode>, consumed by resolveTurn, never persisted.
+    onceMode: null,
     lastDecision: null,
     lastActivity: null,
     lastPrompt: null,

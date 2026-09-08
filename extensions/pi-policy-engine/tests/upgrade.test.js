@@ -937,7 +937,7 @@ test("agent semantic preview reports that a host model is required", async (t) =
 test("failed agent preflight blocks policy execution instead of silently routing", async (t) => {
   const { cwd, configure } = fixture(t);
   configure({
-    recognition: { source: "agent", enabled: true },
+    recognition: { source: "agent", enabled: true, onFailure: "block" },
   });
   const s = session(cwd);
   s.ctx.modelRegistry = {
@@ -960,6 +960,7 @@ test("failed endpoint recognition also blocks live routing", async (t) => {
     recognition: {
       source: "endpoint",
       enabled: true,
+      onFailure: "block",
       endpoint: "http://classifier.invalid/v1/chat/completions",
       model: "classifier",
       apiKeyEnvVar: null,
@@ -1021,4 +1022,24 @@ test("recognition.onFailure=rules still blocks offline previews", async (t) => {
   });
   assert.equal(p.decision.recognition.reason, "agent_unavailable");
   assert.doesNotMatch(p.injected, /Current Agent Context Interpretation/);
+});
+
+test("0.38.0 default: recognition failure degrades to rules instead of blocking", async (t) => {
+  const { cwd, configure } = fixture(t);
+  // 未配置 onFailure → 继承 defaults.json 的 "rules"
+  configure({
+    recognition: { source: "agent", enabled: true },
+  });
+  const s = session(cwd);
+  s.ctx.modelRegistry = {
+    complete: async () => {
+      throw new Error("temporary model failure");
+    },
+  };
+  await s.start();
+  const out = await s.turn("修改 parser");
+  assert.equal(s.state.lastDecision.preflightBlocked, undefined);
+  assert.equal(s.state.lastDecision.rigor, "standard");
+  assert.match(out.systemPrompt, /Recognition degraded/);
+  assert.doesNotMatch(out.systemPrompt, /Intent preflight blocked/);
 });

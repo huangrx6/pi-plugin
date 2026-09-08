@@ -16,7 +16,7 @@
     "source": "agent",
     "maxContextChars": 24000,
     "timeoutMs": 15000,
-    "onFailure": "block",
+    "onFailure": "rules",
     "context": {
       "profile": "minimal"
     }

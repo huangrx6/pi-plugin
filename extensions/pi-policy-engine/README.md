@@ -162,7 +162,7 @@ pi install "$PWD"
 兜底与覆盖：
 
 - `recognition.requestBody`（对象）：合并进识别请求体、**后于自动补丁**合并——用户显式配置永远优先。agent 来源经 `samplingParams` 通道透传，endpoint 来源直接合并进 body。
-- `recognition.onFailure: "block" | "rules"`（默认 `block`）：设为 `rules` 后，识别失败/超时的本轮降级为本地规则路由（活动记录与 `reasons` 注明降级原因）；离线预览两种取值下都保持确定性。
+- `recognition.onFailure: "block" | "rules"`（**默认 `rules`**）：识别失败/超时的本轮降级为本地规则路由并显著标注——识别故障不再放大成整轮不可用；需要严格阻断的显式配 `"block"`。直接命令 `/policy off|auto|strict|quick|standard` 选中即保存，`/policy once <mode>` 仅下一轮生效。
 - `timeoutMs`（默认 15000，上限 60000）可按模型延迟上调；上调会等比增加每轮前置延迟。
 
 只有 `endpoint` 来源会把当前任务摘要发送给所配服务；它不发送仓库文件、工具输出、其他会话或完整聊天记录。任务要求原文可能含有用户输入的敏感内容。JSON 或结构校验失败时，会在同一总时限内使用相同来源做一次仅修复格式的调用；网络错误、缺密钥、超时和上下文超限不重试。最终仍不合格时，本轮不加载任务策略，并给主模型追加停止执行与请用户重试的要求。插件通过提示约束主模型，不拦截工具调用。

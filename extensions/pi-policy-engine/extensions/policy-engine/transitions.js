@@ -66,7 +66,9 @@ export async function resolveTurn({
   semantic = true,
 }) {
   const config = buildEffectiveConfig({ packageRoot, cwd, state });
-  let mode = config.mode;
+  // /policy once <mode>: overrides exactly the next turn, then burns.
+  const mode = state.onceMode ?? config.mode;
+  if (state.onceMode !== null) state.onceMode = null;
   const recognition =
     semantic && mode !== "off"
       ? await interpretTask({
