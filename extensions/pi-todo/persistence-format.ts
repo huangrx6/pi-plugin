@@ -11,13 +11,13 @@
  *   3. No CLI / domain / selector / graph error UX lives here.
  */
 
-import type { ScopeResolutionError } from "./workspace-scope.ts";
+import type { ScopeResolutionError } from "./session-scope.ts";
 
 /**
  * P3-E infrastructure surface. Distinct from:
  * - MutationCliError (P1-C, 5-layer domain / selector / graph)
  * - ReplayIntegrityError (P3-D, reconstruction)
- * - ScopeResolutionError (P3-C, raw resolver failure)
+ * - ScopeResolutionError (raw resolver failure)
  */
 export type InfrastructureNotice =
  | { kind: "cas-conflict"; actualRevision: number }
@@ -37,7 +37,7 @@ export function formatInfrastructureNotice(n: InfrastructureNotice): string {
   case "cas-conflict":
    return `Todo state changed in another session (now at revision ${n.actualRevision}). Run the command again.`;
   case "scope-resolution-failure":
-   return `Unable to resolve the current todo workspace: ${n.message}`;
+   return `Unable to resolve the current todo scope: ${n.message}`;
   case "corrupt-snapshot":
    return "Todo storage is corrupted. No changes were made.";
   case "unsupported-schema":

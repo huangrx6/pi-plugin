@@ -33,7 +33,7 @@ import { OverlaySnapshotCache } from "./overlay-snapshot-cache.ts";
 import type { ScopeKey, ScopeKeyResolver } from "./persistence-contract.ts";
 import type { TodoRuntimePersistence } from "./runtime-persistence.ts";
 import type { Task, TaskState } from "./types.ts";
-import { ScopeResolutionError } from "./workspace-scope.ts";
+import { ScopeResolutionError } from "./session-scope.ts";
 
 // Note: store.ts is RETIRED (P3-E LOCK §2 / §33). Seeding via
 // replaceState/__resetState is no longer wired in production code; this
@@ -704,8 +704,20 @@ describe("/todos command", () => {
 	it("history: lists visible completed and deliberately closed tasks", async () => {
 		seedTestState(
 			buildTask({ id: 1, subject: "done", status: "completed", updatedAt: 10 }),
-			buildTask({ id: 2, subject: "stopped", status: "pending", closedAt: 20, updatedAt: 20 }),
-			buildTask({ id: 3, subject: "archived", status: "completed", archivedAt: 30, updatedAt: 30 }),
+			buildTask({
+				id: 2,
+				subject: "stopped",
+				status: "pending",
+				closedAt: 20,
+				updatedAt: 20,
+			}),
+			buildTask({
+				id: 3,
+				subject: "archived",
+				status: "completed",
+				archivedAt: 30,
+				updatedAt: 30,
+			}),
 		);
 		const r = await callTodos("history");
 		const out = r.notices[0]?.message ?? "";

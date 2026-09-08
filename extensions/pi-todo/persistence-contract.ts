@@ -16,8 +16,10 @@
  *     Persistence MUST NOT repair, normalize, infer, or rewrite
  *     TaskState domain semantics.
  *
- *     Runtime session id  ≠ durable identity (no default resolver
- *     defined in P3-A; P3-B / P3-C chooses one).
+ *     Runtime session id → durable identity: the production
+ *     session:v1 resolver derives ScopeKey from
+ *     ctx.sessionManager.getSessionId() (one session, one list;
+ *     concurrent sessions are isolated).
  *
  *   ENVELOPE
  *
@@ -96,9 +98,9 @@ declare const scopeKeyBrand: unique symbol;
  * plain strings cannot be assigned to ScopeKey. Construct via a
  * ScopeKeyResolver or an explicit `as ScopeKey` boundary.
  *
- * Runtime session id is NOT a ScopeKey. P3-A defines no default
- * resolver; P3-B / P3-C selects the first runtime resolution
- * strategy.
+ * Runtime session id IS the durable identity source: the production
+ * session:v1 resolver hashes ctx.sessionManager.getSessionId() into
+ * an opaque ScopeKey. Raw session ids are never used as ScopeKey.
  */
 export type ScopeKey = string & {
  readonly [scopeKeyBrand]: "ScopeKey";
@@ -106,14 +108,11 @@ export type ScopeKey = string & {
 
 /**
  * Pluggable strategy for deriving ScopeKey from runtime context.
- * P3-A ships no default implementation. The first runtime resolver
- * is selected in P3-B / P3-C; until then, callers must explicitly
- * wire one.
  *
- * `resolve` is async: real-world implementations (P3-C workspace
- * resolver) canonicalize via fs.realpath, which is intrinsically
- * async on POSIX systems. P3-A's contract admits both sync and
- * async implementations; async is required by the canonical v0.
+ * `resolve` is async by contract: it admits both sync and async
+ * implementations (resolution may involve async I/O). The canonical
+ * production resolver (session:v1) is sync internally, but the
+ * async signature is preserved for resolver compatibility.
  */
 export interface ScopeKeyResolver<Ctx = unknown> {
  resolve(ctx: Ctx): Promise<ScopeKey>;

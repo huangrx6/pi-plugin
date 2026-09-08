@@ -9,8 +9,9 @@
  * Module invariants (P3-E LOCK):
  *   1. Default durable root = extensions-data/pi-todo/state under getAgentDir().
  *      getAgentDir respects PI_CODING_AGENT_DIR; default is ~/.pi/agent.
- *   2. P3-C workspace resolver + P3-B file backend are the canonical
- *      production wiring.
+ *   2. Session resolver (session:v1) + P3-B file backend are the canonical
+ *      production wiring. Scope is per-session: concurrent sessions are
+ *      isolated even in the same working directory.
  *   3. Overridable for tests (durableStore / scopeResolver / rootDir).
  *   4. No TaskState, no domain types, no CLI UX.
  *   5. Type imports are anchored at the contract / interface modules,
@@ -32,7 +33,7 @@ type PiAgentExports = {
 const agentExports = piAgent as unknown as PiAgentExports;
 const getAgentDir = agentExports.getAgentDir;
 import { createFileDurableTodoStore } from "./file-durable-store.ts";
-import { createWorkspaceScopeKeyResolver } from "./workspace-scope.ts";
+import { createSessionScopeKeyResolver } from "./session-scope.ts";
 import type { ScopeKeyResolver } from "./persistence-contract.ts";
 import type { DurableTodoStore } from "./durable-store.ts";
 
@@ -51,9 +52,9 @@ export interface TodoRuntimePersistenceOptions {
 /**
  * Construct the production durable wiring.
  *
- * Defaults: extensions-data/pi-todo/state under getAgentDir(), file backend, workspace:v1
- * resolver. Overrides exist for tests; production callers should not
- * pass any options.
+ * Defaults: extensions-data/pi-todo/state under getAgentDir(), file backend,
+ * session:v1 resolver. Overrides exist for tests; production callers
+ * should not pass any options.
  */
 export function createProductionTodoPersistence(
  options: TodoRuntimePersistenceOptions = {},
@@ -61,8 +62,7 @@ export function createProductionTodoPersistence(
  const rootDir = options.rootDir ?? resolveDefaultTodoRoot();
  const durableStore =
   options.durableStore ?? createFileDurableTodoStore({ rootDir });
- const scopeResolver =
-  options.scopeResolver ?? createWorkspaceScopeKeyResolver();
+ const scopeResolver = options.scopeResolver ?? createSessionScopeKeyResolver();
  return { scopeResolver, durableStore, rootDir };
 }
 

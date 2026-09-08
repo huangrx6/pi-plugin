@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 - 2026-09-06
+
+- Scope durable todo identity by session instead of workspace: each session owns a private list, and concurrent sessions in the same directory no longer share state.
+- Keep the list following the conversation: resuming the same session id in a different directory still restores its snapshot; moving or renaming directories does not change identity.
+- Remove the new-session recovery hint for unfinished in-progress tasks; a fresh session starts from an empty list. In-session continuation from the task detail view is unchanged.
+- Replace the workspace scope resolver with the session:v1 resolver (SHA-256 over the runtime session id); state files keep the same canonical directory and envelope schema.
+
 ## 0.11.0 - 2026-09-06
 
 - Replace the daily completed/archived/all tab set with current/history/archive; history combines verified completion and deliberate close while retaining their distinct meanings and actions.

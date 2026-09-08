@@ -19,7 +19,13 @@ import {
 import { applyTaskMutation } from "./reducer.ts";
 import { buildMutationPlan, applyMutationPlan } from "./mutation-executor.ts";
 import { buildMutationOutcome } from "./mutation-outcome.ts";
-import { formatContent, formatTaskRow, formatTasksList, sanitizeTerminalText, truncateToWidth } from "./format.ts";
+import {
+ formatContent,
+ formatTaskRow,
+ formatTasksList,
+ sanitizeTerminalText,
+ truncateToWidth,
+} from "./format.ts";
 import { formatBoundedOverview } from "./overview-format.ts";
 import { parseGraphCommand } from "./graph-command.ts";
 import { formatCurrentTask } from "./current-task-format.ts";
@@ -55,7 +61,7 @@ import type {
  ScopeKey,
 } from "./persistence-contract.ts";
 import type { GraphCommand } from "./graph-command.ts";
-import { ScopeResolutionError } from "./workspace-scope.ts";
+import { ScopeResolutionError } from "./session-scope.ts";
 import type { TaskMutationParams, TaskState, TodoDetails } from "./types.ts";
 import { TODO_PARAMS_SCHEMA } from "./types.ts";
 
@@ -148,7 +154,9 @@ function renderDefault(state: TaskState, width: number): string[] {
   return ["No todos."];
  }
  if (total === 0 && view.counts.completedVisible === 0 && closed.length > 0) {
-  return [`No active todos. ${closed.length} task(s) ended; open /todos all to review.`];
+  return [
+   `No active todos. ${closed.length} task(s) ended; open /todos all to review.`,
+  ];
  }
  const depsMap = buildBlockedDepsMap(state, view.blocked);
  // P4-C1: default /todos is a bounded overview with per-section
@@ -183,10 +191,12 @@ function renderCompleted(state: TaskState, width: number): string[] {
 function renderHistory(state: TaskState, width: number): string[] {
  const tasks = projectHistory(state);
  if (tasks.length === 0) return ["No task history."];
- return tasks.map((task) => formatTaskRow(task, {
-  role: task.closedAt === undefined ? "completed" : "closed",
-  width,
- }));
+ return tasks.map((task) =>
+  formatTaskRow(task, {
+   role: task.closedAt === undefined ? "completed" : "closed",
+   width,
+  }),
+ );
 }
 
 function renderArchived(state: TaskState, width: number): string[] {
@@ -202,7 +212,12 @@ function renderAll(state: TaskState, width: number): string[] {
  const archived = projectArchived(state);
  const hasActive =
   view.running.length + view.ready.length + view.blocked.length > 0;
- if (!hasActive && completed.length === 0 && closed.length === 0 && archived.length === 0) {
+ if (
+  !hasActive &&
+  completed.length === 0 &&
+  closed.length === 0 &&
+  archived.length === 0
+ ) {
   return ["No todos."];
  }
  const lines: string[] = [];
@@ -247,7 +262,8 @@ function renderAll(state: TaskState, width: number): string[] {
  }
  if (closed.length > 0) {
   lines.push("CLOSED");
-  for (const t of closed) lines.push(formatTaskRow(t, { role: "closed", width }));
+  for (const t of closed)
+   lines.push(formatTaskRow(t, { role: "closed", width }));
   lines.push("");
  }
  if (archived.length > 0) {
@@ -700,17 +716,39 @@ export default function factory(
 
  let overlay: TodoOverlay | undefined;
  let uiCtx: MinimalCtx["ui"] | undefined;
- const recoveryNotifiedScopes = new Set<string>();
 
  function refreshOverlay(): void {
   if (!uiCtx || !overlay) return;
   overlay.update();
  }
 
- function requestModelReview(task: { id: number; subject: string; description?: string; status: string; updatedAt: number }, ctx: unknown): void {
-  const sendMessage = (pi as unknown as { sendMessage?: (message: { customType: string; content: string; display: boolean }, options: { triggerTurn: boolean; deliverAs: "followUp" }) => void }).sendMessage;
+ function requestModelReview(
+  task: {
+   id: number;
+   subject: string;
+   description?: string;
+   status: string;
+   updatedAt: number;
+  },
+  ctx: unknown,
+ ): void {
+  // SAFETY: ExtensionAPI.sendMessage is an optional runtime capability;
+  // the ambient module declaration does not expose it on the `pi`
+  // value's static type, so we probe it structurally at runtime and
+  // fall back to a notify when absent. Shape matches globals.d.ts.
+  const sendMessage = (
+   pi as unknown as {
+    sendMessage?: (
+     message: { customType: string; content: string; display: boolean },
+     options: { triggerTurn: boolean; deliverAs: "followUp" },
+    ) => void;
+   }
+  ).sendMessage;
   if (typeof sendMessage !== "function") {
-   (ctx as { ui: UiNotify }).ui.notify("当前 Pi 版本不支持把任务交给模型判断。", "warning");
+   (ctx as { ui: UiNotify }).ui.notify(
+    "当前 Pi 版本不支持把任务交给模型判断。",
+    "warning",
+   );
    return;
   }
   const details = [
@@ -718,81 +756,91 @@ export default function factory(
    `状态: ${task.status}`,
    `最近更新: ${new Date(task.updatedAt).toISOString()}`,
    task.description ? `说明: ${sanitizeTerminalText(task.description)}` : "",
-  ].filter(Boolean).join("\n");
-  sendMessage({
-   customType: "todo-recovery-review",
-   display: false,
-   content: [
-    "请审查下面这个尚未结束的 todo 任务。只给出判断建议，不要调用 todo 工具，不要修改任何任务状态。",
-    "请根据当前状态返回：进行中任务用“继续 / 标记完成 / 关闭 / 无法判断”，待办任务用“开始 / 关闭 / 无法判断”；信息不足时必须选择无法判断，并说明依据。",
-    details,
-   ].join("\n\n"),
-  }, { triggerTurn: true, deliverAs: "followUp" });
+  ]
+   .filter(Boolean)
+   .join("\n");
+  sendMessage(
+   {
+    customType: "todo-recovery-review",
+    display: false,
+    content: [
+     "请审查下面这个尚未结束的 todo 任务。只给出判断建议，不要调用 todo 工具，不要修改任何任务状态。",
+     "请根据当前状态返回：进行中任务用“继续 / 标记完成 / 关闭 / 无法判断”，待办任务用“开始 / 关闭 / 无法判断”；信息不足时必须选择无法判断，并说明依据。",
+     details,
+    ].join("\n\n"),
+   },
+   { triggerTurn: true, deliverAs: "followUp" },
+  );
  }
 
- async function executeTodo(params: TaskMutationParams, ctx: unknown): Promise<{ content: Array<{ type: "text"; text: string }>; details?: TodoDetails }> {
-   const loaded = await loadEnvelope(ctx, persistence);
-   if (loaded.ok !== true) {
-    return {
-     content: [
-      {
-       type: "text",
-       text: reportLoadFailureText(loaded),
-      },
-     ],
-    };
-   }
-   const { scope, envelope } = loaded;
-   const initial: TaskState = envelope.state;
-   const paramsTyped = params as TaskMutationParams;
-   const observed = createObservedReduceContext();
-   const reducerResult = applyTaskMutation(
-    initial,
-    paramsTyped,
-    observed.reduceContext,
-   );
-   if (reducerResult.op.kind === "error") {
-    const text = formatContent(reducerResult.op, reducerResult.state);
-    const details: TodoDetails = {
-     tasks: reducerResult.state.tasks,
-     nextId: reducerResult.state.nextId,
-    };
-    return { content: [{ type: "text", text }], details };
-   }
-   // Provisional material (LOCK §38).
-   const provisionalMaterial: ReplayMutationMaterial = {
-    baseRevision: envelope.revision,
-    revision: envelope.revision + 1,
-    actions: [structuredClone(paramsTyped)],
-    replayContext: { nowValues: observed.snapshotNowValues() },
+ async function executeTodo(
+  params: TaskMutationParams,
+  ctx: unknown,
+ ): Promise<{
+  content: Array<{ type: "text"; text: string }>;
+  details?: TodoDetails;
+ }> {
+  const loaded = await loadEnvelope(ctx, persistence);
+  if (loaded.ok !== true) {
+   return {
+    content: [
+     {
+      type: "text",
+      text: reportLoadFailureText(loaded),
+     },
+    ],
    };
-   void provisionalMaterial;
-   const commitResult = await persistence.durableStore.commit(
-    scope,
-    envelope.revision,
-    reducerResult.state,
-   );
-   if (commitResult.kind === "conflict") {
-    return {
-     content: [
-      {
-       type: "text",
-       text: formatInfrastructureNotice({
-        kind: "cas-conflict",
-        actualRevision: commitResult.actualRevision,
-       }),
-      },
-     ],
-    };
-   }
-   overlayCache.update(scope, commitResult.envelope);
-   const text = formatContent(reducerResult.op, commitResult.envelope.state);
+  }
+  const { scope, envelope } = loaded;
+  const initial: TaskState = envelope.state;
+  const paramsTyped = params as TaskMutationParams;
+  const observed = createObservedReduceContext();
+  const reducerResult = applyTaskMutation(
+   initial,
+   paramsTyped,
+   observed.reduceContext,
+  );
+  if (reducerResult.op.kind === "error") {
+   const text = formatContent(reducerResult.op, reducerResult.state);
    const details: TodoDetails = {
-    tasks: commitResult.envelope.state.tasks,
-    nextId: commitResult.envelope.state.nextId,
+    tasks: reducerResult.state.tasks,
+    nextId: reducerResult.state.nextId,
    };
    return { content: [{ type: "text", text }], details };
-
+  }
+  // Provisional material (LOCK §38).
+  const provisionalMaterial: ReplayMutationMaterial = {
+   baseRevision: envelope.revision,
+   revision: envelope.revision + 1,
+   actions: [structuredClone(paramsTyped)],
+   replayContext: { nowValues: observed.snapshotNowValues() },
+  };
+  void provisionalMaterial;
+  const commitResult = await persistence.durableStore.commit(
+   scope,
+   envelope.revision,
+   reducerResult.state,
+  );
+  if (commitResult.kind === "conflict") {
+   return {
+    content: [
+     {
+      type: "text",
+      text: formatInfrastructureNotice({
+       kind: "cas-conflict",
+       actualRevision: commitResult.actualRevision,
+      }),
+     },
+    ],
+   };
+  }
+  overlayCache.update(scope, commitResult.envelope);
+  const text = formatContent(reducerResult.op, commitResult.envelope.state);
+  const details: TodoDetails = {
+   tasks: commitResult.envelope.state.tasks,
+   nextId: commitResult.envelope.state.nextId,
+  };
+  return { content: [{ type: "text", text }], details };
  }
 
  /**
@@ -808,9 +856,12 @@ export default function factory(
   const ui = (ctx as { ui: TaskWindowUi }).ui;
   const custom = ui.custom?.bind(ui);
   if (typeof custom !== "function") {
-   const fallback = initialDetailId === undefined
-    ? initialView === "current" ? "" : initialView
-    : String(initialDetailId);
+   const fallback =
+    initialDetailId === undefined
+     ? initialView === "current"
+      ? ""
+      : initialView
+     : String(initialDetailId);
    await runReadCommand(fallback, ctx, persistence, overlayCache);
    return;
   }
@@ -824,6 +875,10 @@ export default function factory(
   };
 
   overlay ??= new TodoOverlay(overlayCache, getActiveScope);
+  // SAFETY: the command-handler `ui` context is structurally
+  // compatible with TodoOverlay.setUICtx's MinimalCtx["ui"]
+  // parameter (same notify/setWidget surface) but TS cannot prove
+  // it across the handler boundary.
   overlay.setUICtx(ui as unknown as Parameters<TodoOverlay["setUICtx"]>[0]);
   overlay.setSuspended(true);
 
@@ -836,7 +891,7 @@ export default function factory(
     }
     overlayCache.update(loaded.scope, loaded.envelope);
 
-    const intent = await custom(
+    const intent = (await custom(
      (tui, theme, keybindings, done) =>
       new TaskBrowserComponent(
        tui,
@@ -856,21 +911,29 @@ export default function factory(
        margin: 2,
       },
      },
-    ) as TaskBrowserIntent;
+    )) as TaskBrowserIntent;
 
     if (intent.kind === "close") return;
 
     if (intent.kind === "action" && intent.action === "review") {
-     const task = loaded.envelope.state.tasks.find((candidate) => candidate.id === intent.id);
+     const task = loaded.envelope.state.tasks.find(
+      (candidate) => candidate.id === intent.id,
+     );
      if (task) {
-     requestModelReview(task, ctx);
-      (ctx as { ui: UiNotify }).ui.notify("已把任务交给模型判断；模型不会直接修改任务状态。", "info");
+      requestModelReview(task, ctx);
+      (ctx as { ui: UiNotify }).ui.notify(
+       "已把任务交给模型判断；模型不会直接修改任务状态。",
+       "info",
+      );
      }
      return;
     }
 
     if (intent.kind === "action" && intent.action === "continue") {
-     session.notice = { text: `任务 #${intent.id} 已保留为进行中，可以继续当前工作`, level: "info" };
+     session.notice = {
+      text: `任务 #${intent.id} 已保留为进行中，可以继续当前工作`,
+      level: "info",
+     };
      continue;
     }
 
@@ -886,23 +949,34 @@ export default function factory(
     try {
      const result = await executeTodo(params, ctx);
      const rawMessage = result.content[0]?.text ?? "";
-     const message = sanitizeTerminalText(rawMessage.split("\n", 1)[0] ?? "").trim();
-     const failed = message.startsWith("Error:") || result.details === undefined;
+     const message = sanitizeTerminalText(
+      rawMessage.split("\n", 1)[0] ?? "",
+     ).trim();
+     const failed =
+      message.startsWith("Error:") || result.details === undefined;
      session.notice = {
-      text: truncateToWidth(message || (failed ? "操作失败" : "任务已更新"), 72),
+      text: truncateToWidth(
+       message || (failed ? "操作失败" : "任务已更新"),
+       72,
+      ),
       level: failed ? "error" : "info",
      };
 
      if (!failed && intent.kind === "create" && result.details) {
       const createdId = result.details.nextId - 1;
       session.selectedId = createdId;
-      session.selectedIndex = result.details.tasks.findIndex((task) => task.id === createdId);
+      session.selectedIndex = result.details.tasks.findIndex(
+       (task) => task.id === createdId,
+      );
      } else if (intent.kind !== "create") {
       session.selectedId = intent.id;
      }
      if (intent.kind !== "edit") session.detailId = undefined;
     } catch (error) {
-     session.notice = { text: sanitizeTerminalText(formatError(error)), level: "error" };
+     session.notice = {
+      text: sanitizeTerminalText(formatError(error)),
+      level: "error",
+     };
      session.detailId = undefined;
     }
    }
@@ -932,7 +1006,8 @@ export default function factory(
   promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
   parameters: TODO_PARAMS_SCHEMA,
 
-  execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => executeTodo(params as TaskMutationParams, ctx),
+  execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+   executeTodo(params as TaskMutationParams, ctx),
 
   renderCall(args, theme) {
    const a = args as {
@@ -982,25 +1057,33 @@ export default function factory(
    if (lines.length > 1) {
     collapsed += theme.fg("muted", ` (+${lines.length - 1})`);
    }
-   return toolLineComponent((width: number) => [truncateToWidth(collapsed, width)]);
+   return toolLineComponent((width: number) => [
+    truncateToWidth(collapsed, width),
+   ]);
   },
  });
 
  // ── /todos command ──────────────────────────────────────────────
 
  pi.registerCommand(COMMAND_NAME, {
-  description:
-   "打开任务窗口，浏览、搜索、新增任务，并在详情中执行适用操作。",
+  description: "打开任务窗口，浏览、搜索、新增任务，并在详情中执行适用操作。",
   handler: async (args, ctx) => {
    if (!ctx.hasUI) {
     ctx.ui.notify("/todos requires interactive mode", "error");
     return;
    }
 
-   if (String(args ?? "").trim().split(/\s+/)[0] === "display") {
+   if (
+    String(args ?? "")
+     .trim()
+     .split(/\s+/)[0] === "display"
+   ) {
     const mode = String(args).trim().split(/\s+/)[1];
     if (!["compact", "full", "hidden"].includes(mode ?? "")) {
-     ctx.ui.notify("用法: /todos display compact|full|hidden（本次会话）", "info");
+     ctx.ui.notify(
+      "用法: /todos display compact|full|hidden（本次会话）",
+      "info",
+     );
      return;
     }
     overlay ??= new TodoOverlay(overlayCache, getActiveScope);
@@ -1078,7 +1161,7 @@ export default function factory(
 
  // ── lifecycle (NO replayFromBranch / replaceState — LOCK §26) ────
 
- pi.on("session_start", async (event, ctx) => {
+ pi.on("session_start", async (_event, ctx) => {
   let id: string;
   try {
    id = sidFromCtx(ctx);
@@ -1094,12 +1177,12 @@ export default function factory(
   // prove it through the type alone.
   overlay.setUICtx(ctx.ui as unknown as Parameters<typeof overlay.setUICtx>[0]);
 
-  // P4-C1: cold-start workspace bootstrap.
+  // P4-C1: cold-start session bootstrap.
   //
   // Goal: on Pi startup or /reload, the overlay silently restores the
-  // current workspace's durable snapshot so the user does not lose
+  // current session's durable snapshot so the user does not lose
   // current-task context. This is a presentation lifecycle read, NOT
-  // a mutation, NOT a branch restoration (P3-E LOCK §26-27 preserved).
+  // a mutation, NOT a branch restoration (LOCK §26-27 preserved).
   //
   // Failure policy (best-effort):
   //   1. Clear activeScope FIRST so a previous session's stale scope
@@ -1110,8 +1193,9 @@ export default function factory(
   //      and renders []. The cache is presentation projection only;
   //      canonical command reads (/todos, /todos ready, etc.) do
   //      their own durable load per P3-E authority boundary.
-  //   3. No mutation or branch rewind. A new-session recovery hint may
-  //      notify once when the loaded snapshot has unfinished work.
+  //   3. No mutation or branch rewind. Scope is per-session: a fresh
+  //      session starts from an empty envelope; a resumed session id
+  //      restores its own snapshot. No cross-session recovery hint.
   //   4. refreshOverlay runs last, even if bootstrap failed, so the
   //      overlay widget always attempts registration with the
   //      current (post-clear) state.
@@ -1121,17 +1205,6 @@ export default function factory(
    const envelope = await persistence.durableStore.load(scope);
    overlayCache.update(scope, envelope);
    setActiveScope(scope);
-   const reason = (event as { reason?: unknown } | undefined)?.reason;
-   const recoveryKey = `${id}\0${String(scope)}`;
-   if (reason !== undefined && reason !== "reload" && !recoveryNotifiedScopes.has(recoveryKey)) {
-    const unfinished = envelope.state.tasks.filter((task) => task.status === "in_progress" && task.closedAt === undefined && task.archivedAt === undefined);
-    if (unfinished.length > 0) {
-     recoveryNotifiedScopes.add(recoveryKey);
-     const ids = unfinished.slice(0, 3).map((task) => `#${task.id}`).join("、");
-     const suffix = unfinished.length > 3 ? ` 等 ${unfinished.length} 项` : "";
-     ctx.ui.notify(`发现上次未结束的任务：${ids}${suffix}。打开 /todos，在详情中选择“继续任务 / 让模型判断 / 结束任务”。`, "info");
-    }
-   }
   } catch {
    // silent: overlay stays [], session startup continues. Cache may
    // still hold a previous-session envelope, but activeScope is
@@ -1145,7 +1218,7 @@ export default function factory(
  });
 
  // session_compact / session_tree: NO state restoration. Overlay
- // refresh only. Branch history MUST NOT overwrite workspace todo
+ // refresh only. Branch history MUST NOT overwrite session todo
  // state (LOCK §26-27).
  pi.on("session_compact", async () => {
   try {
@@ -1171,9 +1244,6 @@ export default function factory(
   } catch (sidErr) {
    // sid extraction is best-effort; if it fails we fall through with id="".
    void sidErr;
-  }
-  for (const key of recoveryNotifiedScopes) {
-   if (key.startsWith(`${id}\0`)) recoveryNotifiedScopes.delete(key);
   }
   evictScope(id);
   if (id === "" || id === getFgSession()) {
