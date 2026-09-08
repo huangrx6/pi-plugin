@@ -35,7 +35,7 @@ export type InfrastructureNotice =
 export function formatInfrastructureNotice(n: InfrastructureNotice): string {
  switch (n.kind) {
   case "cas-conflict":
-   return `Todo state changed in another session (now at revision ${n.actualRevision}). Run the command again.`;
+   return `Todo write NOT applied: the shared todo store moved to revision ${n.actualRevision} (another process on this session committed first; the store is safe). Re-issue the same todo command to apply it.`;
   case "scope-resolution-failure":
    return `Unable to resolve the current todo scope: ${n.message}`;
   case "corrupt-snapshot":

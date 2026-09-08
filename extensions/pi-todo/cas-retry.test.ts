@@ -46,8 +46,8 @@ describe("withCasRetry", () => {
   assert.equal(calls, DEFAULT_CAS_RETRY.maxAttempts);
   assert.equal(result.kind, "cas-conflict");
   if (result.kind === "cas-conflict") {
-   // Default maxAttempts is 3, so last attempt yields actualRevision = 10 + 3 = 13.
-   assert.equal(result.actualRevision, 13);
+   // Default maxAttempts is 8, so last attempt yields actualRevision = 10 + 8 = 18.
+   assert.equal(result.actualRevision, 18);
   }
  });
 
@@ -102,7 +102,7 @@ describe("withCasRetry", () => {
   );
  });
 
- it("applies default linear backoff (15ms then 30ms)", async () => {
+ it("applies default linear backoff (30ms then 60ms)", async () => {
   const stamps: number[] = [];
   const start = Date.now();
   let calls = 0;
@@ -111,11 +111,11 @@ describe("withCasRetry", () => {
    calls++;
    return { kind: "cas-conflict", actualRevision: calls };
   });
-  assert.equal(calls, 3);
-  assert.ok(stamps[1]! >= 14, `attempt 1 should wait ≥15ms, got ${stamps[1]}`);
+  assert.equal(calls, DEFAULT_CAS_RETRY.maxAttempts);
+  assert.ok(stamps[1]! >= 29, `attempt 1 should wait ≥30ms, got ${stamps[1]}`);
   assert.ok(
-   stamps[2]! >= 44,
-   `attempt 2 should wait ≥45ms cumulative, got ${stamps[2]}`,
+   stamps[2]! >= 89,
+   `attempt 2 should wait ≥90ms cumulative, got ${stamps[2]}`,
   );
  });
 

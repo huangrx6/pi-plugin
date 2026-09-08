@@ -10,13 +10,20 @@
  * "Todo state changed in another session" even though the conflict
  * is purely an artefact of the agent's own previous commit.
  *
+ * A second, harsher contention source exists: the SAME conversation
+ * opened in two pi processes (resume/continue in another terminal)
+ * shares one sessionId, hence one scope file. Both processes then
+ * commit real bursts against that file, and a 45ms retry window
+ * loses against an actively-writing peer. The default budget is
+ * therefore sized to ride out a realistic burst: 8 attempts with
+ * 30ms linear steps (~840ms total worst case).
+ *
  * `withCasRetry` runs the supplied attempt up to `maxAttempts`
  * times, retrying only on `cas-conflict` outcomes. Any other
  * outcome (a successful commit, or a domain error surfaced as
  * `ok` by the caller) returns immediately. Backoff is linear:
  * attempt N waits delayFn(N-1) ms before re-running, where
- * delayFn defaults to 15 * N (i.e. 15ms then 30ms between the
- * three default attempts).
+ * delayFn defaults to 30 * N.
  *
  * If every attempt conflicts, returns the last conflict so the
  * caller can surface a faithful "now at revision X" message.
@@ -28,9 +35,10 @@
  *   1. `withCasRetry` is the only place that translates CAS
  *      conflict into retry behaviour. Reducer / durable store
  *      remain unaware of retry semantics.
- *   2. Backoff is bounded — never exponential, never indefinite.
- *      File I/O contention on a single host resolves in <100ms;
- *      longer waits belong to a higher layer.
+ *   2. Backoff is bounded and linear — never exponential, never
+ *      indefinite. Same-session dual-process bursts resolve well
+ *      under a second on a single host; longer waits belong to a
+ *      higher layer.
  *   3. Caller-owned attempt must be safe to invoke repeatedly
  *      and must surface a fresh envelope revision each call.
  */
@@ -47,8 +55,8 @@ export interface CasRetryOptions {
 }
 
 export const DEFAULT_CAS_RETRY: Required<CasRetryOptions> = {
- maxAttempts: 3,
- delayMs: (i) => 15 * i,
+ maxAttempts: 8,
+ delayMs: (i) => 30 * i,
 };
 
 export async function withCasRetry<T>(

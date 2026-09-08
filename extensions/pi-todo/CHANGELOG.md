@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.15.0 - 2026-09-08
+
+- Raise the CAS retry budget from 3 attempts / 45ms to 8 attempts with 30ms linear steps (~840ms worst case). The old budget assumed single-process contention (<100ms); it lost against the real-world case of the SAME conversation opened in two pi processes (resume in another terminal), which share one sessionId and therefore one todo scope file, with both sides committing bursts. Agents saw "Todo state changed in another session" and stale task statuses even though a retry a moment later would succeed.
+- Rewrite the exhausted-conflict message to be agent-actionable: it now states explicitly that the write was NOT applied, that the store is safe, and that re-issuing the same command applies it — reducing the "agent saw the error but moved on" failure mode.
+- No storage format, scope, or reducer changes; single-file behavioural patch on top of 0.14.0.
+
+
 ## 0.14.0 - 2026-09-08
 
 - Add `createMany` action to the `todo` tool for batched task creation. Pass an `items` array (1–50 entries, each with `subject` and optional `description` / `activeForm` / `blockedBy`); the reducer applies them in order and commits atomically. Partial failures roll back the whole batch — no tasks are written if any item is rejected.
