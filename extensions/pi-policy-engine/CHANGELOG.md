@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.38.2
+
+### 识别用量实时进 footer
+
+- footer 状态区的 `policy:rigor/phase` 后追加最近一轮识别用量：
+  `policy:standard/executing ↑1.6k↓96`
+- 通过宿主 status 通道（`ctx.ui.setStatus`）追加，不依赖任何其他
+  扩展；识别失败/无上报/阻断轮不显示 badge
+- 千以下 token 原样显示，千以上缩写为 `N.Nk`
+
 ## 0.38.1
 
 ### 面板减肥：一级只留日常动作，设置收拢成组

@@ -15,7 +15,12 @@ import {
   resolveHistoryPath,
   pruneStrictStates,
 } from "../../src/core/history-store.js";
-import { cleanModel, notify, setStatus } from "./helpers.js";
+import {
+  appendUsageBadge,
+  cleanModel,
+  notify,
+  setStatus,
+} from "./helpers.js";
 import { createAgentClassifier } from "./agent-classifier.js";
 import { buildTurnBlock } from "./policy-block.js";
 import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
@@ -78,7 +83,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (cfg.showStatus !== false)
       setStatus(
         ctx,
-        `policy:${state.phase === "awaiting_approval" ? "strict/awaiting_approval" : cfg.mode}`,
+        appendUsageBadge(
+          state,
+          `policy:${state.phase === "awaiting_approval" ? "strict/awaiting_approval" : cfg.mode}`,
+        ),
       );
   }
   pi.on("session_start", restore);
@@ -392,7 +400,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       if (cfg.showStatus !== false)
         setStatus(
           ctx,
-          `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
+          appendUsageBadge(
+            state,
+            `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
+          ),
         );
       return built.injected
         ? { systemPrompt: `${event.systemPrompt ?? ""}\n\n${built.injected}` }
@@ -424,7 +435,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
     if (cfg.showStatus !== false)
       setStatus(
         ctx,
-        `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
+        appendUsageBadge(
+          state,
+          `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
+        ),
       );
     return { messages: event.messages };
   });

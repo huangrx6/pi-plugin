@@ -560,3 +560,41 @@ test("formatUsageSummary aggregates tokens, profiles, models and failures", asyn
   assert.match(summary, /glm-5\.3-flash: 3 轮/);
   assert.match(summary, /ark-code-latest: 1 轮/);
 });
+
+// 0.38.2: footer status badge appends latest recognition usage.
+
+test("appendUsageBadge appends tokens and tolerates missing usage", async () => {
+  const { appendUsageBadge } = await import("../extensions/policy-engine/helpers.js");
+  const state = {
+    lastDecision: {
+      rigor: "standard",
+      recognition: { usageTokens: { input: 1620, output: 96 } },
+    },
+  };
+  assert.equal(
+    appendUsageBadge(state, "policy:standard/executing"),
+    "policy:standard/executing ↑1.6k↓96",
+  );
+  // 千以下原样显示
+  state.lastDecision.recognition.usageTokens = { input: 720, output: 48 };
+  assert.equal(
+    appendUsageBadge(state, "policy:standard/executing"),
+    "policy:standard/executing ↑720↓48",
+  );
+  // 阻断轮不显示（识别没有成功产出用量）
+  assert.equal(
+    appendUsageBadge(
+      { lastDecision: { preflightBlocked: true, recognition: { usageTokens: { input: 10, output: 2 } } } },
+      "policy:off/idle",
+    ),
+    "policy:off/idle",
+  );
+  // 无 decision / 无 usage / null state 全部原样返回
+  assert.equal(appendUsageBadge({}, "x"), "x");
+  assert.equal(appendUsageBadge({ lastDecision: null }, "x"), "x");
+  assert.equal(
+    appendUsageBadge({ lastDecision: { recognition: {} } }, "x"),
+    "x",
+  );
+  assert.equal(appendUsageBadge(null, "x"), "x");
+});

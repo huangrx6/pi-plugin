@@ -102,7 +102,7 @@ pi install "$PWD"
 
 设置 `PI_CODING_AGENT_DIR` 后，全局配置与数据固定使用该目录下的 `extensions-data/pi-policy-engine/`；运行时不再读取旧的散落配置或状态目录。显式配置的 `historyFile` 优先。
 
-在面板选择自动、谨慎或关闭后，会立即原子写入全局个人配置。`/policy config` 显示合并值及来源，结构错误由 `/policy validate` 报告；运行中配置损坏时保留最后有效配置并提示。路由历史默认写入 `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`，其中包含最多 80 字符的输入摘要及任务、会话、阶段、模型、扩展运行版本和指纹信息。识别失败还会记录尝试次数、解析或结构校验阶段、响应长度和最多 240 字符的响应预览；`/policy history [N]` 可直接查看，面板中的“检查配置”会显示实际运行版本与日志路径。正常恢复优先使用同会话当前分支的工作流记录，并核对计划条目；磁盘后备状态按项目和会话隔离，最多恢复 7 天内记录。过期或旧格式审批状态会被忽略，不参与新会话恢复。对话中的活动卡片和工作流记录不进入模型上下文。
+在面板选择自动、谨慎或关闭后，会立即原子写入全局个人配置。`/policy config` 显示合并值及来源，结构错误由 `/policy validate` 报告；运行中配置损坏时保留最后有效配置并提示。路由历史默认写入 `~/.pi/agent/extensions-data/pi-policy-engine/state/history.jsonl`，其中包含最多 80 字符的输入摘要及任务、会话、阶段、模型、扩展运行版本和指纹信息。识别用量会实时追加在 footer 状态区（`policy:standard/executing ↑1.6k↓96`，千以上缩写；失败或无上报的轮次不显示）。识别失败还会记录尝试次数、解析或结构校验阶段、响应长度和最多 240 字符的响应预览；`/policy history [N]` 可直接查看，面板中的“检查配置”会显示实际运行版本与日志路径。正常恢复优先使用同会话当前分支的工作流记录，并核对计划条目；磁盘后备状态按项目和会话隔离，最多恢复 7 天内记录。过期或旧格式审批状态会被忽略，不参与新会话恢复。对话中的活动卡片和工作流记录不进入模型上下文。
 
 安装目录中的 `config/defaults.json` 是随代码发布的内置默认值，不保存用户选择。个人配置固定写入 `<agent-dir>/extensions-data/pi-policy-engine/config.json`；默认 `<agent-dir>` 为 `~/.pi/agent`，因此通常路径是 `~/.pi/agent/extensions-data/pi-policy-engine/config.json`。设置 `PI_CODING_AGENT_DIR` 时，路径跟随该目录。
 

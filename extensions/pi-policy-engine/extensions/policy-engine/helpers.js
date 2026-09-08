@@ -25,6 +25,21 @@ export function findPackageRoot(startDir) {
   return resolve(startDir, "..", "..");
 }
 
+/** 0.38.2: append the latest recognition token usage to the footer
+ *  status line (policy:rigor/phase ↑1.6k↓96). Self-contained — no
+ *  cross-extension coupling; the footer merely renders host status. */
+export function appendUsageBadge(state, text) {
+  const decision = state?.lastDecision;
+  const usage =
+    decision && !decision.preflightBlocked
+      ? decision.recognition?.usageTokens
+      : null;
+  if (!usage || !Number.isFinite(usage.input)) return text;
+  const fmt = (n) =>
+    Number.isFinite(n) ? (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)) : "?";
+  return `${text} ↑${fmt(usage.input)}↓${fmt(usage.output)}`;
+}
+
 export function cleanModel(model) {
   if (!model) return null;
   return {
