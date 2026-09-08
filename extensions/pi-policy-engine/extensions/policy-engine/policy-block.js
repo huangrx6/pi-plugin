@@ -40,7 +40,7 @@ export function buildTurnBlock({ packageRoot, cwd, turn, model }) {
     block,
     turn.note,
     phase === "planning"
-      ? '## Plan reporting protocol\nOnly after producing a concrete plan, append one ```policy-plan JSON block with taskId and planVersion from the current task contract, goal (string), and steps (nonempty array of {"action":"specific work","verification":"check and expected result"}). Do not emit this block for a question, missing information, or failure. This records a proposed plan; it does not prove execution or verification.'
+      ? '## Plan reporting protocol\nOnly after producing a concrete plan, call the policy_plan tool once with taskId and planVersion from the current task contract, goal (string), and steps (nonempty array of {"action":"specific work","verification":"check and expected result"}). Do not also print a policy-plan JSON block; the tool records the plan compactly for approval. Do not call the tool for a question, missing information, or failure. This records a proposed plan; it does not prove execution or verification.'
       : "",
     blocked
       ? decision.preflightBlocked

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.40.0 - 2026-09-08
+
+- New `policy_plan` tool replaces the "print a ```policy-plan JSON block" plan-reporting protocol. Tool rows render as one collapsed summary line (`policy_plan v3 · 3 步 · 目标摘要` / `✓ 计划已记录`), removing the wall of raw JSON from the transcript while keeping the report inside LLM context for audit.
+- The tool validates its structured payload with the same `validatePlanPayload` used by the legacy text parser (extracted from `readPlanReport`), stashes it as `state.planToolReport`, and the turn-end handler consumes it with identical phase semantics (planning → awaiting_approval). The text-block path remains as a backward-compatible fallback.
+- Registration is guarded (`pi.registerTool?.`) so minimal hosts and older pi versions keep working via the fallback.
+
+
 ## 0.39.2
 
 ### 用量显示统一空格格式

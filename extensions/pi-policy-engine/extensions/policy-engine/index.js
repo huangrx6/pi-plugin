@@ -17,6 +17,7 @@ import { ACTIVITY_TYPE, activityRows } from "./activity.js";
 import { createCommandHandler } from "./commands.js";
 import { findPackageRoot } from "./helpers.js";
 import { registerLifecycleHandlers } from "./lifecycle.js";
+import { registerPlanTool } from "./plan-tool.js";
 import { createState } from "./state.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,8 @@ export default function policyEngine(pi) {
       getState: () => state,
     }),
   });
+
+  registerPlanTool(pi, { getState: () => state });
 
   registerLifecycleHandlers(pi, {
     packageRoot: PACKAGE_ROOT,

@@ -51,40 +51,49 @@ export function contractNote(task) {
   )}`;
 }
 
+/**
+ * Validate a plan-report payload against the current task contract.
+ * Shared by the text-block path (readPlanReport) and the policy_plan
+ * tool so both ingest identically.
+ */
+export function validatePlanPayload(payload, task) {
+  if (!task || payload == null || typeof payload !== "object") return null;
+  if (
+    payload.taskId !== task.id ||
+    payload.planVersion !== task.planVersion ||
+    typeof payload.goal !== "string" ||
+    !payload.goal.trim() ||
+    !Array.isArray(payload.steps) ||
+    !payload.steps.length ||
+    payload.steps.length > 30 ||
+    payload.steps.some(
+      (s) =>
+        !s ||
+        typeof s.action !== "string" ||
+        !s.action.trim() ||
+        typeof s.verification !== "string" ||
+        !s.verification.trim(),
+    )
+  )
+    return null;
+  return {
+    taskId: payload.taskId,
+    planVersion: payload.planVersion,
+    goal: payload.goal,
+    steps: payload.steps.map((s) => ({
+      action: s.action,
+      verification: s.verification,
+    })),
+    evidence: "assistant_reported",
+  };
+}
+
 export function readPlanReport(text, task) {
   if (!task || typeof text !== "string" || text.length > 64000) return null;
   const reports = [...text.matchAll(/```policy-plan\s*\n([\s\S]*?)\n```/g)];
   if (reports.length !== 1) return null;
   try {
-    const p = JSON.parse(reports[0][1]);
-    if (
-      p.taskId !== task.id ||
-      p.planVersion !== task.planVersion ||
-      typeof p.goal !== "string" ||
-      !p.goal.trim() ||
-      !Array.isArray(p.steps) ||
-      !p.steps.length ||
-      p.steps.length > 30 ||
-      p.steps.some(
-        (s) =>
-          !s ||
-          typeof s.action !== "string" ||
-          !s.action.trim() ||
-          typeof s.verification !== "string" ||
-          !s.verification.trim(),
-      )
-    )
-      return null;
-    return {
-      taskId: p.taskId,
-      planVersion: p.planVersion,
-      goal: p.goal,
-      steps: p.steps.map((s) => ({
-        action: s.action,
-        verification: s.verification,
-      })),
-      evidence: "assistant_reported",
-    };
+    return validatePlanPayload(JSON.parse(reports[0][1]), task);
   } catch {
     return null;
   }

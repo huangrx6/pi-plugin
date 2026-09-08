@@ -466,7 +466,10 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         ?.filter?.((c) => c.type === "text")
         .map((c) => c.text)
         .join("\n") ?? "";
-    const plan = readPlanReport(text, state.task);
+    // 计划上报优先取 policy_plan 工具的结构化暂存(0.40.0),
+    // 文本块作为向后兼容回退;两者消费后都清空,防止跨轮残留。
+    const plan = state.planToolReport ?? readPlanReport(text, state.task);
+    state.planToolReport = null;
     if (failed)
       state.outcome =
         assistant.stopReason === "aborted" ? "interrupted" : "failed";
