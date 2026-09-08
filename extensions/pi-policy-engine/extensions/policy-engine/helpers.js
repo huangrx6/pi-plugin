@@ -30,13 +30,20 @@ export function findPackageRoot(startDir) {
  *  cross-extension coupling; the footer merely renders host status. */
 export function appendUsageBadge(state, text) {
   const decision = state?.lastDecision;
-  const usage =
+  const latest =
     decision && !decision.preflightBlocked
       ? decision.recognition?.usageTokens
       : null;
+  // Fall back to the cached latest usage so the badge survives reloads
+  // (warmed from history) and conversation-only turns.
+  const usage = latest ?? state?.lastUsageTokens ?? null;
   if (!usage || !Number.isFinite(usage.input)) return text;
   const fmt = (n) =>
-    Number.isFinite(n) ? (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)) : "?";
+    Number.isFinite(n)
+      ? n >= 1000
+        ? `${(n / 1000).toFixed(1)}k`
+        : String(n)
+      : "?";
   return `${text} ↑${fmt(usage.input)}↓${fmt(usage.output)}`;
 }
 

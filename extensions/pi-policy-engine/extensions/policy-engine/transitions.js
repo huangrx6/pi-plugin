@@ -85,6 +85,10 @@ export async function resolveTurn({
           reason: semantic ? "off" : "preview_offline",
           interpretation: null,
         };
+  // 0.38.3: cache the latest successful usage so the footer badge
+  // survives reloads and conversation-only turns.
+  if (recognition.usageTokens)
+    state.lastUsageTokens = { ...recognition.usageTokens };
   const interpreted = recognition.interpretation;
   let relation = interpreted?.relation ?? taskRelation(prompt);
   const isContinuationPhrase = classifyFollowUp(prompt).type !== "none";

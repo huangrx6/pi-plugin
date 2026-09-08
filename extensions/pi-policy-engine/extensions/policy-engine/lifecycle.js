@@ -15,12 +15,7 @@ import {
   resolveHistoryPath,
   pruneStrictStates,
 } from "../../src/core/history-store.js";
-import {
-  appendUsageBadge,
-  cleanModel,
-  notify,
-  setStatus,
-} from "./helpers.js";
+import { appendUsageBadge, cleanModel, notify, setStatus } from "./helpers.js";
 import { createAgentClassifier } from "./agent-classifier.js";
 import { buildTurnBlock } from "./policy-block.js";
 import { persistWorkflow, restoreWorkflow } from "./workflow-store.js";
@@ -79,6 +74,13 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         await readHistory(path, Math.min(cfg.historyMaxEntries, 50))
       ).filter((r) => !r.sessionId || r.sessionId === state.sessionId);
       await pruneStrictStates(path);
+      // 0.38.3: warm the footer badge with the latest recorded usage so
+      // it shows immediately after reload, before any new turn runs.
+      const withUsage = state.history.findLast(
+        (r) => r?.recognition?.usageTokens,
+      );
+      if (withUsage)
+        state.lastUsageTokens = { ...withUsage.recognition.usageTokens };
     }
     if (cfg.showStatus !== false)
       setStatus(

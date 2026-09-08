@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.38.3
+
+### footer 用量 badge 跨 reload 存活
+
+- 0.38.2 的 badge 是内存态：reload 后清空、仅任务轮刷新，导致
+  "update 后看不到生效"（对话轮不跑识别，badge 一直为空）
+- 识别成功即缓存最近用量（`state.lastUsageTokens`）；restore 时从
+  路由历史预热——reload 后 footer 立即显示最近一次识别的用量
+- 本轮识别失败（阻断）时不回退缓存，失败轮不显示旧值
+
 ## 0.38.2
 
 ### 识别用量实时进 footer

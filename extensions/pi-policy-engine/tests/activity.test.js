@@ -564,7 +564,9 @@ test("formatUsageSummary aggregates tokens, profiles, models and failures", asyn
 // 0.38.2: footer status badge appends latest recognition usage.
 
 test("appendUsageBadge appends tokens and tolerates missing usage", async () => {
-  const { appendUsageBadge } = await import("../extensions/policy-engine/helpers.js");
+  const { appendUsageBadge } = await import(
+    "../extensions/policy-engine/helpers.js"
+  );
   const state = {
     lastDecision: {
       rigor: "standard",
@@ -584,7 +586,12 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
   // 阻断轮不显示（识别没有成功产出用量）
   assert.equal(
     appendUsageBadge(
-      { lastDecision: { preflightBlocked: true, recognition: { usageTokens: { input: 10, output: 2 } } } },
+      {
+        lastDecision: {
+          preflightBlocked: true,
+          recognition: { usageTokens: { input: 10, output: 2 } },
+        },
+      },
       "policy:off/idle",
     ),
     "policy:off/idle",
@@ -597,4 +604,14 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
     "x",
   );
   assert.equal(appendUsageBadge(null, "x"), "x");
+  // 0.38.3: fallback 到缓存——reload 后（decision 空）badge 仍显示最近用量
+  assert.equal(
+    appendUsageBadge(
+      { lastUsageTokens: { input: 1122, output: 77 } },
+      "policy:auto/idle",
+    ),
+    "policy:auto/idle ↑1.1k↓77",
+  );
+  // 本轮识别无 usage（如失败降级）时也不回退缓存——失败轮不该显示旧值
+  // 上一断言组（preflightBlocked）已覆盖 decision 存在的场景。
 });

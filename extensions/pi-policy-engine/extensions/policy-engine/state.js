@@ -35,6 +35,10 @@ export function createState() {
     // One-shot mode override for the NEXT turn only (0.38.0): set via
     // /policy once <mode>, consumed by resolveTurn, never persisted.
     onceMode: null,
+    // Latest successful recognition usage (0.38.3): kept across turns so
+    // the footer badge survives reloads and conversation-only turns;
+    // warmed from history on restore. Plain {input, output} snapshot.
+    lastUsageTokens: null,
     lastDecision: null,
     lastActivity: null,
     lastPrompt: null,
