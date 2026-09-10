@@ -499,7 +499,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       state,
     });
     if (cfg.showStatus !== false)
-      setStatus(ctx, `policy:${state.phase}/${state.outcome}`);
+      setStatus(ctx, `config:policy.${state.phase}/${state.outcome}`);
     workingMessage(ctx);
     if (state.phase === "awaiting_approval" && plan)
       await offerPlanApprovalDialog(pi, ctx, cfg);

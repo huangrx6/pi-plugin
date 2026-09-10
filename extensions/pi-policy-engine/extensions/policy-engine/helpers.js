@@ -74,7 +74,10 @@ export function notify(ctx, message, level = "info") {
 
 export function setStatus(ctx, text) {
   try {
-    ctx?.ui?.setStatus?.("policy-engine", text);
+    // footer-composer 协议：setStatus key 必须带 kind: 前缀。
+    // 'config:' 表明该状态属于 config 段，subkey 用 'policy-engine'
+    // 表明是本扩展的标识(与 lifecycle.js 502 行 `policy:` 子键区分)。
+    ctx?.ui?.setStatus?.("config:policy-engine", text);
   } catch {
     /* ignore */
   }
