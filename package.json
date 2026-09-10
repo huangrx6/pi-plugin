@@ -4,6 +4,9 @@
   "description": "Independent Pi extensions for browser test specifications, automatic compaction, skills, approval modes, usage status, policies, tasks, notifications, and terminal layout.",
   "license": "MIT",
   "type": "module",
+  "scripts": {
+    "test:all": "bash scripts/baseline.sh"
+  },
   "engines": {
     "node": ">=22.19"
   },
