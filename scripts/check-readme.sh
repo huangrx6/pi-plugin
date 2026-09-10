@@ -16,8 +16,14 @@ cd "$REPO_ROOT"
 errors=0
 warnings=0
 
-error() { echo "[error] $1"; errors=$((errors+1)); }
-warn() { echo "[warn] $1"; warnings=$((warnings+1)); }
+error() {
+  echo "[error] $1"
+  errors=$((errors + 1))
+}
+warn() {
+  echo "[warn] $1"
+  warnings=$((warnings + 1))
+}
 
 for ext_dir in extensions/*/; do
   pkg="${ext_dir%/}"
@@ -25,7 +31,7 @@ for ext_dir in extensions/*/; do
 
   # 跳过下划线前缀的内部目录（如 extensions/_shared/）
   case "$name" in
-    _*) continue ;;
+  _*) continue ;;
   esac
 
   pkg_json="$pkg/package.json"
