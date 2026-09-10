@@ -20,6 +20,7 @@ export type TaskAction =
  | "delete"
  | "clear"
  | "start"
+ | "complete"
  | "finish"
  | "reopen"
  | "close"
@@ -403,6 +404,7 @@ export const TODO_PARAMS_SCHEMA = {
     "delete",
     "clear",
     "start",
+    "complete",
     "finish",
     "reopen",
     "close",
@@ -410,7 +412,7 @@ export const TODO_PARAMS_SCHEMA = {
     "restore",
    ],
    description:
-    "Operation: create (new task), createMany (atomic batch of N creates in one CAS commit; pass `items`), update (change fields/status/deps), list (all tasks), get (one task), delete (tombstone), clear (reset all), start (pending → in_progress), finish (in_progress → completed), reopen (completed or closed → pending), close (intentionally end an active task without claiming completion), archive (visibility off, completed only), restore (visibility on, batch via ids).",
+    "Operation: create (new task), createMany (atomic batch of N creates in one CAS commit; pass `items`), update (change fields/status/deps), list (all tasks), get (one task), delete (tombstone), clear (reset all), start (pending → in_progress), complete (in_progress → completed; preferred model action), finish (same as complete), reopen (completed or closed → pending), close (intentionally end an active task without claiming completion), archive (visibility off, completed only), restore (visibility on, batch via ids). Repeating start on an in-progress task or complete/finish on a completed task is a successful no-op.",
   },
   subject: {
    type: "string",

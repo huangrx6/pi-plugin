@@ -83,6 +83,34 @@ describe("read actions do not commit (0.16.0-A)", () => {
 	});
 });
 
+describe("idempotent lifecycle retries do not commit (0.19.0)", () => {
+	it("repeated start returns success without advancing the revision", async () => {
+		const exec = toolExecute();
+		await exec({ action: "create", subject: "seed" });
+		await exec({ action: "start", id: 1 });
+		const beforeRetry = (await store.load(TEST_SCOPE)).revision;
+
+		const retried = await exec({ action: "start", id: 1 });
+		assert.match(retried.content[0]!.text, /already in progress/);
+		assert.equal((await store.load(TEST_SCOPE)).revision, beforeRetry);
+	});
+
+	it("complete is accepted and a repeated completion does not commit", async () => {
+		const exec = toolExecute();
+		await exec({ action: "create", subject: "seed" });
+		await exec({ action: "start", id: 1 });
+
+		const completed = await exec({ action: "complete", id: 1 });
+		assert.match(completed.content[0]!.text, /^✓ #1/);
+		const afterComplete = await store.load(TEST_SCOPE);
+		assert.equal(afterComplete.state.tasks[0]?.status, "completed");
+
+		const retried = await exec({ action: "complete", id: 1 });
+		assert.match(retried.content[0]!.text, /already completed/);
+		assert.equal((await store.load(TEST_SCOPE)).revision, afterComplete.revision);
+	});
+});
+
 describe("parallel mutations serialize per scope (0.16.0-B)", () => {
 	it("five parallel creates all succeed with sequential revisions", async () => {
 		const exec = toolExecute();

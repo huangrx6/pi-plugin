@@ -180,10 +180,16 @@ export function formatContent(op: Op, state: TaskState): string {
          return `Cleared ${op.count} tasks`;
       case "start": {
          const t = state.tasks.find((x) => x.id === op.id);
+         if (!op.changed) {
+            return `No change: #${op.id} is already in progress`;
+         }
          return `▶ #${op.id}${t ? " " + sanitizeTerminalText(t.subject) : ""}`;
       }
       case "finish": {
          const t = state.tasks.find((x) => x.id === op.id);
+         if (!op.changed) {
+            return `No change: #${op.id} is already completed`;
+         }
          return `✓ #${op.id}${t ? " " + sanitizeTerminalText(t.subject) : ""}`;
       }
       case "reopen": {

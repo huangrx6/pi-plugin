@@ -46,7 +46,7 @@ export function appendOpenTaskReminder(
  limit = DEFAULT_VISIBLE_OPEN,
 ): string {
  const completed =
-  op.kind === "finish" ||
+  (op.kind === "finish" && op.changed !== false) ||
   (op.kind === "update" && op.fromStatus !== op.toStatus && op.toStatus === "completed");
  if (!completed) return text;
  const open = state.tasks.filter(

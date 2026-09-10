@@ -101,18 +101,18 @@ const DEFAULT_PROMPT_SNIPPET =
  "plan, break work into tasks, or make a todo list, CREATE todo items " +
  "with the tool — never list the plan as plain text. When you need 3 " +
  "or more tasks for one plan, prefer `createMany` (one call, atomic " +
- "commit) over multiple `create` calls. Mark each task in_progress " +
- "BEFORE starting it and completed the moment its success criterion " +
+ "commit) over multiple `create` calls. Use `start` before beginning " +
+ "a task and `complete` the moment its success criterion " +
  "holds — do not batch, do not defer, do not leave tasks open 'just " +
  "in case'.";
 
 const DEFAULT_PROMPT_GUIDELINES: string[] = [
  "When to CREATE: (1) the user asks you to plan, break down work, or make tasks / a todo list (e.g. 制定任务, 列个计划, 拆解一下, create a plan, break this down) — ALWAYS create todo items via the tool; presenting the plan as plain text instead is a failure mode; (2) the work has 3+ steps; (3) the user hands you a list of tasks; (4) new multi-step instructions arrive. Skip it only for single trivial tasks.",
- "Mark a task in_progress when beginning that unit of work; mark it completed when its acceptance criteria are met. Update at meaningful task transitions, not after every tool call. Keep the list aligned with actual progress.",
+ "Use the lifecycle actions start and complete: call start when beginning that unit of work, then complete when its acceptance criteria are met. Both actions are safe to repeat. Update at meaningful task transitions, not after every tool call. Keep the list aligned with actual progress.",
  "Complete a task when its intended result and relevant validation are satisfied. Recovered intermediate errors do not prevent completion. If work is still blocked, describe the concrete remaining issue in activeForm.",
  "Before every final response, reconcile the todo list with the work actually completed in this turn. If a later task is complete, also check every earlier open task and update or close it instead of leaving stale pending/in_progress entries.",
  "Status is pending → in_progress → completed, with close available for unfinished work and deleted tombstones (immutable; ids are never reused, even after clear).",
- 'To change status: {"action":"update","id":3,"status":"completed"}. An update with no mutable field is rejected.',
+ 'Preferred lifecycle calls: {"action":"start","id":3}, then {"action":"complete","id":3}. `finish` is equivalent to `complete`. Use update for task fields, dependencies, or an explicit status correction; an update with no mutable field is rejected.',
  "blockedBy expresses dependencies (A blocked by B). Create: pass blockedBy. Update: addBlockedBy / removeBlockedBy (additive). Cycles and self-blocks are rejected.",
  "list hides deleted tombstones by default; includeDeleted:true shows them. status filters the list.",
 ];
@@ -902,11 +902,19 @@ export default function factory(
     value: { content: [{ type: "text", text }], details },
    };
   }
-  // Reads (list/get) return the loaded state verbatim: no commit, no
-  // revision bump, no CAS participation (0.16.0). Every read used to
-  // commit an unchanged envelope — inflating the revision counter and
-  // making read calls race concurrent mutations for no benefit.
-  if (reducerResult.op.kind === "list" || reducerResult.op.kind === "get") {
+  // Reads and idempotent lifecycle retries return the loaded state
+  // verbatim: no commit, no revision bump, no replay material, and no
+  // CAS participation. Reads used to commit an unchanged envelope,
+  // inflating the revision and racing mutations for no benefit.
+  const isLifecycleNoop =
+   (reducerResult.op.kind === "start" ||
+    reducerResult.op.kind === "finish") &&
+   reducerResult.op.changed === false;
+  if (
+   reducerResult.op.kind === "list" ||
+   reducerResult.op.kind === "get" ||
+   isLifecycleNoop
+  ) {
    const text = formatContent(reducerResult.op, reducerResult.state);
    const details: TodoDetails = {
     tasks: reducerResult.state.tasks,
@@ -1123,7 +1131,7 @@ export default function factory(
   name: TOOL_NAME,
   label: "Todo",
   description:
-   "Plan and track multi-step work as a task list. Actions: create, createMany (atomic batch of N creates in one CAS commit), update (status/fields/dependencies), list, get, delete (tombstone), clear. When asked to plan or break down work, create todo items instead of writing them in text.",
+   "Plan and track multi-step work as a task list. Actions: create, createMany, update, list, get, start, complete (preferred; finish is equivalent), reopen, close, archive, restore, delete, clear. Use start before work and complete as soon as its acceptance criteria hold. When asked to plan or break down work, create todo items instead of writing them in text.",
   promptSnippet: DEFAULT_PROMPT_SNIPPET,
   promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
   parameters: TODO_PARAMS_SCHEMA,

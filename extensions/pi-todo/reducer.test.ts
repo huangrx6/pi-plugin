@@ -1051,7 +1051,7 @@ describe("start", () => {
     }
   });
 
-  it("in_progress → start: INVALID_TRANSITION, state unchanged", () => {
+  it("in_progress → start: idempotent no-op, state unchanged", () => {
     const state = mkState(
       taskWithTimestamps({
         id: 17,
@@ -1066,14 +1066,13 @@ describe("start", () => {
       { action: "start", id: 17 },
       fixedCtx(999),
     );
-    assert.equal(r.op.kind, "error");
-    if (r.op.kind === "error") {
-      assert.equal(r.op.error.code, "INVALID_TRANSITION");
-      if (r.op.error.code === "INVALID_TRANSITION") {
-        assert.equal(r.op.error.from, "in_progress");
-        assert.equal(r.op.error.to, "in_progress");
-      }
+    assert.equal(r.op.kind, "start");
+    if (r.op.kind === "start") {
+      assert.equal(r.op.changed, false);
+      assert.equal(r.op.fromStatus, "in_progress");
+      assert.equal(r.op.toStatus, "in_progress");
     }
+    assert.equal(r.state, state);
     assert.equal(r.state.tasks[0]?.status, "in_progress");
     assert.equal(r.state.tasks[0]?.updatedAt, 200);
   });
@@ -1218,6 +1217,23 @@ describe("start", () => {
 });
 
 describe("finish", () => {
+  it("complete is a model-facing alias for finish", () => {
+    const state = mkState(
+      taskWithTimestamps({ id: 17, subject: "parser", status: "in_progress" }),
+    );
+    const r = applyTaskMutation(
+      state,
+      { action: "complete", id: 17 },
+      fixedCtx(999),
+    );
+    assert.equal(r.op.kind, "finish");
+    if (r.op.kind === "finish") {
+      assert.equal(r.op.changed, true);
+      assert.equal(r.state.tasks[0]?.status, "completed");
+      assert.equal(r.state.tasks[0]?.updatedAt, 999);
+    }
+  });
+
   it("in_progress → completed: success", () => {
     const state = mkState(
       taskWithTimestamps({
@@ -1266,17 +1282,20 @@ describe("finish", () => {
     }
   });
 
-  it("completed → finish: INVALID_TRANSITION (use reopen first)", () => {
+  it("completed → finish: idempotent no-op", () => {
     const state = mkState(taskWithTimestamps({ id: 17, status: "completed" }));
     const r = applyTaskMutation(
       state,
       { action: "finish", id: 17 },
       fixedCtx(999),
     );
-    assert.equal(r.op.kind, "error");
-    if (r.op.kind === "error") {
-      assert.equal(r.op.error.code, "INVALID_TRANSITION");
+    assert.equal(r.op.kind, "finish");
+    if (r.op.kind === "finish") {
+      assert.equal(r.op.changed, false);
+      assert.equal(r.op.fromStatus, "completed");
+      assert.equal(r.op.toStatus, "completed");
     }
+    assert.equal(r.state, state);
   });
 
   it("deleted → finish: INVALID_TRANSITION (tombstone)", () => {

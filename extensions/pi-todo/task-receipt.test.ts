@@ -42,3 +42,22 @@ test("completion receipt names preceding open tasks for model reconciliation", (
  );
  assert.match(text, /Still open.*#1 前序任务/);
 });
+
+test("idempotent completion does not emit a reconciliation reminder", () => {
+ const state = {
+  tasks: [task(1, "前序任务"), task(2, "当前任务", "completed")],
+  nextId: 3,
+ };
+ const text = appendOpenTaskReminder(
+  "No change: #2 is already completed",
+  {
+   kind: "finish",
+   id: 2,
+   fromStatus: "completed",
+   toStatus: "completed",
+   changed: false,
+  },
+  state,
+ );
+ assert.equal(text, "No change: #2 is already completed");
+});

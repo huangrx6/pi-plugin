@@ -1,6 +1,6 @@
 {
   "name": "pi-todo",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Session-scoped durable tasks with visible creation receipts, progress reconciliation, retention cleanup, and task views.",
   "license": "MIT",
   "type": "module",

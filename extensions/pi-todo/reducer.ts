@@ -65,12 +65,14 @@ export type Op =
       id: number;
       fromStatus: TaskStatus;
       toStatus: TaskStatus;
+      changed: boolean;
     }
   | {
       kind: "finish";
       id: number;
       fromStatus: TaskStatus;
       toStatus: TaskStatus;
+      changed: boolean;
     }
   | {
       kind: "reopen";
@@ -538,15 +540,31 @@ export function applyTaskMutation(
       };
     }
     case "start": {
-      // Lifecycle: pending → in_progress. Strict pre (status === pending)
-      // — other statuses → INVALID_TRANSITION, state unchanged, updatedAt
-      // untouched. activeForm preserved (or undefined) as-is.
+      // Lifecycle: pending → in_progress. Repeating start after a
+      // successful call is an idempotent no-op: agents commonly retry after
+      // a delayed or collapsed tool receipt, and that retry must not turn a
+      // successful transition into a misleading failure.
       if (params.id === undefined)
         return errorResult(state, { code: "ID_REQUIRED" });
       const idx = state.tasks.findIndex((t) => t.id === params.id);
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
+      if (
+        current?.status === "in_progress" &&
+        current.closedAt === undefined
+      ) {
+        return {
+          state,
+          op: {
+            kind: "start",
+            id: current.id,
+            fromStatus: "in_progress",
+            toStatus: "in_progress",
+            changed: false,
+          },
+        };
+      }
       if (
         !current ||
         current.status !== "pending" ||
@@ -567,11 +585,16 @@ export function applyTaskMutation(
           id: current.id,
           fromStatus: "pending",
           toStatus: "in_progress",
+          changed: true,
         },
       };
     }
+    case "complete":
     case "finish": {
-      // Lifecycle: in_progress → completed. NO downstream state mutation —
+      // Lifecycle: in_progress → completed. `complete` is the preferred
+      // model-facing spelling; `finish` remains the equivalent CLI/tool
+      // spelling. Repeating either action on a completed task is a no-op.
+      // NO downstream state mutation —
       // dependents keep their status. Any "Now ready" projection is the
       // caller's job (P1 formatter consumes projection(prev) − projection(next)).
       if (params.id === undefined)
@@ -580,6 +603,18 @@ export function applyTaskMutation(
       if (idx === -1)
         return errorResult(state, { code: "TASK_NOT_FOUND", id: params.id });
       const current = state.tasks[idx];
+      if (current?.status === "completed" && current.closedAt === undefined) {
+        return {
+          state,
+          op: {
+            kind: "finish",
+            id: current.id,
+            fromStatus: "completed",
+            toStatus: "completed",
+            changed: false,
+          },
+        };
+      }
       if (
         !current ||
         current.status !== "in_progress" ||
@@ -600,6 +635,7 @@ export function applyTaskMutation(
           id: current.id,
           fromStatus: "in_progress",
           toStatus: "completed",
+          changed: true,
         },
       };
     }

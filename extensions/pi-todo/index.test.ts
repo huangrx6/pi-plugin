@@ -2882,5 +2882,14 @@ describe("tool registration contract", () => {
 			JSON.stringify(params).includes("action"),
 			"schema should describe the `action` discriminator",
 		);
+		const actions = (
+			params as {
+				properties?: { action?: { enum?: unknown[] } };
+			}
+		).properties?.action?.enum;
+		assert.ok(
+			Array.isArray(actions) && actions.includes("complete"),
+			"schema must accept the model-facing `complete` action",
+		);
 	});
 });
