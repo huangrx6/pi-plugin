@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "test:all": "bash scripts/baseline.sh",
-    "config:validate": "node scripts/check-config.js"
+    "config:validate": "node scripts/check-config.js",
+    "check:docs": "bash scripts/check-readme.sh"
   },
   "engines": {
     "node": ">=22.19"
