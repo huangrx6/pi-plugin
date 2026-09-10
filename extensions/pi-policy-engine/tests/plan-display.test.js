@@ -39,12 +39,15 @@ describe("transformPlanBlocks", () => {
 	it("collapses invalid JSON into the generic placeholder", () => {
 		const out = transformPlanBlocks("```policy-plan\n{这不是合法 JSON}\n```");
 		assert.ok(!out.includes("这不该出现"), out);
-		assert.match(out, /> 📋 Policy Plan 已提交 · 等待审批/);
+		assert.match(out, /> 📋 Policy Plan 已提交 · 原块不可解析/);
+		// (1.0.1) 坏 JSON 占位不再误导称"等待审批"
+		assert.ok(!out.includes("等待审批"), out);
 	});
 
 	it("collapses blocks with unexpected shapes", () => {
 		const out = transformPlanBlocks('```policy-plan\n"just a string"\n```');
-		assert.match(out, /> 📋 Policy Plan 已提交 · 等待审批/);
+		assert.match(out, /> 📋 Policy Plan 已提交 · 原块不可解析/);
+		assert.ok(!out.includes("等待审批"), out);
 	});
 
 	it("collapses every block when several appear", () => {

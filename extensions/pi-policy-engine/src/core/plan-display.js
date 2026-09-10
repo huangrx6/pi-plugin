@@ -32,7 +32,7 @@ function summarize(body) {
   } catch {
     // fall through to the generic placeholder
   }
-  return "> 📋 Policy Plan 已提交 · 等待审批";
+  return "> 📋 Policy Plan 已提交 · 原块不可解析,已折叠为提示";
 }
 
 /**
