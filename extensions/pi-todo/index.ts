@@ -81,6 +81,8 @@ import {
 } from "./mutation-format.ts";
 import { parseTodosCommand } from "./parse-todos-command.ts";
 import { withCasRetry } from "./cas-retry.ts";
+import { cleanupTodoStateFiles } from "./state-retention.ts";
+import { appendOpenTaskReminder, formatCreationNotice } from "./task-receipt.ts";
 import {
  TaskBrowserComponent,
  type TaskBrowserIntent,
@@ -108,6 +110,7 @@ const DEFAULT_PROMPT_GUIDELINES: string[] = [
  "When to CREATE: (1) the user asks you to plan, break down work, or make tasks / a todo list (e.g. 制定任务, 列个计划, 拆解一下, create a plan, break this down) — ALWAYS create todo items via the tool; presenting the plan as plain text instead is a failure mode; (2) the work has 3+ steps; (3) the user hands you a list of tasks; (4) new multi-step instructions arrive. Skip it only for single trivial tasks.",
  "Mark a task in_progress when beginning that unit of work; mark it completed when its acceptance criteria are met. Update at meaningful task transitions, not after every tool call. Keep the list aligned with actual progress.",
  "Complete a task when its intended result and relevant validation are satisfied. Recovered intermediate errors do not prevent completion. If work is still blocked, describe the concrete remaining issue in activeForm.",
+ "Before every final response, reconcile the todo list with the work actually completed in this turn. If a later task is complete, also check every earlier open task and update or close it instead of leaving stale pending/in_progress entries.",
  "Status is pending → in_progress → completed, with close available for unfinished work and deleted tombstones (immutable; ids are never reused, even after clear).",
  'To change status: {"action":"update","id":3,"status":"completed"}. An update with no mutable field is rejected.',
  "blockedBy expresses dependencies (A blocked by B). Create: pass blockedBy. Update: addBlockedBy / removeBlockedBy (additive). Cycles and self-blocks are rejected.",
@@ -949,7 +952,11 @@ export default function factory(
    };
   }
   overlayCache.update(scope, commitResult.envelope);
-  const text = formatContent(reducerResult.op, commitResult.envelope.state);
+  const text = appendOpenTaskReminder(
+   formatContent(reducerResult.op, commitResult.envelope.state),
+   reducerResult.op,
+   commitResult.envelope.state,
+  );
   const details: TodoDetails = {
    tasks: commitResult.envelope.state.tasks,
    nextId: commitResult.envelope.state.nextId,
@@ -1121,8 +1128,17 @@ export default function factory(
   promptGuidelines: DEFAULT_PROMPT_GUIDELINES,
   parameters: TODO_PARAMS_SCHEMA,
 
-  execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-   executeTodo(params as TaskMutationParams, ctx),
+  execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
+   const typed = params as TaskMutationParams;
+   const result = await executeTodo(typed, ctx);
+   const notice = formatCreationNotice(
+    typed,
+    result.details,
+    result.content[0]?.text ?? "",
+   );
+   if (notice && ctx.hasUI) ctx.ui.notify(notice, "info");
+   return result;
+  },
 
   renderCall(args, theme) {
    const a = args as {
@@ -1207,8 +1223,8 @@ export default function factory(
     return;
    }
    const firstToken = String(args ?? "")
-    .trim()
-    .split(/\s+/)[0];
+     .trim()
+     .split(/\s+/)[0];
 
    if (MUTATION_VERBS.has(firstToken)) {
     await runMutationFlow(args, ctx, persistence, overlayCache);
@@ -1240,6 +1256,27 @@ export default function factory(
      ctx,
      persistence,
      overlayCache,
+    );
+    return;
+   }
+
+   if (firstToken === "cleanup") {
+    const loaded = await loadEnvelope(ctx, persistence);
+    if (loaded.ok !== true) {
+     reportLoadFailure(loaded, ctx.ui.notify);
+     return;
+    }
+    const result = await cleanupTodoStateFiles({
+     rootDir: persistence.rootDir,
+     currentScope: loaded.scope,
+     minimumAgeDays: 0,
+     inactiveDays: 0,
+    });
+    ctx.ui.notify(
+     result.removed
+      ? `已清理 ${result.removed} 个旧会话任务文件；当前会话和仍有未完成任务的会话已保留。`
+      : "没有可清理的旧会话任务文件。",
+     "info",
     );
     return;
    }
@@ -1320,6 +1357,12 @@ export default function factory(
    const envelope = await persistence.durableStore.load(scope);
    overlayCache.update(scope, envelope);
    setActiveScope(scope);
+   void cleanupTodoStateFiles({
+    rootDir: persistence.rootDir,
+    currentScope: scope,
+   }).catch((error) => {
+    console.warn(`[pi-todo] state cleanup failed: ${formatError(error)}`);
+   });
   } catch {
    // silent: overlay stays [], session startup continues. Cache may
    // still hold a previous-session envelope, but activeScope is

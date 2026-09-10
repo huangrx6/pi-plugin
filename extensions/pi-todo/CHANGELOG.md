@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.18.0 - 2026-09-10
+
+- 自动清理改为双时间门槛：会话任务已存在超过 30 天，并且状态文件最近 7 天没有更新。
+- 继续保留当前会话、待办或进行中任务、较新文件、最近更新文件及无法安全解析的文件。
+- `/todos cleanup` 仍是显式立即清理，不等待自动清理的时间门槛。
+
+## 0.17.0 - 2026-09-10
+
+- 模型批量创建任务后立即显示有界中文回执，直接列出前六项名称和编号，其余数量指向 `/todos`。
+- 完成任务的工具结果会列出仍未结束的前序任务，提醒模型在最终答复前同步真实进度。
+- 强化模型指令：每次最终答复前核对任务状态，后序任务完成时必须检查更早的未结束任务。
+- 启动时自动删除超过 30 天、且已无未完成任务的其他会话状态文件；当前会话、仍有未完成任务及损坏文件均保留。
+- 新增 `/todos cleanup`，立即清理其他会话中已经全部结束的任务文件。
+
 ## 0.16.0 - 2026-09-08
 
 - Serialize same-scope mutations in-process around the whole load→reduce→commit cycle. An agent emitting five parallel `todo create` calls in one message used to race each other and exhaust the CAS retry budget, surfacing spurious "Todo state changed in another session" errors (with low single-digit revisions — there was never another session). Parallel mutations from one process now queue per scope and all succeed; cross-process contention still goes through CAS + retry.

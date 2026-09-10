@@ -1,7 +1,7 @@
 {
   "name": "pi-todo",
-  "version": "0.16.0",
-  "description": "Session-scoped durable tasks with current/history/archive view, search, contextual actions, optional status strip.",
+  "version": "0.18.0",
+  "description": "Session-scoped durable tasks with visible creation receipts, progress reconciliation, retention cleanup, and task views.",
   "license": "MIT",
   "type": "module",
   "engines": {
