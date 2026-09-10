@@ -232,7 +232,8 @@ function harness(
       chunks.push(value);
     },
   };
-  const ctx: ExtensionContext = {
+  // ui.* 只提供本测试用到的 notify + select；运行时 pi 都有完整 ui 集。
+  const ctx = {
     mode: options.mode ?? "tui",
     hasUI: options.hasUI ?? true,
     isIdle: () => idle,
@@ -247,7 +248,7 @@ function harness(
       },
     },
     sessionManager: { getSessionName: () => "test-session" },
-  };
+  } as unknown as ExtensionContext;
   registerNotify(
     {
       on: (name, handler) => {

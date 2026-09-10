@@ -34,13 +34,17 @@ function makePi(handlers: { registerCommand?: (name: string, definition: unknown
 
 const extensionRoot = resolve(import.meta.dirname, "..");
 
-function makeContext(overrides: Partial<ExtensionContext> = {}): ExtensionContext {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeContext(overrides: any = {}): ExtensionContext {
+  // overrides 类型故意宽松：测试只模拟使用到的 ui 方法（通常只 notify），
+  // 不模拟 setStatus / select / confirm / 等未在测试路径上调用的接口。
+  // 返回时统一 cast 为 ExtensionContext（运行时 pi 都提供完整方法集合）。
   return {
     cwd: extensionRoot,
     hasUI: true,
     ui: { notify() { /* no-op unless overridden. */ } },
     ...overrides,
-  };
+  } as unknown as ExtensionContext;
 }
 
 async function captureConsoleLog(run: () => Promise<void> | void): Promise<string[]> {
@@ -247,7 +251,7 @@ test("tool batch runs expose per-file structured reports", async () => {
 
 test("registry subcommand lints a Capability Registry directly", async () => {
   let command: any;
-  extension(makePi({ registerCommand(name: string, definition: unknown) { command = definition; } }));
+  extension(makePi({ registerCommand(_name: string, definition: unknown) { command = definition; } }));
   const messages: string[] = [];
   const ctx = makeContext({ cwd: extensionRoot, ui: { notify(message: string) { messages.push(message); } } });
 
@@ -267,7 +271,7 @@ test("registry subcommand lints a Capability Registry directly", async () => {
     assert.match(messages.at(-1)!, /REGISTRY \/version/);
     assert.match(messages.at(-1)!, /REGISTRY \/contracts\/0\/kind/);
 
-    await command.handler("registry", makeContext({ cwd: scratch, ui: { notify(message: string) { messages.push(message); } } }));
+    await command.handler("registry", makeContext({ cwd: scratch, ui: { notify(message: string) { messages.push(message); } } }) as unknown as ExtensionContext);
     assert.match(messages.at(-1)!, /Capability Registry 文件不存在/);
     assert.match(messages.at(-1)!, /可显式给出注册表路径/);
   } finally {

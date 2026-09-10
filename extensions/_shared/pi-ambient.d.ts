@@ -21,7 +21,8 @@ declare module "@earendil-works/pi-coding-agent" {
   // 多数扩展只用 on / registerCommand，所以这两个是显式类型；
   // 其余方法（registerTool / sendMessage / appendEntry / 等）以
   // 宽松签名覆盖（参数 any、返回 unknown），交给各扩展在 index.ts
-  // 入口用本地 interface 窄化。
+  // 入口用本地 interface 窄化。test fake pi 用 `as ExtensionAPI`
+  // 兑底（见 pi-notify/index.test.ts 现有约定）。
   export interface ExtensionAPI {
     /** 注册 pi 事件 hook。 */
     on(event: string, handler: (event: any, ctx: any) => unknown): void;
@@ -68,7 +69,7 @@ declare module "@earendil-works/pi-coding-agent" {
       factory: (message: any, options: any, theme: any) => unknown,
     ): void;
     /** 注册 markdown transformer。 */
-    registerMarkdownTransformer?(
+    registerMarkdownTransformer(
       transformer: (
         markdown: string,
         ctx: { messageType: "user" | "assistant" | "assistant-thinking"; isStreaming: boolean; availableWidth?: number },
@@ -78,7 +79,7 @@ declare module "@earendil-works/pi-coding-agent" {
      *  等会话内历史视图）。 */
     appendEntry(customType: string, data?: unknown): void;
     /** 注入一条自定义消息（进 LLM context + TUI 渲染）。可选触发轮次。 */
-    sendMessage?(
+    sendMessage(
       message: { customType: string; content: string; display: boolean },
       options: { triggerTurn?: boolean; deliverAs: "followUp" | "steer" | "nextTurn" },
     ): void;
@@ -117,7 +118,7 @@ declare module "@earendil-works/pi-coding-agent" {
     hasPendingMessages?(): boolean;
     /** session 入口。 */
     sessionManager: {
-      getSessionId(): string;
+      getSessionId?(): string;
       getSessionName?(): string | null;
       getBranch?(): Iterable<unknown>;
       getEntries?(): readonly unknown[];
@@ -152,7 +153,31 @@ declare module "@earendil-works/pi-coding-agent" {
 
   // 值导出：项目本地配置目录名（pi 0.85 暴露的全局常量）。
   export const CONFIG_DIR_NAME: string;
+
+  /** 加载后注入到 LLM context 的 skill 块（pi 0.85 内置 ParsedSkillBlock）。 */
+  export type ParsedSkillBlock = {
+    name?: string;
+    path?: string;
+    location: string;
+    content: string;
+    [key: string]: unknown;
+  };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// 全局类型（不藏在 declare module 内，供 pi-todo 等扩展直接访问）
+// ────────────────────────────────────────────────────────────────────
+
+/**
+ * 工具渲染器 Component 契约（pi 0.85+）。
+ * ToolExecutionComponent 在 mouse click-to-expand 时会调用
+ * child.invalidate()——所以 renderCall / renderResult 必须
+ * 返回的 renderable 带有 invalidate() 方法，不能是裸 string。
+ */
+type ToolRenderComponent = {
+  render(width: number): string[];
+  invalidate(): void;
+};
 
 // ────────────────────────────────────────────────────────────────────
 // pi-tui 组件（pi-skill-inject 使用 Box/Text 构造器）
