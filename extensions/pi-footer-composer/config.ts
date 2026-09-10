@@ -9,6 +9,19 @@ export interface FooterConfig {
   mode: FooterMode;
 }
 
+/**
+ * Status key 协议（0.9.0+）：所有调用 setStatus 的扩展必须用
+ * "<kind>:<subkey>" 形式 key，sectionOf 只信任前缀 substring 。
+ * 旧字面量 key ("quota"、"mode"、"policy"...) 在 0.9.0-1.0.0
+ * 过渡期通过 legacyRouteOf 兑底；1.0.0 移除兑底（见 P1.1.9）。
+ */
+export type StatusKind = "quota" | "usage" | "context" | "integration" | "config" | "misc";
+
+/** 生成带 kind 前缀的 status key。 */
+export function statusKey(kind: Exclude<StatusKind, "misc">, subkey: string): string {
+  return `${kind}:${subkey}`;
+}
+
 export interface FooterConfigStore {
   load(): FooterConfig;
   save(config: FooterConfig): void;

@@ -235,6 +235,16 @@ function sectionOf(key: string): Section {
   if (key.startsWith("context:")) return "context";
   if (key.startsWith("integration:")) return "integration";
   if (key.startsWith("config:")) return "config";
+  return legacyRouteOf(key);
+}
+
+/**
+ * @deprecated 0.9.0 → 1.0.0 过渡期兑底：依赖具体扩展的字面量 key
+ * ("quota"、"mode"、"policy"、"context" 等）不在扩展隔离铁律之内；
+ * 新 publisher 必须改用 kind 前缀（statusKey()）。
+ * 1.0.0 移除该函数（见 P1.1.9）。
+ */
+function legacyRouteOf(key: string): Section {
   const k = key.toLowerCase();
   if (k === "mcp" || k.includes("lsp")) return "integration";
   if (k === "mode" || k.includes("policy")) return "config";

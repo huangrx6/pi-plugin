@@ -79,7 +79,11 @@ pi install "$PWD"
 
 从 Pi 的公开状态集合读取文本，按状态 key 归类。同组按 key 排序；未知 key 进入状态组。
 
-| Key 前缀 | 紧凑视图 | 完整视图 |
+### Key 协议（0.9.0+）
+
+`setStatus("<kind>:<subkey>", text)` 调用者应使用 `statusKey(kind, subkey)` 工厂函数生成 key。`sectionOf` 只信任 kind 前缀，未识别 key 进入 misc。
+
+| Kind 前缀 | 紧凑视图 | 完整视图 |
 | --- | --- | --- |
 | `quota:` | 模型组 | 额度组 |
 | `context:` | 状态组 | 窗口组 |
@@ -88,7 +92,16 @@ pi install "$PWD"
 | `usage:` | 隐藏 | 用量组 |
 | 其他 | 状态组 | 状态组 |
 
-无上述前缀时使用兼容规则：精确 key `quota` 归模型，精确 `mcp` 或包含 `lsp` 归集成，精确 `mode` 或包含 `policy` 归状态，包含 `context` / `qos` 归上下文。其余进入状态。
+### 迁移窗口（0.9.0 → 1.0.0）
+
+历史代码使用裸 key（"quota"、"mode"、"policy"、"context"）。为避免升级期起快，保留字面量兑底路由：
+
+- 精确 key `quota` / 含 `quota` → quota section
+- 精确 `mode` / 含 `policy` → config section
+- 精确 `mcp` / 含 `lsp` → integration section
+- 含 `context` / `qos` → context section
+
+1.0.0 将移除兑底（见 `legacyRouteOf` 上的 `@deprecated` 说明）。新 publisher 代码应使用 `statusKey()` 或显式 `setStatus("kind:subkey", ...)`。
 
 完整视图同时展示会话累计用量和自定义 `usage:` 状态。移除状态行首的装饰性闪电、插头、齿轮与圆环，不改写数值、错误或警告。只有整条状态是 `Context N%` 或 `上下文 N%`，且与宿主占用四舍五入一致时才省略重复摘要；附带暂停、失败等文字的状态始终保留。
 
