@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension from "../index.ts";
 import { createMonitor } from "../monitor.ts";
 import { buildQuotaText } from "../format.ts";
@@ -121,7 +122,7 @@ test("/quota independently opens details and refreshes without a custom footer",
   t.mock.method(globalThis, "fetch", async () => balance(String(++reads)));
   const handlers = new Map<string, Function>();
   const commands = new Map<string, any>();
-  extension({ on: (name, handler) => handlers.set(name, handler), registerCommand: (name, command) => commands.set(name, command) });
+  extension({ on: (name, handler) => handlers.set(name, handler), registerCommand: (name, command) => commands.set(name, command) } as unknown as ExtensionAPI);
   const panels: string[] = [];
   const selections = ["刷新", "关闭"];
   const ctx = { model, hasUI: true, ui: {
@@ -136,11 +137,43 @@ test("/quota independently opens details and refreshes without a custom footer",
   assert.doesNotMatch(panels[1], /api.deepseek.com/);
 });
 
+test("publish writes both WIDGET_KEY (kind-prefix) and LEGACY_WIDGET_KEY (bare) for 0.3.0 transition", async t => {
+  credentials(t);
+  t.mock.method(globalThis, "fetch", async () => balance("42"));
+  const commands = new Map<string, any>();
+  extension({
+    on: () => {},
+    registerCommand: (_name, definition) => commands.set("quota", definition.handler),
+  } as unknown as ExtensionAPI);
+  const setStatusCalls: Array<{ key: string; text: string | undefined }> = [];
+  const ctx = {
+    model,
+    hasUI: true,
+    mode: "tui",
+    ui: {
+      setStatus(key, text) { setStatusCalls.push({ key, text }); },
+      notify() {},
+      async select() { return "关闭"; },
+    },
+  } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
+  // 走 /quota 命令（await update() 等待 refresh 完成 → publish 同步发生），
+  // session_start 丢 promise 不可靠。
+  await commands.get("quota")("", ctx);
+  // publish 被调两次：加载中（text=undefined） + 成功（text 有值）。
+  // 取最后一次成功的那次。
+  const main = [...setStatusCalls].reverse().find(c => c.key === "quota:main");
+  const legacy = [...setStatusCalls].reverse().find(c => c.key === "quota");
+  assert.ok(main, `expected setStatus("quota:main", ...) — got keys: ${setStatusCalls.map(c => c.key).join(", ")}`);
+  assert.ok(legacy, `expected setStatus("quota", ...) — got keys: ${setStatusCalls.map(c => c.key).join(", ")}`);
+  assert.equal(main.text, legacy.text);
+  assert.ok(main.text && main.text.length > 0, "主 key 应有有效文本");
+});
+
 test("/quota keeps diagnostics secondary and non-TUI output non-interactive", async t => {
   credentials(t);
   t.mock.method(globalThis, "fetch", async () => balance("12"));
   const commands = new Map<string, any>();
-  extension({ on() {}, registerCommand: (name, command) => commands.set(name, command) });
+  extension({ on() {}, registerCommand: (name, command) => commands.set(name, command) } as unknown as ExtensionAPI);
   const notices: string[] = [];
   let selects = 0;
   const ctx = { model, mode: "rpc", hasUI: true, ui: {
@@ -163,7 +196,7 @@ test("/quota account only reads the explicit management key, never the inference
   let reads = 0;
   t.mock.method(globalThis, "fetch", async () => { ++reads; throw new Error("must not query"); });
   const commands = new Map<string, any>();
-  extension({ on() {}, registerCommand: (name, command) => commands.set(name, command) });
+  extension({ on() {}, registerCommand: (name, command) => commands.set(name, command) } as unknown as ExtensionAPI);
   let panel = "";
   await commands.get("quota").handler("account", { model: { provider: "openrouter" }, hasUI: true, ui: { setStatus() {}, notify() {}, async select(text) { panel = text; return "关闭"; } } });
   assert.equal(reads, 0);
@@ -176,7 +209,7 @@ test("shutdown during command refresh does not open a panel in the old session",
   const calls = pendingFetch(t);
   const handlers = new Map<string, Function>();
   const commands = new Map<string, any>();
-  extension({ on: (name, handler) => handlers.set(name, handler), registerCommand: (name, command) => commands.set(name, command) });
+  extension({ on: (name, handler) => handlers.set(name, handler), registerCommand: (name, command) => commands.set(name, command) } as unknown as ExtensionAPI);
   let panels = 0;
   const ctx = { model, hasUI: true, ui: { setStatus() {}, notify() {}, async select() { ++panels; return "关闭"; } } };
   const command = commands.get("quota").handler("", ctx);

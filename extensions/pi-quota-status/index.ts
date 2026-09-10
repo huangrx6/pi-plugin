@@ -1,7 +1,7 @@
 /** Independent quota panel plus an optional native status summary. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ADAPTERS, subscriptionForProvider } from "./adapters.ts";
-import { TREE_THROTTLE_MS, TURN_THROTTLE_MS, WIDGET_KEY } from "./constants.ts";
+import { TREE_THROTTLE_MS, TURN_THROTTLE_MS, WIDGET_KEY, LEGACY_WIDGET_KEY } from "./constants.ts";
 import { buildQuotaText } from "./format.ts";
 import { createMonitor } from "./monitor.ts";
 import { quotaDiagnostics, quotaSummary } from "./panel.ts";
@@ -23,7 +23,13 @@ export default function (pi: ExtensionAPI): void {
   let generation = 0;
   function publish(ctx: StatusCtx): void {
     if (ctx.hasUI === false) return;
-    try { ctx.ui.setStatus(WIDGET_KEY, buildQuotaText(monitor.state) ?? undefined); } catch { /* A replaced context owns no current UI. */ }
+    try {
+      const text = buildQuotaText(monitor.state) ?? undefined;
+      // 双写：主走 footer kind 前缀协议；过渡期保留裸 key 让
+      // 旧 footer 仍能识别（1.0.0 移除 LEGACY_WIDGET_KEY 写路径）。
+      ctx.ui.setStatus(WIDGET_KEY, text);
+      ctx.ui.setStatus(LEGACY_WIDGET_KEY, text);
+    } catch { /* A replaced context owns no current UI. */ }
   }
   function refresh(ctx: StatusCtx, model = ctx.model): Promise<void> {
     return monitor.refresh(model, () => publish(ctx));
