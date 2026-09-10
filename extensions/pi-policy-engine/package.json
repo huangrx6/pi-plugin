@@ -1,7 +1,7 @@
 {
   "name": "pi-policy-engine",
   "version": "0.41.0",
-  "description": "Model-first task policies for Pi with preflight intent recognition, a simple persistent control panel and versioned plan approvals.",
+  "description": "Model-first task policies with preflight intent recognition, persistent control panel, versioned plan approvals.",
   "type": "module",
   "license": "MIT",
   "engines": {
