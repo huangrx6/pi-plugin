@@ -1,7 +1,7 @@
 {
   "name": "pi-mode-switcher",
-  "version": "0.3.0",
-  "description": "Three-mode Pi approval control with native confirmation dialogs and a terminal-safe independent /mode interface.",
+  "version": "0.4.0",
+  "description": "Three-level Pi approval control with Chinese mode labels, native dialogs, and a concise status indicator.",
   "license": "MIT",
   "type": "module",
   "engines": {

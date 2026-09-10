@@ -39,13 +39,22 @@ type Mode = "ask" | "smart" | "full";
 const MODE_LABELS: Record<Mode, string> = {
   ask: "请求批准",
   smart: "帮我批准",
-  full: "完全访问",
+  full: "完全访问权限",
 };
 
 const MODE_ZH: Record<Mode, string> = {
   ask: "编辑外部文件和使用互联网时始终询问",
   smart: "仅对检测到的风险操作请求批准",
-  full: "不需要我批准任何请求",
+  full: "可不受限制地访问互联网和你电脑上的任何文件",
+};
+
+const MODE_INPUTS: Readonly<Record<string, Mode>> = {
+  ask: "ask",
+  smart: "smart",
+  full: "full",
+  请求批准: "ask",
+  帮我批准: "smart",
+  完全访问权限: "full",
 };
 
 // Read-only tools (always pass in every mode).
@@ -333,13 +342,11 @@ function uiOf(ctx: unknown): UiCtx {
 }
 
 function buildModeText(): string {
-  return `⚙ 权限 ${currentMode}`;
+  return MODE_LABELS[currentMode];
 }
 
 function renderStatus(ctx: UiCtx): void {
-  // footer-composer 协议：setStatus key 带 config: 前缀
-  // 归入 footer "config" 段。
-  ctx.ui.setStatus("config:mode", buildModeText());
+  ctx.ui.setStatus("pi-mode-switcher", buildModeText());
 }
 
 // ---------------------------------------------------------------------------
@@ -356,35 +363,32 @@ export default function (pi: ExtensionAPI): void {
 
   // ── /mode command ──
   pi.registerCommand("mode", {
-    description: "切换权限模式: ask | smart | full",
+    description: "选择工具操作的批准方式",
     handler: async (args, ctx) => {
       const uiCtx = uiOf(ctx);
       const name = args.trim().toLowerCase();
       const valid: Mode[] = ["ask", "smart", "full"];
+      const requested = MODE_INPUTS[name];
 
       // With a valid argument: switch directly.
-      if (valid.includes(name as Mode)) {
-        switchMode(name as Mode, uiCtx);
+      if (requested) {
+        switchMode(requested, uiCtx);
         return;
       }
 
       // No argument (or an unrecognized one): interactive selector.
-      const options = valid.map(
-        (m) => `${m} — ${MODE_LABELS[m]}：${MODE_ZH[m]}`,
-      );
+      const options = valid.map((m) => `${MODE_LABELS[m]} — ${MODE_ZH[m]}`);
       const choice = await ctx.ui.select(
         name
-          ? `选择权限模式（当前：${MODE_LABELS[currentMode]}；未识别“${formatInline(name, 20)}”）`
-          : `选择权限模式（当前: ${MODE_LABELS[currentMode]}）`,
+          ? `选择批准方式（当前：${MODE_LABELS[currentMode]}；未识别“${formatInline(name, 20)}”）`
+          : `选择批准方式（当前：${MODE_LABELS[currentMode]}）`,
         options,
       );
       if (choice === undefined) return;
-      // select() returns the chosen option text; extract the mode key prefix.
-      const picked = String(choice)
-        .split(/[\s—:]/)[0]
-        .toLowerCase();
-      if (!valid.includes(picked as Mode)) return;
-      switchMode(picked as Mode, uiCtx);
+      const picked = valid.find(
+        (mode) => choice === options[valid.indexOf(mode)],
+      );
+      if (picked) switchMode(picked, uiCtx);
     },
   });
 

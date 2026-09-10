@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0 - 2026-09-10
+
+- 模式选择器只显示中文名称与说明，不再暴露内部 `ask`、`smart`、`full` key。
+- 菜单名称与说明统一为“请求批准”“帮我批准”“完全访问权限”三档。
+- Footer 状态改为简短的中文模式，状态 key 改为扩展自有名称，不再遵循外部分类协议。
+- 直接命令同时接受中文名称；英文参数继续作为脚本输入使用，但不在界面展示。
+
 ## 0.3.0 - 2026-09-05
 
 - Remove the retired `mode-switcher.json` fallback. The extension now reads and writes only `extensions-data/pi-mode-switcher/config.json`, so configuration ownership is unambiguous.
