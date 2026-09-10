@@ -8,7 +8,13 @@
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["*.ts", "tests/**/*.ts"]
+  "include": [
+    "../../extensions/_shared/**/*.d.ts",
+    "*.ts",
+    "tests/**/*.ts"
+  ]
 }
