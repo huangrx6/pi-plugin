@@ -1,0 +1,53 @@
+{
+  "$schema": "../schema/config.schema.json",
+  "mode": "compact",
+  "style": {
+    "textColor": "muted",
+    "borderColor": "dim",
+    "borders": "all",
+    "labelDivider": true,
+    "labelWidth": 4,
+    "columnGap": 3,
+    "fieldGap": 3,
+    "leftRatio": 0.5,
+    "narrowWidth": 72,
+    "overflow": "wrap",
+    "maxCellLines": 0
+  },
+  "views": {
+    "compact": {
+      "renderer": "table",
+      "showLabels": true,
+      "rows": [
+        [
+          { "label": "项目", "fields": ["project", "branch"] },
+          { "label": "模型", "fields": ["model", "provider", "thinking"] }
+        ],
+        [
+          { "label": "资源", "fields": ["context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost"] },
+          { "label": "状态", "fields": ["remaining"] }
+        ]
+      ]
+    },
+    "overview": {
+      "renderer": "bands",
+      "showLabels": true,
+      "style": {
+        "borders": "outer",
+        "labelDivider": false,
+        "fieldGap": 3,
+        "columnGap": 6
+      },
+      "rows": [
+        [
+          { "label": "项目", "fields": ["project", "branch"] },
+          { "label": "模型", "fields": ["model", "provider", "thinking"] }
+        ],
+        [
+          { "label": "资源", "fields": ["context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost"] },
+          { "label": "状态", "fields": ["remaining"] }
+        ]
+      ]
+    }
+  }
+}

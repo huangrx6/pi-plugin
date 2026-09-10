@@ -1,177 +1,85 @@
-/// <reference types="node" />
-
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import footerExtension from "../index.ts";
+import { resolveFooterConfig } from "../config.ts";
 import { visibleWidth } from "../layout.ts";
 
-test("configured full footer renders and compact/native selections persist", async () => {
+test("configured views render through Pi; reload is atomic and switching preserves external edits", async () => {
   const handlers = new Map<string, Function>();
-  let command: Function | undefined;
-  const footerCalls: unknown[] = [];
-  const notices: string[] = [];
-  let selection: string | undefined;
-  let branch: string | null = "main";
-  const savedModes: string[] = [];
-  footerExtension(
-    {
-      on(name: string, handler: Function) {
-        handlers.set(name, handler);
-      },
-      registerCommand(_name: string, definition: { handler: Function }) {
-        command = definition.handler;
-      },
-    } as never,
-    {
-      configStore: {
-        load: () => ({ mode: "full", statusRoutes: { external: "integration" } }),
-        save: ({ mode, statusRoutes }) => {
-          assert.deepEqual(statusRoutes, { external: "integration" });
-          savedModes.push(mode);
-        },
-      },
-    },
-  );
-
+  let command: Function = () => {};
+  const footerCalls: any[] = [], notices: string[] = [], saved: any[] = [];
+  let failedLoad = false;
+  let disk = resolveFooterConfig({ mode: "overview" });
+  disk.views.compact.rows = [
+    [{ label: "项目", fields: ["project", "branch"] }, { label: "模型", fields: ["model", "provider", "thinking"] }],
+    [{ label: "资源", fields: ["context", "cacheHit", "input", "output", "cacheRead", "cost"] }, { label: "额度", fields: [{ status: "pi-quota-status" }] }],
+    [{ label: "策略", fields: [{ status: "pi-policy-engine" }] }, { label: "诊断", fields: [{ status: "diagnostics" }] }],
+    [{ label: "状态", fields: [{ status: "pi-mode-switcher" }] }, { label: "集成", fields: [{ status: "external" }] }],
+  ];
+  footerExtension({
+    on: (name: string, handler: Function) => handlers.set(name, handler),
+    registerCommand: (_name: string, definition: { handler: Function }) => { command = definition.handler; },
+  } as never, { configStore: {
+    load: () => { if (failedLoad) throw new Error("views.compact.rows[0]: 无效"); return structuredClone(disk); },
+    save: config => { disk = structuredClone(config); saved.push(config); },
+  } });
+  const statuses = new Map([
+    ["pi-mode-switcher", "审批 完全访问权限"], ["pi-policy-engine", "policy:auto ↑922 ↓69"],
+    ["diagnostics", "LSP 3 errors · 12 warnings\nmain.ts · api.ts"], ["external", "MCP ready"],
+    ["context:summary", "Context 12%"], ["context:paused", "Context 12% · 暂停"],
+    ["pi-quota-status", "GLM 5h: 37%"], ["usage:custom", "额外用量 42"],
+  ]);
   const ctx = {
-    model: {
-      id: "model\u001b]9;bad\u0007",
-      provider: "provider",
-      reasoning: true,
-      contextWindow: 128_000,
-    },
+    model: { id: "model\x1b]9;bad\x07", provider: "provider", reasoning: true, contextWindow: 128000 },
     thinkingLevel: "high",
     sessionManager: {
-      getEntries: () => [
-        {
-          type: "message",
-          message: {
-            role: "assistant",
-            usage: { input: 4000000, output: 147000, cacheRead: 58000000 },
-          },
-        },
-      ],
-      getCwd: () => "/tmp/project",
-      getSessionName: () => "session",
+      getEntries: () => [{ type: "message", message: { role: "assistant", usage: { input: 4000000, output: 147000, cacheRead: 58000000 } } }],
+      getCwd: () => "/tmp/project", getSessionName: () => "session",
     },
-    getContextUsage: () => ({
-      tokens: 1000,
-      contextWindow: 128_000,
-      percent: 12,
-    }),
-    ui: {
-      setFooter: (renderer: unknown) => footerCalls.push(renderer),
-      select: async () => selection,
-      notify: (message: string) => notices.push(message),
-    },
+    getContextUsage: () => ({ tokens: 1000, contextWindow: 128000, percent: 12 }),
+    ui: { setFooter: (factory: any) => footerCalls.push(factory), notify: (text: string) => notices.push(text), select: async () => undefined },
   };
-  await handlers.get("session_start")?.({}, ctx);
-  const renderer = footerCalls.at(-1) as Function;
-  const component = renderer(
-    { requestRender() {} },
-    {
-      fg: (color: string, text: string) => {
-        assert.ok(["text", "muted", "warning", "error", "dim"].includes(color));
-        return text;
-      },
-      bold: () => {
-        throw new Error("Footer must use uniform font weight");
-      },
-    },
-    {
-      getGitBranch: () => branch,
-      getExtensionStatuses: () =>
-        new Map([
-          ["config:mode", "⚙ 权限 smart"],
-          ["integration:mcp", "🔌 MCP ready"],
-          ["quota:account", "⚡GLM 5h: 37%"],
-          ["context:summary", "◎ Context 12%"],
-          ["context:paused", "◎ Context 12% · 暂停"],
-          ["usage:custom", "额外用量 42"],
-        ]),
-      getAvailableProviderCount: () => 2,
-      onBranchChange: () => () => {},
-    },
-  );
-  const full = component.render(200);
-  assert.ok(full[0].startsWith("──────┬"));
-  assert.ok(full.at(-1).startsWith("──────┴"));
-  assert.equal(
-    full.length,
-    15,
-    "seven categories without duplicate context row",
-  );
-  assert.match(full.join("\n"), /状态 │/);
-  assert.match(full.join("\n"), /模型\s+│\s+model.*平台\s+provider.*思考 high/);
-  assert.match(full.join("\n"), /平台\s+provider/);
-  assert.match(full.join("\n"), /思考 high/);
-  assert.match(full.join("\n"), /分支\s+main/);
-  assert.match(full.join("\n"), /会话\s+session/);
-  assert.match(full.join("\n"), /窗口\s+│\s+12.0% \/ 128k/);
-  assert.match(full.join("\n"), /额度\s+│\s+GLM 5h: 37%/);
-  assert.match(full.join("\n"), /用量\s+│\s+输入 4.0M.*输出 147k.*缓存读 58M/);
-  assert.match(full.join("\n"), /缓存读 58M.*命中 93.5%/);
-  assert.match(full.join("\n"), /输入 4.0M/);
-  assert.match(full.join("\n"), /输出 147k/);
-  assert.equal(full.join("\n").match(/Context 12%/g)?.length, 1);
-  assert.match(full.join("\n"), /Context 12% · 暂停/);
-  assert.match(full.join("\n"), /额外用量 42/);
-  assert.match(full.join("\n"), /MCP ready/);
-  assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|⚡|🔌|⚙|◎/);
-  for (const width of [1, 5, 6, 12, 40, 80, 120]) {
-    assert.ok(
-      component
-        .render(width)
-        .every((line: string) => visibleWidth(line) <= width),
-    );
-  }
-  branch = null;
-  const withoutBranch = component.render(200).join("\n");
-  assert.match(withoutBranch, /会话 {2}session/);
-  assert.doesNotMatch(withoutBranch, /分支/);
+  const component = () => footerCalls.at(-1)({ requestRender() {} }, { fg: (_color: string, text: string) => text }, {
+    getGitBranch: () => "main", getExtensionStatuses: () => statuses, onBranchChange: () => () => {},
+  });
+  await handlers.get("session_start")!({}, ctx);
+  const overview = component().render(200).join("\n");
+  for (const text of ["project", "provider", "high", "↑4.0M", "读58M", "◎93.5%", "policy:auto ↑922 ↓69", "额外用量 42"]) assert.ok(overview.includes(text), text);
+  assert.equal(overview.match(/Context 12%/g)?.length, 1);
+  assert.doesNotMatch(overview, /bad|\x1b|│/);
+  await command("compact", ctx);
+  const compactComponent = component();
+  const compact = compactComponent.render(200).join("\n");
+  assert.match(compact, /项目 │ project +main.*模型 │ model/);
+  assert.match(compact, /策略 │ policy:auto ↑922 ↓69.*诊断 │ LSP/);
+  assert.equal(compact.match(/policy:auto/g)?.length, 1);
+  assert.match(compact, /main.ts · api.ts/);
+  assert.match(compact, /资源 │ 12\.0% \/ 128k +◎93\.5% +↑4\.0M +↓147k +读58M/);
+  assert.doesNotMatch(compact, /额外用量|\/tmp\/project/);
+  for (const width of [1, 30, 60, 72, 100, 200]) assert.ok(compactComponent.render(width).every((line: string) => visibleWidth(line) <= width));
 
-  await command?.("compact", ctx);
-  assert.deepEqual(savedModes, ["compact"]);
-  const fullRenderer = footerCalls.at(-1) as Function;
-  const compact = fullRenderer(
-    { requestRender() {} },
-    {
-      fg: (_color: string, text: string) => text,
-      bold: (text: string) => text,
-    },
-    {
-      getGitBranch: () => "main",
-      getExtensionStatuses: () =>
-        new Map([
-          ["config:mode", "权限 smart"],
-          ["external", "MCP ready"],
-          ["context:paused", "Context 12% · 暂停"],
-          ["quota:account", "GLM 5h: 37%"],
-        ]),
-      getAvailableProviderCount: () => 1,
-      onBranchChange: () => () => {},
-    },
-  ).render(200);
-  assert.ok(compact[0].startsWith("─"));
-  assert.match(compact.join("\n"), /Context 12% · 暂停/);
-  assert.doesNotMatch(compact.join("\n"), /[│┬┴]/);
-  assert.match(compact.join("\n"), /project.*model.*上下文 12.0%/);
-  assert.match(compact.join("\n"), /main.*provider · high.*命中率 93.5%/);
-  assert.match(compact.join("\n"), /权限 smart.*GLM 5h: 37%/);
-  assert.doesNotMatch(compact.join("\n"), /\/tmp\/project|会话|缓存读|费用/);
-  assert.match(compact.join("\n"), /MCP ready/);
-  assert.ok(compact.every((line: string) => visibleWidth(line) <= 132));
-
-  await command?.("native", ctx);
-  assert.deepEqual(savedModes, ["compact", "native"]);
+  disk.views.compact.rows = [[{ label: "自定", fields: ["model", { status: "diagnostics" }] }]];
+  disk.style.borders = "none";
+  await command("reload", ctx);
+  assert.match(component().render(120).join("\n"), /自定 │ model/);
+  assert.doesNotMatch(component().render(120).join("\n"), /[┬┴┼]/);
+  const count = footerCalls.length, saves = saved.length;
+  failedLoad = true;
+  await command("reload", ctx); await command("overview", ctx);
+  assert.equal(footerCalls.length, count); assert.equal(saved.length, saves);
+  assert.match(notices.at(-1)!, /保留当前显示.*rows\[0\]/);
+  failedLoad = false;
+  disk.style.columnGap = 7;
+  await command("native", ctx);
   assert.equal(footerCalls.at(-1), undefined);
+  assert.equal(saved.at(-1).style.columnGap, 7);
+  assert.deepEqual(saved.at(-1).views.compact.rows, disk.views.compact.rows);
   const noticeCount = notices.length;
-  selection = undefined;
-  await command?.("", ctx);
-  assert.equal(
-    notices.length,
-    noticeCount,
-    "cancelling the selector stays quiet",
-  );
+  await command("", ctx); assert.equal(notices.length, noticeCount);
+  disk.mode = "compact"; await command("reload", ctx);
+  const live = component();
+  await handlers.get("model_select")!({ model: { id: "new-model" } }, ctx);
+  assert.match(live.render(120).join("\n"), /new-model/);
+  await handlers.get("session_shutdown")!({}, ctx);
+  assert.deepEqual(live.render(120), []);
 });

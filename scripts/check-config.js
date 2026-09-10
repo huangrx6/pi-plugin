@@ -2,13 +2,13 @@
 // check-config.js — 用户配置 reload 前自查（manual-only）
 //
 // 行为：
-//   1. 扫描仓库根 extensions/*/config/defaults.json 与 package.json，提取
-//      已知合法顶层 key 集合（每个扩展独立）。
+//   1. 扫描仓库根 extensions/*/config/defaults.json 或
+//      schema/config.schema.json，提取已知合法顶层 key 集合（每个扩展独立）。
 //   2. 读取 PI_CODING_AGENT_DIR（或 ~/.pi/agent）下的 extensions-data/<pkg>/config.json。
 //   3. 对每个文件：
 //      - JSON 解析失败 → error（用户配置坏了，重启必出问题）
-//      - 顶层 key 不在 defaults.json 中 → warning（"unknown setting" 类诊断）
-//      - value 类型不匹配 defaults 中同名 key 的类型 → warning
+//      - 顶层 key 不在扩展配置定义中 → warning（"unknown setting" 类诊断）
+//      - value 类型与配置定义不匹配 → warning
 //   4. 退出码：0 = 无 error；1 = 至少一个 error。warning 不影响退出码。
 //
 // 设计原则：
@@ -44,21 +44,38 @@ function agentDir() {
     : configured;
 }
 
-/** 收集已知合法顶层 key 集合（每个扩展独立集合）。 */
+/** 从 defaults 或公开 Schema 收集合法顶层 key 与类型。 */
 function loadDefaults(pkg) {
   const path = join(extensionsDir, pkg, "config", "defaults.json");
-  if (!existsSync(path)) return null;
-  try {
-    const cfg = JSON.parse(readFileSync(path, "utf8"));
-    if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
-      const types = {};
-      for (const [k, v] of Object.entries(cfg)) {
-        types[k] = v === null ? "null" : Array.isArray(v) ? "array" : typeof v;
+  if (existsSync(path)) {
+    try {
+      const cfg = JSON.parse(readFileSync(path, "utf8"));
+      if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
+        const types = {};
+        for (const [k, v] of Object.entries(cfg)) {
+          types[k] = v === null ? "null" : Array.isArray(v) ? "array" : typeof v;
+        }
+        return types;
       }
-      return types;
+    } catch {
+      /* ignore — defaults.json 损坏，不影响其他扩展的用户配置校验 */
     }
+  }
+
+  const schemaPath = join(extensionsDir, pkg, "schema", "config.schema.json");
+  if (!existsSync(schemaPath)) return null;
+  try {
+    const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
+    if (!schema?.properties || typeof schema.properties !== "object") return null;
+    const types = {};
+    for (const [key, definition] of Object.entries(schema.properties)) {
+      const declared = definition?.type;
+      // enum-only properties in JSON Schema are strings in current configs.
+      types[key] = typeof declared === "string" ? declared : Array.isArray(definition?.enum) ? "string" : null;
+    }
+    return types;
   } catch {
-    /* ignore — defaults.json 损坏，不影响用户配置校验 */
+    /* ignore — schema 损坏应由扩展自己的 check/test 报告 */
   }
   return null;
 }
@@ -102,7 +119,7 @@ console.log(`PI_CODING_AGENT_DIR = ${dir}\n`);
 
 for (const pkg of pkgDirs.sort()) {
   const defaults = loadDefaults(pkg);
-  if (!defaults) continue; // 没有 defaults.json（plain JS 包），跳过
+  if (!defaults) continue; // 扩展没有可读取的配置定义，跳过
 
   const user = readUserConfig(pkg, dir);
   if (!user.exists) continue; // 用户未配置，不检查
@@ -125,14 +142,14 @@ for (const pkg of pkgDirs.sort()) {
     if (!(key in defaults)) {
       warn(
         pkg,
-        `未知配置项 '${key}'（不在 config/defaults.json 中）— 这是 reload 后会触发 "unknown setting" 警告的最常见原因`,
+        `未知配置项 '${key}'（不在扩展配置定义中）— 这是 reload 后会触发 "unknown setting" 警告的最常见原因`,
       );
       continue;
     }
     const expectedType = defaults[key];
     const actualType =
       value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-    if (expectedType !== actualType) {
+    if (expectedType && expectedType !== actualType) {
       warn(pkg, `配置项 '${key}' 类型应为 ${expectedType}，实际 ${actualType}`);
     }
   }

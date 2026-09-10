@@ -48,9 +48,3 @@ export function visibleWidth(text: string): number {
     width += graphemeWidth(segment);
   return width;
 }
-
-export type Cell = { text: string };
-
-export function makeCell(text: string): Cell {
-  return { text };
-}

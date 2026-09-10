@@ -3,17 +3,13 @@
  *
  * Covers the exported string-layout primitives of layout.ts:
  * Covers terminal-control sanitization, ANSI-aware display width and
- * cell construction used by the category table renderer.
+ * grapheme measurement used by the table renderer.
  */
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import {
-	makeCell,
-	sanitizeTerminalText,
-	visibleWidth,
-} from "../layout.ts";
+import { sanitizeTerminalText, visibleWidth } from "../layout.ts";
 
 describe("visibleWidth", () => {
 	it("plain ASCII counts 1 per char", () => {
@@ -32,13 +28,6 @@ describe("visibleWidth", () => {
 	it("emoji presentation sequences count as two columns", () => {
 		assert.equal(visibleWidth("©️"), 2);
 		assert.equal(visibleWidth("1️⃣"), 2);
-	});
-});
-
-describe("makeCell", () => {
-	it("wraps text into a cell with no extra padding at zero level", () => {
-		const cell = makeCell("hello");
-		assert.ok(cell.text.includes("hello"));
 	});
 });
 
