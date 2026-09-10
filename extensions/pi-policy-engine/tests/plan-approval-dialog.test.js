@@ -15,6 +15,7 @@ import { resolvePlanResponse } from "../src/core/approval.js";
 import {
 	APPROVE_PHRASE,
 	CANCEL_PHRASE,
+	isPlanModeActive,
 	offerPlanApprovalDialog,
 } from "../extensions/policy-engine/plan-approval-dialog.js";
 
@@ -109,4 +110,119 @@ describe("offerPlanApprovalDialog", () => {
 		await offerPlanApprovalDialog(pi, undefined, {});
 		assert.equal(sent.length, 0);
 	});
+});
+
+describe("isPlanModeActive (0.42.0 plan-mode mutex probe)", () => {
+  it("returns false when pi has no getAllTools / getCommands", () => {
+    assert.equal(isPlanModeActive({}), false);
+    assert.equal(isPlanModeActive(null), false);
+    assert.equal(isPlanModeActive(undefined), false);
+  });
+
+  it("returns false when no plan-related extension found", () => {
+    const pi = {
+      getAllTools: () => [
+        { name: "read", sourceInfo: { source: "builtin" } },
+        { name: "bash", sourceInfo: { source: "builtin" } },
+        { name: "edit", sourceInfo: { source: "builtin" } },
+      ],
+      getCommands: () => [
+        { name: "policy", sourceInfo: { source: "extension" } },
+      ],
+    };
+    assert.equal(isPlanModeActive(pi), false);
+  });
+
+  it("returns true when an extension tool with 'plan' in name is registered", () => {
+    const pi = {
+      getAllTools: () => [
+        { name: "plan", sourceInfo: { source: "extension" } },
+      ],
+      getCommands: () => [],
+    };
+    assert.equal(isPlanModeActive(pi), true);
+  });
+
+  it("returns true when a 'plan' command from extension is registered", () => {
+    const pi = {
+      getAllTools: () => [],
+      getCommands: () => [
+        { name: "plan", sourceInfo: { source: "extension" } },
+      ],
+    };
+    assert.equal(isPlanModeActive(pi), true);
+  });
+
+  it("ignores plan-keyword in builtin / sdk tools (only extension source counts)", () => {
+    const pi = {
+      getAllTools: () => [
+        { name: "plan", sourceInfo: { source: "builtin" } }, // not extension
+        { name: "plan", sourceInfo: { source: "sdk" } }, // not extension
+        { name: "plan", sourceInfo: undefined }, // unknown
+      ],
+      getCommands: () => [
+        { name: "plan", sourceInfo: { source: "builtin" } },
+      ],
+    };
+    assert.equal(isPlanModeActive(pi), false);
+  });
+
+  it("probe exceptions fall back to false (conservative — prefer double dialog over false surrender)", () => {
+    const pi = {
+      getAllTools: () => { throw new Error("probe failed"); },
+      getCommands: () => [],
+    };
+    assert.equal(isPlanModeActive(pi), false);
+  });
+});
+
+describe("offerPlanApprovalDialog: plan-mode mutex (0.42.0)", () => {
+  function captureDialog(planModeActive) {
+    const sent = [];
+    const selectCalls = [];
+    const notices = [];
+    const ctx = {
+      hasUI: true,
+      ui: {
+        select: async (title) => {
+          selectCalls.push(title);
+          return "Execute the plan";
+        },
+        editor: async () => "irrelevant",
+        notify(message, level) {
+          notices.push({ message, level });
+        },
+      },
+    };
+    const pi = {
+      sendUserMessage: async (text, options) => {
+        sent.push({ text, options });
+      },
+      getAllTools: () =>
+        planModeActive
+          ? [{ name: "plan", sourceInfo: { source: "extension" } }]
+          : [],
+      getCommands: () => [],
+    };
+    return { ctx, pi, sent, selectCalls, notices };
+  }
+
+  it("skips dialog and notifies when plan-mode is detected", async () => {
+    const { ctx, pi, sent, selectCalls, notices } = captureDialog(true);
+    await offerPlanApprovalDialog(pi, ctx, {});
+    assert.equal(selectCalls.length, 0, "ui.select 不应被调用");
+    assert.equal(sent.length, 0, "sendUserMessage 不应被调用");
+    assert.equal(notices.length, 1, "应通知一次让位");
+    assert.match(notices[0].message, /plan-mode/);
+    assert.equal(notices[0].level, "info");
+  });
+
+  it("shows dialog normally when plan-mode is not detected", async () => {
+    const { ctx, pi, sent, selectCalls, notices } = captureDialog(false);
+    await offerPlanApprovalDialog(pi, ctx, {});
+    assert.equal(selectCalls.length, 1, "ui.select 应被调用一次");
+    assert.equal(sent.length, 1, "应发送执行短语");
+    assert.equal(sent[0].text, APPROVE_PHRASE);
+    assert.equal(notices.length, 0, "不通知让位");
+  });
 });

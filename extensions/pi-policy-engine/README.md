@@ -206,7 +206,7 @@ pi install "$PWD"
 
 严格规划完成时，模型通过 `policy_plan` 工具上报计划（当前任务 ID、计划版本、目标以及带验证项的步骤）；系统提示会提供调用契约。缺少有效报告时保持 `planning / missing_plan`，不能用“好”把普通问答变成已批准计划。报告是模型提出的计划，不代表计划正确，也不证明执行或测试成功。自然语言审批仍使用保守规则；识别模型不能自行授予权限，明确审批可使用 `/policy approve`。
 
-计划展示：`policy_plan` 工具行折叠为单行摘要（版本 · 步数 · 目标预览），展开（ctrl+o）显示完整步骤与验证清单。若模型未走工具而在正文里硬打印 `policy-plan` JSON 块，显示层会把它折叠为一行摘要——会话与模型上下文保持原样，只有屏幕呈现受影响。计划就绪进入 `awaiting_approval` 时，交互式宿主会弹出 Execute / Refine / Cancel 审批对话框（`planApprovalDialog: false` 可关闭；批准/取消通过与手输等效的保守规则解析，非交互环境自动跳过）。
+计划展示：`policy_plan` 工具行折叠为单行摘要（版本 · 步数 · 目标预览），展开（ctrl+o）显示完整步骤与验证清单。若模型未走工具而在正文里硬打印 `policy-plan` JSON 块，显示层会把它折叠为一行摘要——会话与模型上下文保持原样，只有屏幕呈现受影响。计划就绪进入 `awaiting_approval` 时，交互式宿主会弹出 Execute / Refine / Cancel 审批对话框（`planApprovalDialog: false` 可关闭；批准/取消通过与手输等效的保守规则解析，非交互环境自动跳过）。**与官方 plan-mode 互斥**：安装 plan-mode 扩展后，policy-engine 会探测 `pi.getAllTools()` / `pi.getCommands()` 的 sourceInfo，主动让位并 `ui.notify` 提示用户“审批由 plan-mode 接管”，避免 dialog 双触发。
 
 ### 模型规则
 
