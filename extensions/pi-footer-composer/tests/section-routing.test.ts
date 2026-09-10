@@ -15,11 +15,8 @@ import { describe, it } from "node:test";
 
 import { statusKey, type StatusKind } from "../config.ts";
 
-/**
- * 复制 footer-composer/index.ts 的 sectionOf 与 legacyRouteOf 用于
- * 路由逻辑测试。`export` 之后再考虑在 index.ts 显式导出；本测试
- * 阶段内联两函数以避免污染包导出面。
- */
+// 镜像 footer-composer/index.ts 的 sectionOf：1.0.0 移除 legacyRouteOf
+// 兑底后，只剩 prefix 路由 + 兜底 misc。
 type Section = StatusKind;
 
 function sectionOf(key: string): Section {
@@ -28,15 +25,6 @@ function sectionOf(key: string): Section {
   if (key.startsWith("context:")) return "context";
   if (key.startsWith("integration:")) return "integration";
   if (key.startsWith("config:")) return "config";
-  return legacyRouteOf(key);
-}
-
-function legacyRouteOf(key: string): Section {
-  const k = key.toLowerCase();
-  if (k === "mcp" || k.includes("lsp")) return "integration";
-  if (k === "mode" || k.includes("policy")) return "config";
-  if (k === "quota") return "quota";
-  if (k.includes("context") || k.includes("qos")) return "context";
   return "misc";
 }
 
@@ -63,31 +51,6 @@ describe("status key prefix routing", () => {
   });
 });
 
-describe("legacy substring fallback (deprecated, 0.9.0-1.0.0)", () => {
-  it("bare key 'quota' routes to quota via legacy", () => {
-    assert.equal(sectionOf("quota"), "quota");
-  });
-
-  it("bare key 'mode' routes to config via legacy", () => {
-    assert.equal(sectionOf("mode"), "config");
-  });
-
-  it("substring 'policy' routes to config via legacy", () => {
-    assert.equal(sectionOf("policy:strict/awaiting_approval"), "config");
-    assert.equal(sectionOf("policy"), "config");
-  });
-
-  it("bare key 'mcp' or substring 'lsp' routes to integration via legacy", () => {
-    assert.equal(sectionOf("mcp"), "integration");
-    assert.equal(sectionOf("typescript-lsp"), "integration");
-  });
-
-  it("substring 'context' / 'qos' routes to context via legacy", () => {
-    assert.equal(sectionOf("ContextUsage"), "context");
-    assert.equal(sectionOf("qos:window"), "context");
-  });
-});
-
 describe("unrecognized keys fall to misc", () => {
   it("random key falls to misc", () => {
     assert.equal(sectionOf("foo:bar"), "misc");
@@ -95,9 +58,21 @@ describe("unrecognized keys fall to misc", () => {
     assert.equal(sectionOf(""), "misc");
   });
 
-  it("keys with valid prefix but invalid kind-name fall to misc via legacy", () => {
-    // "unknown:" 没有在 sectionOf 里出现，走 legacyRouteOf → 都不匹配 → misc
+  it("keys with valid prefix but invalid kind-name fall to misc", () => {
+    // "unknown:" 没有在 sectionOf 里出现 → misc
     assert.equal(sectionOf("unknown:something"), "misc");
+  });
+
+  it("legacy bare keys (e.g. 'quota' / 'mode' / 'policy') now fall to misc (1.0.0 迁移窗口结束)", () => {
+    // 0.9.0-1.0.0 过渡期 legacyRouteOf 曾把这些映射到具体 section。
+    // 1.0.0 移除：未识别的字面量 key 静默归 misc，提示 publisher 升级。
+    assert.equal(sectionOf("quota"), "misc");
+    assert.equal(sectionOf("mode"), "misc");
+    assert.equal(sectionOf("policy"), "misc");
+    assert.equal(sectionOf("policy:strict/awaiting_approval"), "misc");
+    assert.equal(sectionOf("ContextUsage"), "misc");
+    assert.equal(sectionOf("mcp"), "misc");
+    assert.equal(sectionOf("typescript-lsp"), "misc");
   });
 });
 

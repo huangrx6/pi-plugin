@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.0 - 2026-09-10
+
+### Status key 协议兑底路由移除（迁移窗口收尾）
+
+- sectionOf 只信任 kind: 前缀；未识别的 key 一律归 misc。
+  0.9.0-1.0.0 过渡期的 legacyRouteOf（依赖裸 key "quota" / "mode" /
+  "policy" / "context" / substring 兑底到具体 section）已删除。
+  pi-mode-switcher（"mode"→"config:mode"）、pi-policy-engine
+  （"policy-engine"→"config:policy-engine"、lifecycle 的
+  "policy:phase"→"config:policy.phase"）、pi-quota-status
+  （"quota"→"quota:main" + LEGACY_WIDGET_KEY="quota" 双写）
+  三个 publisher 已在迁移窗口完成。
+- 1.0.0 后，未使用 kind: 前缀的 status 跳进 misc。这是 publisher
+  的明确信号：升级到 statusKey("kind","subkey") 或显式
+  setStatus("kind:subkey",...)。
+- tests/section-routing.test.ts:5 个 legacy 兑底断言反向更新为
+  预期 "misc"；保留对“升级信号”的明确测试。
+
 ## 0.9.0 - 2026-09-06
 
 - Make the compact three-row table the default when no user configuration exists.

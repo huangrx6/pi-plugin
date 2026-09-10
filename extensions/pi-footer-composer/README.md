@@ -94,14 +94,10 @@ pi install "$PWD"
 
 ### 迁移窗口（0.9.0 → 1.0.0）
 
-历史代码使用裸 key（"quota"、"mode"、"policy"、"context"）。为避免升级期起快，保留字面量兑底路由：
-
-- 精确 key `quota` / 含 `quota` → quota section
-- 精确 `mode` / 含 `policy` → config section
-- 精确 `mcp` / 含 `lsp` → integration section
-- 含 `context` / `qos` → context section
-
-1.0.0 将移除兑底（见 `legacyRouteOf` 上的 `@deprecated` 说明）。新 publisher 代码应使用 `statusKey()` 或显式 `setStatus("kind:subkey", ...)`。
+历史代码使用裸 key（"quota"、"mode"、"policy"、"context"）。0.9.0–1.0.0
+过渡期保留字面量兑底路由；1.0.0 兑底已移除（commit 后），未识别的
+字面量 key 一律归 misc。状态掉进 misc = 提示 publisher 升级
+使用 `statusKey("kind", "subkey")` 或显式 `"kind:subkey"`。
 
 完整视图同时展示会话累计用量和自定义 `usage:` 状态。移除状态行首的装饰性闪电、插头、齿轮与圆环，不改写数值、错误或警告。只有整条状态是 `Context N%` 或 `上下文 N%`，且与宿主占用四舍五入一致时才省略重复摘要；附带暂停、失败等文字的状态始终保留。
 

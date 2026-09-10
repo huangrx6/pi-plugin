@@ -225,9 +225,9 @@ type Section =
   | "misc";
 
 /**
- * Map a status key to its footer row. Prefix convention preferred;
- * substring heuristic is a best-effort fallback for keys without the
- * prefix. Generic keywords only — no specific extension is named.
+ * Map a status key to its footer row. 仅信任 kind: 前缀 (0.9.0+)；
+ * 未识别的 key 一律归入 misc。子集 "qos" / "lsp" / 裸 "policy"
+ * 等字面量兑底在 1.0.0 移除（migration 窗口结束）。
  */
 function sectionOf(key: string): Section {
   if (key.startsWith("quota:")) return "quota";
@@ -235,21 +235,6 @@ function sectionOf(key: string): Section {
   if (key.startsWith("context:")) return "context";
   if (key.startsWith("integration:")) return "integration";
   if (key.startsWith("config:")) return "config";
-  return legacyRouteOf(key);
-}
-
-/**
- * @deprecated 0.9.0 → 1.0.0 过渡期兑底：依赖具体扩展的字面量 key
- * ("quota"、"mode"、"policy"、"context" 等）不在扩展隔离铁律之内；
- * 新 publisher 必须改用 kind 前缀（statusKey()）。
- * 1.0.0 移除该函数（见 P1.1.9）。
- */
-function legacyRouteOf(key: string): Section {
-  const k = key.toLowerCase();
-  if (k === "mcp" || k.includes("lsp")) return "integration";
-  if (k === "mode" || k.includes("policy")) return "config";
-  if (k === "quota") return "quota";
-  if (k.includes("context") || k.includes("qos")) return "context";
   return "misc";
 }
 
