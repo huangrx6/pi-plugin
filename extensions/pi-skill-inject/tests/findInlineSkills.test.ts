@@ -20,23 +20,51 @@ import { findInlineSkills } from "../index.ts";
 
 function skillsFixture() {
   return [
-    { name: "design-api-contracts", description: "API design", path: "/p1", scope: "user" as const, source: "" },
-    { name: "token-economy", description: "Token usage", path: "/p2", scope: "user" as const, source: "" },
-    { name: "release-notes", description: "Release notes", path: "/p3", scope: "user" as const, source: "" },
+    {
+      name: "design-api-contracts",
+      description: "API design",
+      path: "/p1",
+      scope: "user" as const,
+      source: "",
+    },
+    {
+      name: "token-economy",
+      description: "Token usage",
+      path: "/p2",
+      scope: "user" as const,
+      source: "",
+    },
+    {
+      name: "release-notes",
+      description: "Release notes",
+      path: "/p3",
+      scope: "user" as const,
+      source: "",
+    },
   ];
 }
 
 describe("findInlineSkills: URL-ish skip", () => {
   it("skips '//' protocol head (e.g. https://foo)", () => {
-    const out = findInlineSkills("https://design-api-contracts", skillsFixture());
-    assert.deepEqual(out, [], "https://design-api-contracts 不应触发 skill 注入（// 前缀）");
+    const out = findInlineSkills(
+      "https://design-api-contracts",
+      skillsFixture(),
+    );
+    assert.deepEqual(
+      out,
+      [],
+      "https://design-api-contracts 不应触发 skill 注入（// 前缀）",
+    );
   });
   it("skips ':' port-style prefix (e.g. host:token-economy)", () => {
     const out = findInlineSkills("localhost:token-economy", skillsFixture());
     assert.deepEqual(out, []);
   });
   it("still matches plain /token (no leading // or :)", () => {
-    const out = findInlineSkills("see /design-api-contracts for spec", skillsFixture());
+    const out = findInlineSkills(
+      "see /design-api-contracts for spec",
+      skillsFixture(),
+    );
     assert.equal(out.length, 1);
     assert.equal(out[0].name, "design-api-contracts");
   });
@@ -64,11 +92,17 @@ describe("findInlineSkills: case-insensitive fallback", () => {
 
 describe("findInlineSkills: dedup", () => {
   it("same token twice → one entry", () => {
-    const out = findInlineSkills("/design-api-contracts /design-api-contracts", skillsFixture());
+    const out = findInlineSkills(
+      "/design-api-contracts /design-api-contracts",
+      skillsFixture(),
+    );
     assert.equal(out.length, 1);
   });
   it("case variations dedup", () => {
-    const out = findInlineSkills("/design-api-contracts /Design-API-Contracts", skillsFixture());
+    const out = findInlineSkills(
+      "/design-api-contracts /Design-API-Contracts",
+      skillsFixture(),
+    );
     assert.equal(out.length, 1, "同一 skill 不同大小写只入一次");
   });
 });

@@ -20,7 +20,9 @@ test("mode selector cancellation is silent and its title is terminal-safe", asyn
   const ctx = {
     ui: {
       setStatus() {},
-      notify(message: string) { notices.push(message); },
+      notify(message: string) {
+        notices.push(message);
+      },
       select: async (title: string) => {
         titles.push(title);
         return undefined;
@@ -39,9 +41,14 @@ test("mode selector cancellation is silent and its title is terminal-safe", asyn
 
 test("setStatus uses config:mode kind-prefix per footer-composer protocol", async () => {
   const setStatusCalls: Array<{ key: string; text: string | undefined }> = [];
-  let statusEvent: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
+  let statusEvent:
+    | ((event: unknown, ctx: unknown) => Promise<void>)
+    | undefined;
   modeExtension({
-    on(event: string, handler: (event: unknown, ctx: unknown) => Promise<void>) {
+    on(
+      event: string,
+      handler: (event: unknown, ctx: unknown) => Promise<void>,
+    ) {
       if (event === "session_start") statusEvent = handler;
     },
     registerCommand() {},
@@ -55,9 +62,19 @@ test("setStatus uses config:mode kind-prefix per footer-composer protocol", asyn
     },
   });
   // 至少有 1 次 status 写入（默认 mode 是 "smart"）
-  const modeCall = setStatusCalls.find(c => c.key === "config:mode");
-  assert.ok(modeCall, `expected setStatus("config:mode", ...) — got keys: ${setStatusCalls.map(c => c.key).join(", ")}`);
-  assert.ok(modeCall.text && modeCall.text.length > 0, "config:mode 应有有效文本");
+  const modeCall = setStatusCalls.find((c) => c.key === "config:mode");
+  assert.ok(
+    modeCall,
+    `expected setStatus("config:mode", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
+  );
+  assert.ok(
+    modeCall.text && modeCall.text.length > 0,
+    "config:mode 应有有效文本",
+  );
   // 旧裸 key "mode" 不应再使用
-  assert.equal(setStatusCalls.some(c => c.key === "mode"), false, "不应再使用裸 key 'mode'");
+  assert.equal(
+    setStatusCalls.some((c) => c.key === "mode"),
+    false,
+    "不应再使用裸 key 'mode'",
+  );
 });

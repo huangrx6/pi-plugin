@@ -29,8 +29,16 @@ function makeTempHistory(content) {
 test("readHistory: cross-session isolation — 不同 sessionId 的记录被过滤", async () => {
   const { dir, file } = makeTempHistory(
     [
-      JSON.stringify({ sessionId: "session-A", prompt: "first session task", usageTokens: { input: 100, output: 50 } }),
-      JSON.stringify({ sessionId: "session-B", prompt: "different session", usageTokens: { input: 200, output: 80 } }),
+      JSON.stringify({
+        sessionId: "session-A",
+        prompt: "first session task",
+        usageTokens: { input: 100, output: 50 },
+      }),
+      JSON.stringify({
+        sessionId: "session-B",
+        prompt: "different session",
+        usageTokens: { input: 200, output: 80 },
+      }),
     ].join("\n") + "\n",
   );
   try {
@@ -38,11 +46,15 @@ test("readHistory: cross-session isolation — 不同 sessionId 的记录被过�
     assert.equal(all.length, 2, "readHistory 默认返回所有记录");
 
     // 模拟 lifecycle.js filter: r.sessionId !== state.sessionId → drop
-    const filteredA = all.filter((r) => !r.sessionId || r.sessionId === "session-A");
+    const filteredA = all.filter(
+      (r) => !r.sessionId || r.sessionId === "session-A",
+    );
     assert.equal(filteredA.length, 1, "session A filter 只留 session-A");
     assert.equal(filteredA[0].prompt, "first session task");
 
-    const filteredB = all.filter((r) => !r.sessionId || r.sessionId === "session-B");
+    const filteredB = all.filter(
+      (r) => !r.sessionId || r.sessionId === "session-B",
+    );
     assert.equal(filteredB.length, 1, "session B filter 只留 session-B");
     assert.equal(filteredB[0].prompt, "different session");
   } finally {
@@ -54,12 +66,17 @@ test("readHistory: backward compat — 缺少 sessionId 的旧记录对所有 se
   const { dir, file } = makeTempHistory(
     [
       JSON.stringify({ prompt: "legacy record without sessionId" }),
-      JSON.stringify({ sessionId: "current", prompt: "current session record" }),
+      JSON.stringify({
+        sessionId: "current",
+        prompt: "current session record",
+      }),
     ].join("\n") + "\n",
   );
   try {
     const all = await readHistory(file);
-    const filtered = all.filter((r) => !r.sessionId || r.sessionId === "current");
+    const filtered = all.filter(
+      (r) => !r.sessionId || r.sessionId === "current",
+    );
     assert.equal(filtered.length, 2, "legacy record + current record 都保留");
     assert.equal(filtered[0].prompt, "legacy record without sessionId");
     assert.equal(filtered[1].prompt, "current session record");
@@ -78,7 +95,10 @@ test("readHistory: respects limit (scan-from-end optimization)", async () => {
     const out = await readHistory(file, 3);
     assert.equal(out.length, 3, "limit=3 只返回 3 条");
     // 扫描从末尾: 应返回最后 3 条(t-7/t-8/t-9),按时间正序
-    assert.deepEqual(out.map((r) => r.prompt), ["task-7", "task-8", "task-9"]);
+    assert.deepEqual(
+      out.map((r) => r.prompt),
+      ["task-7", "task-8", "task-9"],
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -101,7 +121,10 @@ test("readHistory: malformed lines skipped (don't crash)", async () => {
   try {
     const out = await readHistory(file);
     assert.equal(out.length, 2, "坏行被跳过,只有合法记录");
-    assert.deepEqual(out.map((r) => r.prompt), ["valid 1", "valid 2"]);
+    assert.deepEqual(
+      out.map((r) => r.prompt),
+      ["valid 1", "valid 2"],
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -15,10 +22,19 @@ export interface FooterConfig {
  * 旧字面量 key ("quota"、"mode"、"policy"...) 在 0.9.0-1.0.0
  * 过渡期通过 legacyRouteOf 兑底；1.0.0 移除兑底（见 P1.1.9）。
  */
-export type StatusKind = "quota" | "usage" | "context" | "integration" | "config" | "misc";
+export type StatusKind =
+  | "quota"
+  | "usage"
+  | "context"
+  | "integration"
+  | "config"
+  | "misc";
 
 /** 生成带 kind 前缀的 status key。 */
-export function statusKey(kind: Exclude<StatusKind, "misc">, subkey: string): string {
+export function statusKey(
+  kind: Exclude<StatusKind, "misc">,
+  subkey: string,
+): string {
   return `${kind}:${subkey}`;
 }
 
@@ -62,7 +78,9 @@ function parseConfig(raw: string, path: string): FooterConfig {
   return { mode };
 }
 
-export function createFooterConfigStore(path = footerConfigPath()): FooterConfigStore {
+export function createFooterConfigStore(
+  path = footerConfigPath(),
+): FooterConfigStore {
   return {
     load(): FooterConfig {
       if (!existsSync(path)) return { ...DEFAULT_FOOTER_CONFIG };

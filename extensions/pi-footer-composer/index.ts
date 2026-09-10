@@ -88,11 +88,12 @@ function formatCwd(cwd: string): string {
 
 function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
   const cells: Cell[] = [
-    makeCell(theme.fg("text", sanitize(formatCwd(ctx.sessionManager.getCwd())))),
+    makeCell(
+      theme.fg("text", sanitize(formatCwd(ctx.sessionManager.getCwd()))),
+    ),
   ];
   const branch = footerData.getGitBranch();
-  if (branch)
-    cells.push(makeCell(theme.fg("text", sanitize(branch))));
+  if (branch) cells.push(makeCell(theme.fg("text", sanitize(branch))));
   const sessionName = ctx.sessionManager.getSessionName();
   if (sessionName)
     cells.push(makeCell(theme.fg("text", sanitize(sessionName))));
@@ -100,7 +101,13 @@ function envCells(ctx: Ctx, footerData: FooterData, theme: Theme): Cell[] {
 }
 
 type UsageStats = {
-  totals: { input: number; output: number; cacheRead: number; cacheWrite: number; cost: number };
+  totals: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    cost: number;
+  };
   latestCacheHitRate?: number;
 };
 
@@ -151,7 +158,8 @@ function cacheHitText(stats: UsageStats): string | undefined {
   if (
     !(stats.totals.cacheRead || stats.totals.cacheWrite) ||
     stats.latestCacheHitRate === undefined
-  ) return undefined;
+  )
+    return undefined;
   return `命中 ${stats.latestCacheHitRate.toFixed(1)}%`;
 }
 
@@ -166,7 +174,8 @@ function usageCells(stats: UsageStats, theme: Theme): Cell[] {
   if (totals.input) parts.push(`输入 ${formatTokens(totals.input)}`);
   if (totals.output) parts.push(`输出 ${formatTokens(totals.output)}`);
   if (totals.cacheRead) parts.push(`缓存读 ${formatTokens(totals.cacheRead)}`);
-  if (totals.cacheWrite) parts.push(`缓存写 ${formatTokens(totals.cacheWrite)}`);
+  if (totals.cacheWrite)
+    parts.push(`缓存写 ${formatTokens(totals.cacheWrite)}`);
   const cacheHit = cacheHitText(stats);
   if (cacheHit) parts.push(cacheHit);
   if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
@@ -181,8 +190,10 @@ function contextCell(
 ): Cell[] {
   const usage = ctx.getContextUsage?.();
   const window = usage?.contextWindow ?? model?.contextWindow ?? 0;
-  const pct = typeof usage?.percent === "number" && Number.isFinite(usage.percent)
-    ? usage.percent : undefined;
+  const pct =
+    typeof usage?.percent === "number" && Number.isFinite(usage.percent)
+      ? usage.percent
+      : undefined;
   const text =
     pct === null || pct === undefined
       ? `上下文 ? / ${window > 0 ? formatTokens(window) : "?"}`
@@ -195,7 +206,9 @@ function contextCell(
         : pct > 70
           ? "warning"
           : "text";
-  return [makeCell(theme.fg(color, labelled ? text : text.replace(/^上下文 /, "")))];
+  return [
+    makeCell(theme.fg(color, labelled ? text : text.replace(/^上下文 /, ""))),
+  ];
 }
 
 function modelCells(
@@ -210,8 +223,14 @@ function modelCells(
     cells.push(makeCell(theme.fg("text", sanitize(model.provider))));
   if (model?.reasoning) {
     const level = thinkingLevel || "off";
-    cells.push(makeCell(theme.fg("text", level === "off"
-      ? "思考关闭" : `思考 ${sanitize(level)}`)));
+    cells.push(
+      makeCell(
+        theme.fg(
+          "text",
+          level === "off" ? "思考关闭" : `思考 ${sanitize(level)}`,
+        ),
+      ),
+    );
   }
   return cells;
 }
@@ -263,15 +282,22 @@ function statusGroups(
   for (const [key, text] of entries) {
     // Remove decorative leading pictographs only. Keep words, numbers and
     // meaningful warning/check symbols intact; never reinterpret status data.
-    const clean = sanitize(text).split("\n").map(line =>
-      line.replace(/^(?:[⚡🔌⚙◎]\uFE0F?\s*)+/u, ""),
-    ).join("\n");
+    const clean = sanitize(text)
+      .split("\n")
+      .map((line) => line.replace(/^(?:[⚡🔌⚙◎]\uFE0F?\s*)+/u, ""))
+      .join("\n");
     const section = sectionOf(key);
-    const contextSummary = section === "context"
-      ? clean.match(/^(?:Context|上下文)\s+(\d+(?:\.\d+)?)%$/i) : null;
-    if (contextSummary && typeof contextPercent === "number" &&
+    const contextSummary =
+      section === "context"
+        ? clean.match(/^(?:Context|上下文)\s+(\d+(?:\.\d+)?)%$/i)
+        : null;
+    if (
+      contextSummary &&
+      typeof contextPercent === "number" &&
       Number.isFinite(contextPercent) &&
-      Math.round(Number(contextSummary[1])) === Math.round(contextPercent)) continue;
+      Math.round(Number(contextSummary[1])) === Math.round(contextPercent)
+    )
+      continue;
     if (!clean) continue;
     groups[section].push(makeCell(theme.fg("text", clean)));
   }
@@ -341,57 +367,101 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
         );
         return {
           render: (width: number) => {
-            const sections = statusGroups(footerData, theme, activeCtx?.getContextUsage?.()?.percent);
+            const sections = statusGroups(
+              footerData,
+              theme,
+              activeCtx?.getContextUsage?.()?.percent,
+            );
             const usage = collectUsageStats(activeCtx as Ctx);
             const labelCells = (cells: Cell[], labels: string | string[]) =>
               cells.map((cell, index) => {
-                const label = typeof labels === "string" ? labels : labels[index];
+                const label =
+                  typeof labels === "string" ? labels : labels[index];
                 return `${label ? `${label}  ` : ""}${cell.text}`;
               });
-            const environmentItems = () => labelCells(
-              envCells(activeCtx as Ctx, footerData, theme),
-              ["", ...(footerData.getGitBranch() ? ["分支"] : []), "会话"],
-            );
-            const modelItems = () => labelCells(
-              modelCells(
-                theme,
-                activeModel,
-                activeThinking,
-                footerData.getAvailableProviderCount(),
-              ),
-              ["", ...(activeModel?.provider && footerData.getAvailableProviderCount() > 1
-                ? ["平台"] : [])],
-            );
+            const environmentItems = () =>
+              labelCells(envCells(activeCtx as Ctx, footerData, theme), [
+                "",
+                ...(footerData.getGitBranch() ? ["分支"] : []),
+                "会话",
+              ]);
+            const modelItems = () =>
+              labelCells(
+                modelCells(
+                  theme,
+                  activeModel,
+                  activeThinking,
+                  footerData.getAvailableProviderCount(),
+                ),
+                [
+                  "",
+                  ...(activeModel?.provider &&
+                  footerData.getAvailableProviderCount() > 1
+                    ? ["平台"]
+                    : []),
+                ],
+              );
             if (footerMode === "compact") {
-              return renderGrid([
-                { label: "路径", items: environmentItems() },
-                { label: "模型", items: [
-                  ...modelItems(),
-                  ...labelCells(sections.quota, "额度"),
-                ] },
-                { label: "状态", items: labelCells([
-                    ...contextCell(activeCtx as Ctx, theme, activeModel),
-                    ...cacheHitCells(usage, theme),
-                    ...sections.context,
-                    ...sections.config,
-                    ...sections.misc,
-                  ], "") },
+              return renderGrid(
+                [
+                  { label: "路径", items: environmentItems() },
+                  {
+                    label: "模型",
+                    items: [
+                      ...modelItems(),
+                      ...labelCells(sections.quota, "额度"),
+                    ],
+                  },
+                  {
+                    label: "状态",
+                    items: labelCells(
+                      [
+                        ...contextCell(activeCtx as Ctx, theme, activeModel),
+                        ...cacheHitCells(usage, theme),
+                        ...sections.context,
+                        ...sections.config,
+                        ...sections.misc,
+                      ],
+                      "",
+                    ),
+                  },
                 ],
                 width,
                 theme,
               );
             }
-            return renderGrid([
+            return renderGrid(
+              [
                 { label: "路径", items: environmentItems() },
                 { label: "模型", items: modelItems() },
                 { label: "额度", items: labelCells(sections.quota, "") },
-                { label: "窗口", items: labelCells([
-                  ...contextCell(activeCtx as Ctx, theme, activeModel, false),
-                  ...sections.context,
-                ], "") },
-                { label: "用量", items: labelCells([...usageCells(usage, theme), ...sections.usage], "") },
+                {
+                  label: "窗口",
+                  items: labelCells(
+                    [
+                      ...contextCell(
+                        activeCtx as Ctx,
+                        theme,
+                        activeModel,
+                        false,
+                      ),
+                      ...sections.context,
+                    ],
+                    "",
+                  ),
+                },
+                {
+                  label: "用量",
+                  items: labelCells(
+                    [...usageCells(usage, theme), ...sections.usage],
+                    "",
+                  ),
+                },
                 { label: "集成", items: labelCells(sections.integration, "") },
-                { label: "状态", items: labelCells([...sections.config, ...sections.misc], "") },
+                {
+                  label: "状态",
+                  items: labelCells([...sections.config, ...sections.misc], ""),
+                },
               ],
               width,
               theme,
@@ -410,13 +480,17 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
   const switchFooter = (mode: FooterMode, ctx: FooterCtx): void => {
     footerMode = mode;
     mountFooter(ctx);
-    const label = mode === "compact" ? "紧凑" : mode === "full" ? "完整" : "Pi 原生";
+    const label =
+      mode === "compact" ? "紧凑" : mode === "full" ? "完整" : "Pi 原生";
     try {
       configStore.save({ mode });
       ctx.ui.notify(`Footer · ${label} · 已保存`, "info");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      ctx.ui.notify(`Footer 已切换为${label}，但配置保存失败：${message}`, "warning");
+      ctx.ui.notify(
+        `Footer 已切换为${label}，但配置保存失败：${message}`,
+        "warning",
+      );
     }
   };
 
@@ -424,7 +498,9 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
     description: "切换紧凑、完整或 Pi 原生 Footer",
     handler: async (args: string, rawCtx: FooterCtx) => {
       const ctx = rawCtx as FooterCtx;
-      const value = String(args ?? "").trim().toLowerCase();
+      const value = String(args ?? "")
+        .trim()
+        .toLowerCase();
       if (value === "compact" || value === "full" || value === "native") {
         switchFooter(value, ctx);
         return;
@@ -457,7 +533,10 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
     } catch (error) {
       footerMode = DEFAULT_FOOTER_CONFIG.mode;
       const message = error instanceof Error ? error.message : String(error);
-      footerCtx.ui.notify(`Footer 配置无效，已使用紧凑模式：${message}`, "warning");
+      footerCtx.ui.notify(
+        `Footer 配置无效，已使用紧凑模式：${message}`,
+        "warning",
+      );
     }
     mountFooter(footerCtx);
   });

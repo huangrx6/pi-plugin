@@ -49,9 +49,17 @@ declare module "@earendil-works/pi-coding-agent" {
         signal: AbortSignal,
         onUpdate: ((chunk: unknown) => void) | undefined,
         ctx: any,
-      ) => Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown }>;
+      ) => Promise<{
+        content: Array<{ type: "text"; text: string }>;
+        details?: unknown;
+      }>;
       renderCall?: (args: any, theme: any, context: any) => unknown;
-      renderResult?: (result: any, options: any, theme: any, context: any) => unknown;
+      renderResult?: (
+        result: any,
+        options: any,
+        theme: any,
+        context: any,
+      ) => unknown;
     }): void;
     /** 注册自定义 entry 渲染器（用于 session 内 custom entry 在
      *  TUI 的卡片化展示）。 */
@@ -72,7 +80,11 @@ declare module "@earendil-works/pi-coding-agent" {
     registerMarkdownTransformer(
       transformer: (
         markdown: string,
-        ctx: { messageType: "user" | "assistant" | "assistant-thinking"; isStreaming: boolean; availableWidth?: number },
+        ctx: {
+          messageType: "user" | "assistant" | "assistant-thinking";
+          isStreaming: boolean;
+          availableWidth?: number;
+        },
       ) => string,
     ): void;
     /** 写一条 session entry（不进入 LLM context，但可见于 /loaded-skills
@@ -81,7 +93,10 @@ declare module "@earendil-works/pi-coding-agent" {
     /** 注入一条自定义消息（进 LLM context + TUI 渲染）。可选触发轮次。 */
     sendMessage(
       message: { customType: string; content: string; display: boolean },
-      options: { triggerTurn?: boolean; deliverAs: "followUp" | "steer" | "nextTurn" },
+      options: {
+        triggerTurn?: boolean;
+        deliverAs: "followUp" | "steer" | "nextTurn";
+      },
     ): void;
     /** 取已注册命令列表（pi 0.85 新 API）。 */
     getCommands?(): unknown[];
@@ -92,9 +107,19 @@ declare module "@earendil-works/pi-coding-agent" {
     /** 设置活跃工具。 */
     setActiveTools?(names: string[]): void;
     /** 注册快捷键。 */
-    registerShortcut?(id: string, options: { description: string; handler: (ctx: any) => void }): void;
+    registerShortcut?(
+      id: string,
+      options: { description: string; handler: (ctx: any) => void },
+    ): void;
     /** 注册 CLI flag。 */
-    registerFlag?(name: string, options: { description: string; type?: "boolean" | "string"; default?: unknown }): void;
+    registerFlag?(
+      name: string,
+      options: {
+        description: string;
+        type?: "boolean" | "string";
+        default?: unknown;
+      },
+    ): void;
   }
 
   // ExtensionContext：仓库内最宽用法。同 ExtensionAPI 原则，宽松。
@@ -103,7 +128,13 @@ declare module "@earendil-works/pi-coding-agent" {
     /** 当前工作目录。 */
     cwd: string;
     /** 当前模型（pi 0.85+：null 在未选模型 / 已选未响应窗口期）。 */
-    model: { id?: string; provider?: string; reasoning?: boolean; contextWindow?: number; baseUrl?: string } | null;
+    model: {
+      id?: string;
+      provider?: string;
+      reasoning?: boolean;
+      contextWindow?: number;
+      baseUrl?: string;
+    } | null;
     /** thinking 等级。 */
     thinkingLevel: string | undefined;
     /** 输出模式。 */
@@ -111,7 +142,9 @@ declare module "@earendil-works/pi-coding-agent" {
     /** UI 是否可用（false 表示 RPC / json 模式）。 */
     hasUI: boolean;
     /** 上下文用量（pi 0.85+）。 */
-    getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+    getContextUsage?():
+      | { tokens: number | null; contextWindow: number; percent: number | null }
+      | undefined;
     /** session 是否空闲（pi 0.85+）。 */
     isIdle?(): boolean;
     /** session 是否有 pending 消息。 */
@@ -128,13 +161,33 @@ declare module "@earendil-works/pi-coding-agent" {
     ui: {
       notify(message: string, level?: string): void;
       setStatus(key: string, text: string | undefined): void;
-      setWidget?(key: string, value: unknown, options?: { placement?: string }): void;
-      setFooter?(renderer: ((tui: any, theme: any, footerData: any) => unknown) | undefined): void;
+      setWidget?(
+        key: string,
+        value: unknown,
+        options?: { placement?: string },
+      ): void;
+      setFooter?(
+        renderer:
+          | ((tui: any, theme: any, footerData: any) => unknown)
+          | undefined,
+      ): void;
       select(title: string, options: string[]): Promise<string | undefined>;
       confirm(title: string, message: string): Promise<boolean>;
-      input?(title: string, placeholder?: string, options?: unknown): Promise<string | undefined>;
+      input?(
+        title: string,
+        placeholder?: string,
+        options?: unknown,
+      ): Promise<string | undefined>;
       editor?(title: string, prefilled?: string): Promise<string | undefined>;
-      custom?(factory: (tui: any, theme: any, keybindings: any, done: (value: any) => void) => unknown, options?: unknown): Promise<any>;
+      custom?(
+        factory: (
+          tui: any,
+          theme: any,
+          keybindings: any,
+          done: (value: any) => void,
+        ) => unknown,
+        options?: unknown,
+      ): Promise<any>;
       addAutocompleteProvider?(provider: unknown): void;
       pasteToEditor?(text: string): void;
       getEditorText?(): string;

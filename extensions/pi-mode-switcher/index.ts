@@ -66,7 +66,12 @@ function defaultAgentDir(): string {
 
 export function modeConfigPaths(agentDir = defaultAgentDir()) {
   return {
-    current: join(agentDir, "extensions-data", "pi-mode-switcher", "config.json"),
+    current: join(
+      agentDir,
+      "extensions-data",
+      "pi-mode-switcher",
+      "config.json",
+    ),
   };
 }
 

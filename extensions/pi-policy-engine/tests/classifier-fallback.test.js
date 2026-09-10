@@ -29,10 +29,22 @@ const routing = JSON.parse(
 
 // 5 条代表性 prompt × 4 个 LLM 失败模式 = "回滚目标决策"表
 const PROMPTS = [
-  { name: "bug investigation", text: "这个接口最近偶尔返回旧数据，帮我排查 bug 并修复" },
-  { name: "PG migration design", text: "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚" },
-  { name: "k8s production change", text: "k8s deployment 的 hostPath 挂载需要调整，生产环境不能停机" },
-  { name: "documentation tweak", text: "帮我只改 README 里的一处 Tab 补全描述" },
+  {
+    name: "bug investigation",
+    text: "这个接口最近偶尔返回旧数据，帮我排查 bug 并修复",
+  },
+  {
+    name: "PG migration design",
+    text: "设计 PostgreSQL 数据库迁移方案，线上不能停机，需要回滚",
+  },
+  {
+    name: "k8s production change",
+    text: "k8s deployment 的 hostPath 挂载需要调整，生产环境不能停机",
+  },
+  {
+    name: "documentation tweak",
+    text: "帮我只改 README 里的一处 Tab 补全描述",
+  },
   { name: "research task", text: "调研一下当前业界主流的向量数据库选型对比" },
 ];
 

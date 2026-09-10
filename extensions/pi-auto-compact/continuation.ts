@@ -7,7 +7,10 @@ export interface ContinuationContext {
   sessionManager: { getSessionId(): string };
   compact(options: {
     customInstructions: string;
-    onComplete(result: { tokensBefore: number; estimatedTokensAfter?: number }): void;
+    onComplete(result: {
+      tokensBefore: number;
+      estimatedTokensAfter?: number;
+    }): void;
     onError(error: Error): void;
   }): void | Promise<void>;
 }
@@ -24,10 +27,22 @@ export function changedInstructions(active: string, base: string): string {
   const before = active.split("\n");
   const after = base.split("\n");
   let start = 0;
-  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  while (
+    start < before.length &&
+    start < after.length &&
+    before[start] === after[start]
+  )
+    start++;
   let end = before.length;
   let baseEnd = after.length;
-  while (end > start && baseEnd > start && before[end - 1] === after[baseEnd - 1]) { end--; baseEnd--; }
+  while (
+    end > start &&
+    baseEnd > start &&
+    before[end - 1] === after[baseEnd - 1]
+  ) {
+    end--;
+    baseEnd--;
+  }
   return before.slice(start, end).join("\n").trim();
 }
 
@@ -38,7 +53,10 @@ export class CompactionContinuation {
   private continuationPrompt: string | undefined;
 
   constructor(
-    private readonly resume: (objective: string, activeInstructions: string) => void,
+    private readonly resume: (
+      objective: string,
+      activeInstructions: string,
+    ) => void,
     private readonly notice: (notice: CompactionNotice) => void,
   ) {}
 
@@ -57,7 +75,9 @@ export class CompactionContinuation {
     this.continuationPrompt = undefined;
   }
 
-  get isPending(): boolean { return this.pending !== undefined; }
+  get isPending(): boolean {
+    return this.pending !== undefined;
+  }
 
   observePressure(overBudget: boolean): void {
     // A successful request must actually get below the threshold before it can
@@ -65,39 +85,61 @@ export class CompactionContinuation {
     if (!overBudget && !this.pending) this.attempted = false;
   }
 
-  request(ctx: ContinuationContext, objective: string, basePrompt?: string): boolean {
-    if (this.pending || this.attempted || ctx.signal?.aborted ||
-        ctx.isIdle() || ctx.hasPendingMessages()) return false;
+  request(
+    ctx: ContinuationContext,
+    objective: string,
+    basePrompt?: string,
+  ): boolean {
+    if (
+      this.pending ||
+      this.attempted ||
+      ctx.signal?.aborted ||
+      ctx.isIdle() ||
+      ctx.hasPendingMessages()
+    )
+      return false;
     this.attempted = true;
     const token = {};
     this.pending = token;
     const generation = this.generation;
     const sessionId = ctx.sessionManager.getSessionId();
-    const activePrompt = this.continuationPrompt ?? ctx.getSystemPrompt?.() ?? "";
-    const current = () => this.pending === token && generation === this.generation &&
+    const activePrompt =
+      this.continuationPrompt ?? ctx.getSystemPrompt?.() ?? "";
+    const current = () =>
+      this.pending === token &&
+      generation === this.generation &&
       ctx.sessionManager.getSessionId() === sessionId;
     const onError = (error: Error) => {
       if (!current()) return;
       this.pending = undefined;
-      this.publishNotice({ status: "failed", text: `上下文压缩未完成：${error.message}。未自动重试；可查看 /context。` });
+      this.publishNotice({
+        status: "failed",
+        text: `上下文压缩未完成：${error.message}。未自动重试；可查看 /context。`,
+      });
     };
     try {
       // 0.5.0 兼容：pi 0.85 中 ctx.compact 是 callback 同步调用，调用本身
       // 返回 void；如果未来改为返回 Promise，这里挂 catch 兑底 async
       // rejection（try/catch 抓不住 thenable 错）。
       const result = ctx.compact({
-        customInstructions: "Preserve the current user objective, explicit constraints, unresolved evidence, modified files, decisions. Identify the next unfinished step and distinguish completed operations from pending ones.",
-        onComplete: result => {
+        customInstructions:
+          "Preserve the current user objective, explicit constraints, unresolved evidence, modified files, decisions. Identify the next unfinished step and distinguish completed operations from pending ones.",
+        onComplete: (result) => {
           if (!current()) return;
           this.pending = undefined;
           const resume = ctx.isIdle() && !ctx.hasPendingMessages();
           if (resume) {
             this.continuationPrompt = activePrompt;
-            this.resume(objective, changedInstructions(activePrompt, basePrompt ?? ""));
+            this.resume(
+              objective,
+              changedInstructions(activePrompt, basePrompt ?? ""),
+            );
           }
           this.publishNotice({
             status: resume ? "resumed" : "completed",
-            text: resume ? "上下文已压缩，已请求继续当前任务。" : "上下文已压缩，优先处理当前运行或新指令。",
+            text: resume
+              ? "上下文已压缩，已请求继续当前任务。"
+              : "上下文已压缩，优先处理当前运行或新指令。",
             tokensBefore: result.tokensBefore,
             tokensAfter: result.estimatedTokensAfter,
           });

@@ -96,7 +96,13 @@ describe("statusKey factory", () => {
 
 describe("round-trip: factory output matches sectionOf", () => {
   it("all valid kinds round-trip to the right section", () => {
-    for (const kind of ["quota", "usage", "context", "integration", "config"] as const) {
+    for (const kind of [
+      "quota",
+      "usage",
+      "context",
+      "integration",
+      "config",
+    ] as const) {
       const k = statusKey(kind, "main");
       assert.equal(sectionOf(k), kind, `kind=${kind} key=${k}`);
     }
