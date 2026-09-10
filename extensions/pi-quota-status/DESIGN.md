@@ -1,4 +1,4 @@
-# Design — pi-quota-status 0.2.1
+# Design — pi-quota-status 0.3.0
 
 > 本文档记录 pi-quota-status 的内部架构与关键决策，补充 README 的用户视角。
 > 扩展独立性铁律：不修改其他扩展的状态、不依赖其命令或事件。
@@ -19,7 +19,7 @@
 │ ui (index.ts: publish / /quota 命令)    │ ← 唯一与 Pi 交互的层
 │   ctx.setStatus / ctx.ui.select / notify │   渲染色用主题
 └─────────────────────────────────────────┘
-```text
+```
 
 adapter 错误隔离：单个 provider 失败不污染其它；state.errorText 累积但 state.quotaData 在成功 refresh 时重写。
 
@@ -67,14 +67,9 @@ state 改变时通过 `controller?.abort()` 取消在飞的 fetch（避免过期
 
 非 TUI 模式（RPC / json / print）走 `ctx.ui.notify(...)` 单行输出，不开 dialog。
 
-## status key 协议（0.9.0 → 1.0.0）
+## 状态发布
 
-`extensions/pi-footer-composer` 协议要求 setStatus key 带 `kind:` 前缀：
-
-- `WIDGET_KEY = "quota:main"`：主路径，footer 收 prefix 路由
-- `LEGACY_WIDGET_KEY = "quota"`：过渡期双写（1.0.0 移除）
-
-`publish()` 在同一处对两个 key 写同一文本，旧 footer 仍能识别，新 footer 走 prefix 路由。
+`publish()` 只使用扩展自有 key `pi-quota-status` 发布一份简短额度摘要。key 是本扩展稳定的公开标识，不编码显示位置或分类，也不重复发布兼容别名。
 
 ## 已知边界
 

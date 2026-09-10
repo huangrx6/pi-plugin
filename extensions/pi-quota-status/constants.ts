@@ -6,7 +6,7 @@
 
 // ── Timing ─────────────────────────────────────────────────────────────
 
-export const WIDGET_KEY = "quota:main";
+export const STATUS_KEY = "pi-quota-status";
 
 export const TURN_THROTTLE_MS = 10 * 1000;
 export const TREE_THROTTLE_MS = 5 * 1000;

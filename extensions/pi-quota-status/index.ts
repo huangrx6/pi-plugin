@@ -1,7 +1,7 @@
 /** Independent quota panel plus an optional native status summary. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ADAPTERS, subscriptionForProvider } from "./adapters.ts";
-import { TREE_THROTTLE_MS, TURN_THROTTLE_MS, WIDGET_KEY } from "./constants.ts";
+import { STATUS_KEY, TREE_THROTTLE_MS, TURN_THROTTLE_MS } from "./constants.ts";
 import { buildQuotaText } from "./format.ts";
 import { createMonitor } from "./monitor.ts";
 import { quotaDiagnostics, quotaSummary } from "./panel.ts";
@@ -25,12 +25,7 @@ export default function (pi: ExtensionAPI): void {
     if (ctx.hasUI === false) return;
     try {
       const text = buildQuotaText(monitor.state) ?? undefined;
-      // 1.0.1: 移除 LEGACY_WIDGET_KEY 双写。
-      // 1.0.0 (commit ba0fa4a) 移除了 footer-composer 的 legacyRouteOf
-      // 兑底；裸 key "quota" 现在会被 sectionOf 兜底归入 "misc"，
-      // 与主路径 "quota:main"（归 "quota" 段）冲突，导致同一份文本
-      // 在「额度」和「状态」段重复显示。统一走主路径。
-      ctx.ui.setStatus(WIDGET_KEY, text);
+      ctx.ui.setStatus(STATUS_KEY, text);
     } catch {
       /* A replaced context owns no current UI. */
     }

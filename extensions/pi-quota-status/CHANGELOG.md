@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0 - 2026-09-10
+
+- 状态发布 key 改为扩展自有名称 `pi-quota-status`，不再编码外部布局类别。
+- 删除历史双写与前缀路由说明，保持单一发布源。
+
 ## 0.2.1
 
 - Make `/quota` a concise daily view with readable usage meters, current values, refresh time, and state-specific errors. Move endpoints, credential names, adapter scope, and verification caveats into a secondary “数据来源与诊断” view and `/quota sources`.

@@ -177,7 +177,7 @@ test("/quota independently opens details and refreshes without a custom footer",
   assert.doesNotMatch(panels[1], /api.deepseek.com/);
 });
 
-test("publish writes only WIDGET_KEY (kind-prefix) — 1.0.0+ removed LEGACY dual-write", async (t) => {
+test("publish writes only the extension-owned status key", async (t) => {
   credentials(t);
   t.mock.method(globalThis, "fetch", async () => balance("42"));
   const commands = new Map<string, any>();
@@ -201,28 +201,18 @@ test("publish writes only WIDGET_KEY (kind-prefix) — 1.0.0+ removed LEGACY dua
       },
     },
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
-  // 走 /quota 命令（await update() 等待 refresh 完成 → publish 同步发生），
-  // session_start 丢 promise 不可靠。
+  // 走 /quota 命令，等待 refresh 完成后检查最后一次有效发布。
   await commands.get("quota")("", ctx);
-  // publish 被调两次：加载中（text=undefined） + 成功（text 有值）。
-  // 取最后一次成功的那次。
+  // publish 被调两次：加载中（text=undefined）和成功（text 有值）。
   const main = [...setStatusCalls]
     .reverse()
-    .find((c) => c.key === "quota:main");
-  const legacy = [...setStatusCalls].reverse().find((c) => c.key === "quota");
+    .find((c) => c.key === "pi-quota-status");
   assert.ok(
     main,
-    `expected setStatus("quota:main", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
+    `expected setStatus("pi-quota-status", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
   );
   assert.ok(main.text && main.text.length > 0, "主 key 应有有效文本");
-  // 1.0.0+：LEGACY_WIDGET_KEY 双写已移除。旧 footer 1.0.0 之前会同时收到
-  // "quota" 和 "quota:main"，两段归类不重叠（"quota" 兜底归 misc vs
-  // "quota:main" 归 quota），导致同一份文本在「额度」和「状态」段重复显示。
-  assert.equal(
-    legacy,
-    undefined,
-    `expected NO setStatus("quota", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
-  );
+  assert.equal(new Set(setStatusCalls.map((call) => call.key)).size, 1);
 });
 
 test("/quota keeps diagnostics secondary and non-TUI output non-interactive", async (t) => {
