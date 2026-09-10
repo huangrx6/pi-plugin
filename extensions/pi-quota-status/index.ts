@@ -1,11 +1,7 @@
 /** Independent quota panel plus an optional native status summary. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ADAPTERS, subscriptionForProvider } from "./adapters.ts";
-import {
-  TREE_THROTTLE_MS,
-  TURN_THROTTLE_MS,
-  WIDGET_KEY,
-} from "./constants.ts";
+import { TREE_THROTTLE_MS, TURN_THROTTLE_MS, WIDGET_KEY } from "./constants.ts";
 import { buildQuotaText } from "./format.ts";
 import { createMonitor } from "./monitor.ts";
 import { quotaDiagnostics, quotaSummary } from "./panel.ts";

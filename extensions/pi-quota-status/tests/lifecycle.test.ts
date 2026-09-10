@@ -214,10 +214,7 @@ test("publish writes only WIDGET_KEY (kind-prefix) — 1.0.0+ removed LEGACY dua
     main,
     `expected setStatus("quota:main", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
   );
-  assert.ok(
-    main.text && main.text.length > 0,
-    "主 key 应有有效文本",
-  );
+  assert.ok(main.text && main.text.length > 0, "主 key 应有有效文本");
   // 1.0.0+：LEGACY_WIDGET_KEY 双写已移除。旧 footer 1.0.0 之前会同时收到
   // "quota" 和 "quota:main"，两段归类不重叠（"quota" 兜底归 misc vs
   // "quota:main" 归 quota），导致同一份文本在「额度」和「状态」段重复显示。
