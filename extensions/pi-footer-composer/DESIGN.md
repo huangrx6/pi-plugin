@@ -62,8 +62,8 @@ config:       → config section
 
 `/footer [compact|full|native]`：
 
-- compact：3 行表格（路径、模型、状态）
-- full：7 行（路径/模型/额度/窗口/用量/集成/状态）
+- compact：4 行表格（路径、模型、上下文、状态）
+- full：8 行（路径/模型/额度/窗口/上下文/用量/集成/状态）
 - native：清空 footer，恢复 pi 内置 default
 - 无参数：交互式选择器
 

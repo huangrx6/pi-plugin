@@ -14,27 +14,49 @@ test("configured full footer renders and compact/native selections persist", asy
   let selection: string | undefined;
   let branch: string | null = "main";
   const savedModes: string[] = [];
-  footerExtension({
-    on(name: string, handler: Function) { handlers.set(name, handler); },
-    registerCommand(_name: string, definition: { handler: Function }) {
-      command = definition.handler;
+  footerExtension(
+    {
+      on(name: string, handler: Function) {
+        handlers.set(name, handler);
+      },
+      registerCommand(_name: string, definition: { handler: Function }) {
+        command = definition.handler;
+      },
+    } as never,
+    {
+      configStore: {
+        load: () => ({ mode: "full" }),
+        save: ({ mode }) => savedModes.push(mode),
+      },
     },
-  } as never, {
-    configStore: {
-      load: () => ({ mode: "full" }),
-      save: ({ mode }) => savedModes.push(mode),
-    },
-  });
+  );
 
   const ctx = {
-    model: { id: "model\u001b]9;bad\u0007", provider: "provider", reasoning: true, contextWindow: 128_000 },
+    model: {
+      id: "model\u001b]9;bad\u0007",
+      provider: "provider",
+      reasoning: true,
+      contextWindow: 128_000,
+    },
     thinkingLevel: "high",
     sessionManager: {
-      getEntries: () => [{ type: "message", message: { role: "assistant", usage: { input: 4000000, output: 147000, cacheRead: 58000000 } } }],
+      getEntries: () => [
+        {
+          type: "message",
+          message: {
+            role: "assistant",
+            usage: { input: 4000000, output: 147000, cacheRead: 58000000 },
+          },
+        },
+      ],
       getCwd: () => "/tmp/project",
       getSessionName: () => "session",
     },
-    getContextUsage: () => ({ tokens: 1000, contextWindow: 128_000, percent: 12 }),
+    getContextUsage: () => ({
+      tokens: 1000,
+      contextWindow: 128_000,
+      percent: 12,
+    }),
     ui: {
       setFooter: (renderer: unknown) => footerCalls.push(renderer),
       select: async () => selection,
@@ -45,20 +67,26 @@ test("configured full footer renders and compact/native selections persist", asy
   const renderer = footerCalls.at(-1) as Function;
   const component = renderer(
     { requestRender() {} },
-    { fg: (color: string, text: string) => {
-      assert.ok(["text", "muted", "warning", "error", "dim"].includes(color));
-      return text;
-    }, bold: () => { throw new Error("Footer must use uniform font weight"); } },
+    {
+      fg: (color: string, text: string) => {
+        assert.ok(["text", "muted", "warning", "error", "dim"].includes(color));
+        return text;
+      },
+      bold: () => {
+        throw new Error("Footer must use uniform font weight");
+      },
+    },
     {
       getGitBranch: () => branch,
-      getExtensionStatuses: () => new Map([
-        ["config:mode", "⚙ 权限 smart"],
-        ["integration:mcp", "🔌 MCP ready"],
-        ["quota:account", "⚡GLM 5h: 37%"],
-        ["context:summary", "◎ Context 12%"],
-        ["context:paused", "◎ Context 12% · 暂停"],
-        ["usage:custom", "额外用量 42"],
-      ]),
+      getExtensionStatuses: () =>
+        new Map([
+          ["config:mode", "⚙ 权限 smart"],
+          ["integration:mcp", "🔌 MCP ready"],
+          ["quota:account", "⚡GLM 5h: 37%"],
+          ["context:summary", "◎ Context 12%"],
+          ["context:paused", "◎ Context 12% · 暂停"],
+          ["usage:custom", "额外用量 42"],
+        ]),
       getAvailableProviderCount: () => 2,
       onBranchChange: () => () => {},
     },
@@ -66,7 +94,11 @@ test("configured full footer renders and compact/native selections persist", asy
   const full = component.render(200);
   assert.ok(full[0].startsWith("────────┬"));
   assert.ok(full.at(-1).startsWith("────────┴"));
-  assert.equal(full.length, 17, "eight category rows and nine horizontal rules");
+  assert.equal(
+    full.length,
+    17,
+    "eight category rows and nine horizontal rules",
+  );
   assert.match(full.join("\n"), /状态 {3}│/);
   assert.match(full.join("\n"), /模型\s+│\s+model.*平台\s+provider.*思考 high/);
   assert.match(full.join("\n"), /平台\s+provider/);
@@ -85,7 +117,11 @@ test("configured full footer renders and compact/native selections persist", asy
   assert.match(full.join("\n"), /MCP ready/);
   assert.doesNotMatch(full.join("\n"), /\u001b\]9|bad|⚡|🔌|⚙|◎/);
   for (const width of [1, 5, 6, 12, 40, 80, 120]) {
-    assert.ok(component.render(width).every((line: string) => visibleWidth(line) <= width));
+    assert.ok(
+      component
+        .render(width)
+        .every((line: string) => visibleWidth(line) <= width),
+    );
   }
   branch = null;
   const withoutBranch = component.render(200).join("\n");
@@ -97,24 +133,42 @@ test("configured full footer renders and compact/native selections persist", asy
   const fullRenderer = footerCalls.at(-1) as Function;
   const compact = fullRenderer(
     { requestRender() {} },
-    { fg: (_color: string, text: string) => text, bold: (text: string) => text },
+    {
+      fg: (_color: string, text: string) => text,
+      bold: (text: string) => text,
+    },
     {
       getGitBranch: () => "main",
-      getExtensionStatuses: () => new Map([
-        ["config:mode", "权限 smart"],
-        ["integration:mcp", "MCP ready"],
-        ["quota:account", "GLM 5h: 37%"],
-      ]),
+      getExtensionStatuses: () =>
+        new Map([
+          ["config:mode", "权限 smart"],
+          ["integration:mcp", "MCP ready"],
+          ["quota:account", "GLM 5h: 37%"],
+        ]),
       getAvailableProviderCount: () => 1,
       onBranchChange: () => () => {},
     },
   ).render(200);
-  assert.equal(compact.length, 7, "three category rows and four horizontal rules");
-  assert.ok(compact[0].startsWith("──────┬"));
-  assert.ok(compact.at(-1)?.startsWith("──────┴"));
-  assert.match(compact.join("\n"), /路径\s+│\s+\/tmp\/project.*分支\s+main.*会话\s+session/);
-  assert.match(compact.join("\n"), /模型\s+│\s+model.*思考 high.*额度\s+GLM 5h: 37%/);
-  assert.match(compact.join("\n"), /状态\s+│\s+上下文 12.0% \/ 128k.*命中 93.5%.*权限 smart/);
+  assert.equal(
+    compact.length,
+    9,
+    "four category rows and five horizontal rules",
+  );
+  assert.ok(compact[0].startsWith("────────┬"));
+  assert.ok(compact.at(-1)?.startsWith("────────┴"));
+  assert.match(
+    compact.join("\n"),
+    /路径\s+│\s+\/tmp\/project.*分支\s+main.*会话\s+session/,
+  );
+  assert.match(
+    compact.join("\n"),
+    /模型\s+│\s+model.*思考 high.*额度\s+GLM 5h: 37%/,
+  );
+  assert.match(
+    compact.join("\n"),
+    /上下文\s+│\s+上下文 12.0% \/ 128k.*命中 93.5%/,
+  );
+  assert.match(compact.join("\n"), /状态\s+│\s+权限 smart/);
   assert.doesNotMatch(compact.join("\n"), /MCP ready/);
 
   await command?.("native", ctx);
@@ -123,5 +177,9 @@ test("configured full footer renders and compact/native selections persist", asy
   const noticeCount = notices.length;
   selection = undefined;
   await command?.("", ctx);
-  assert.equal(notices.length, noticeCount, "cancelling the selector stays quiet");
+  assert.equal(
+    notices.length,
+    noticeCount,
+    "cancelling the selector stays quiet",
+  );
 });

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.1 - 2026-09-10
+
+### 紧凑 / 完整视图均拆出“上下文”行，状态行不再爆长
+
+两个视图的原“状态”行装 5 类内容（contextCell + cacheHitCells +
+sections.context + sections.config + sections.misc）；启用多个 publisher
+后实际产出“上下文 6.6% / 1.0M 命中 99.5% 权限 full policy:auto
+↑1.3k ↓37 MCP: 4 servers enabled LSP Inactive”，窄终端合并后压成一长串，
+状态行变成“信息垃圾场”。
+
+拆出独立“上下文”行，只装 context 语义族（上下文百分比 + 缓存命中率），
+“状态”行收窄为 config / misc 兑底。紧凑视图从 3 行增到 4 行，完整视图从
+7 行增到 8 行（路径 / 模型 / 额度 / 窗口 / 上下文 / 用量 / 集成 / 状态）。
+副效果：labelWidth 从 4 升到 6（“上下文” = 3 中文字符 = 6 列），所有标签
+│前的填充从 1 空格增到 3 空格。
+
+- index.ts：紧凑模式从 3 行扩为 4 行，与完整模式同结构。
+- README.md / DESIGN.md：紧凑视图从“三行”改为“四行”，完整视图从
+  “七行”改为“八行”，状态归类表新增“上下文组”列。
+- tests/ui.test.ts：compact.length 7→9，分隔线前缀从 6 个 ─ 增到 8 个；
+  状态行 regex 不再断言上下文/命中（它们现在在上下文行）。
+- 验证：footer-composer 23/23，baseline 9 扩展 1510 测试全过。
+
 ## 1.0.0 - 2026-09-10
 
 ### Status key 协议兑底路由移除（迁移窗口收尾）

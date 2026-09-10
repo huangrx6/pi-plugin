@@ -1,6 +1,6 @@
 {
   "name": "pi-footer-composer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pi footer with a persistent compact-by-default category table, open sides, muted text and an optional full view.",
   "license": "MIT",
   "type": "module",

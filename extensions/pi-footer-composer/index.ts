@@ -430,15 +430,23 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
                     ],
                   },
                   {
-                    label: "状态",
+                    // 1.0.2：从“状态”行拆出“上下文”行，与完整模式同结构。
+                    // 状态行原本装 5 类内容（contextCell + cacheHitCells +
+                    // sections.context + sections.config + sections.misc），
+                    // 窄终端合并后压成“一长行”。
+                    label: "上下文",
                     items: labelCells(
                       [
                         ...contextCell(activeCtx as Ctx, theme, activeModel),
                         ...cacheHitCells(usage, theme),
-                        ...sections.context,
-                        ...sections.config,
-                        ...sections.misc,
                       ],
+                      "",
+                    ),
+                  },
+                  {
+                    label: "状态",
+                    items: labelCells(
+                      [...sections.config, ...sections.misc],
                       "",
                     ),
                   },
