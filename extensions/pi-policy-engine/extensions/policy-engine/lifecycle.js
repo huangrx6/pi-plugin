@@ -15,7 +15,7 @@ import {
   resolveHistoryPath,
   pruneStrictStates,
 } from "../../src/core/history-store.js";
-import { appendUsageBadge, cleanModel, notify, setStatus } from "./helpers.js";
+import { cleanModel, notify, syncPolicyStatus } from "./helpers.js";
 import { createAgentClassifier } from "./agent-classifier.js";
 import { buildTurnBlock } from "./policy-block.js";
 import { offerPlanApprovalDialog } from "./plan-approval-dialog.js";
@@ -83,14 +83,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       if (withUsage)
         state.lastUsageTokens = { ...withUsage.recognition.usageTokens };
     }
-    if (cfg.showStatus !== false)
-      setStatus(
-        ctx,
-        appendUsageBadge(
-          state,
-          `policy:${state.phase === "awaiting_approval" ? "strict/awaiting_approval" : cfg.mode}`,
-        ),
-      );
+    syncPolicyStatus(ctx, state, cfg);
   }
   pi.on("session_start", restore);
   pi.on("session_tree", (event, ctx) =>
@@ -400,14 +393,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
         cwd: ctx?.cwd ?? process.cwd(),
         state,
       });
-      if (cfg.showStatus !== false)
-        setStatus(
-          ctx,
-          appendUsageBadge(
-            state,
-            `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
-          ),
-        );
+      syncPolicyStatus(ctx, state, cfg);
       return built.injected
         ? { systemPrompt: `${event.systemPrompt ?? ""}\n\n${built.injected}` }
         : undefined;
@@ -435,14 +421,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
-    if (cfg.showStatus !== false)
-      setStatus(
-        ctx,
-        appendUsageBadge(
-          state,
-          `policy:${state.lastDecision?.rigor ?? "off"}/${state.phase}`,
-        ),
-      );
+    syncPolicyStatus(ctx, state, cfg);
     return { messages: event.messages };
   });
   pi.on("before_provider_request", async (event) => {
@@ -498,8 +477,7 @@ export function registerLifecycleHandlers(pi, { packageRoot, getState }) {
       cwd: ctx?.cwd ?? process.cwd(),
       state,
     });
-    if (cfg.showStatus !== false)
-      setStatus(ctx, `config:policy.${state.phase}/${state.outcome}`);
+    syncPolicyStatus(ctx, state, cfg);
     workingMessage(ctx);
     if (state.phase === "awaiting_approval" && plan)
       await offerPlanApprovalDialog(pi, ctx, cfg);

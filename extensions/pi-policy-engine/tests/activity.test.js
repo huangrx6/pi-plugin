@@ -10,6 +10,7 @@ import {
 } from "../extensions/policy-engine/activity.js";
 import { createCommandHandler } from "../extensions/policy-engine/commands.js";
 import { notify } from "../extensions/policy-engine/helpers.js";
+import { EXTENSION_VERSION } from "../extensions/policy-engine/version.js";
 import {
   displayWidth,
   sanitizeTerminalText,
@@ -118,7 +119,11 @@ test("failed recognition explains the real boundary and parser diagnostics", () 
   assert.match(text, /first=invalid_json\/malformed_json_object/);
   assert.match(text, /final=no_json_object/);
   assert.match(text, /响应预览：plain explanation/);
-  assert.match(text, /运行版本：0\.33\.3；当前已加载：0\.33\.3/);
+  assert.ok(
+    text.includes(
+      `运行版本：${EXTENSION_VERSION}；当前已加载：${EXTENSION_VERSION}`,
+    ),
+  );
   assert.match(text, /追加停止执行/);
 });
 
@@ -576,14 +581,14 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
     },
   };
   assert.equal(
-    appendUsageBadge(state, "policy:standard/executing"),
-    "policy:standard/executing ↑1.6k ↓96",
+    appendUsageBadge(state, "标准 · 执行中"),
+    "标准 · 执行中 ↑1.6k ↓96",
   );
   // 千以下原样显示
   state.lastDecision.recognition.usageTokens = { input: 720, output: 48 };
   assert.equal(
-    appendUsageBadge(state, "policy:standard/executing"),
-    "policy:standard/executing ↑720 ↓48",
+    appendUsageBadge(state, "标准 · 执行中"),
+    "标准 · 执行中 ↑720 ↓48",
   );
   // 阻断轮不显示（识别没有成功产出用量）
   assert.equal(
@@ -594,9 +599,9 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
           recognition: { usageTokens: { input: 10, output: 2 } },
         },
       },
-      "policy:off/idle",
+      "未加载 · 已阻止",
     ),
-    "policy:off/idle",
+    "未加载 · 已阻止",
   );
   // 无 decision / 无 usage / null state 全部原样返回
   assert.equal(appendUsageBadge({}, "x"), "x");
@@ -610,12 +615,98 @@ test("appendUsageBadge appends tokens and tolerates missing usage", async () => 
   assert.equal(
     appendUsageBadge(
       { lastUsageTokens: { input: 1122, output: 77 } },
-      "policy:auto/idle",
+      "自动",
     ),
-    "policy:auto/idle ↑1.1k ↓77",
+    "自动 ↑1.1k ↓77",
   );
   // 本轮识别无 usage（如失败降级）时也不回退缓存——失败轮不该显示旧值
   // 上一断言组（preflightBlocked）已覆盖 decision 存在的场景。
+});
+
+test("formatPolicyStatus exposes concise user-facing state", async () => {
+  const { formatPolicyStatus } = await import(
+    "../extensions/policy-engine/helpers.js"
+  );
+  assert.equal(formatPolicyStatus({}, "auto"), "自动");
+  assert.equal(formatPolicyStatus({}, "strict"), "谨慎");
+  assert.equal(formatPolicyStatus({}, "off"), "关闭");
+  assert.equal(
+    formatPolicyStatus(
+      {
+        lastDecision: { rigor: "standard" },
+        phase: "executing",
+        outcome: "in_progress",
+      },
+      "auto",
+    ),
+    "标准 · 执行中",
+  );
+  assert.equal(
+    formatPolicyStatus(
+      {
+        lastDecision: { rigor: "strict" },
+        phase: "awaiting_approval",
+        outcome: "awaiting_approval",
+      },
+      "auto",
+    ),
+    "严格 · 待批准",
+  );
+  assert.equal(
+    formatPolicyStatus(
+      {
+        lastDecision: { rigor: "standard" },
+        phase: "idle",
+        outcome: "unverified",
+      },
+      "auto",
+    ),
+    "标准 · 待验证",
+  );
+  assert.equal(
+    formatPolicyStatus(
+      {
+        lastDecision: { rigor: "off" },
+        phase: "idle",
+        outcome: "blocked",
+      },
+      "auto",
+    ),
+    "未加载 · 已阻止",
+  );
+});
+
+test("syncPolicyStatus publishes one stable key and clears it when hidden", async () => {
+  const { syncPolicyStatus } = await import(
+    "../extensions/policy-engine/helpers.js"
+  );
+  const writes = [];
+  const ctx = {
+    ui: {
+      setStatus(key, value) {
+        writes.push({ key, value });
+      },
+    },
+  };
+
+  syncPolicyStatus(
+    ctx,
+    {
+      lastDecision: {
+        rigor: "quick",
+        recognition: { usageTokens: { input: 320, output: 20 } },
+      },
+      phase: "executing",
+      outcome: "in_progress",
+    },
+    { mode: "auto", showStatus: true },
+  );
+  syncPolicyStatus(ctx, {}, { mode: "auto", showStatus: false });
+
+  assert.deepEqual(writes, [
+    { key: "pi-policy-engine", value: "轻量 · 执行中 ↑320 ↓20" },
+    { key: "pi-policy-engine", value: undefined },
+  ]);
 });
 
 // 0.39.0: diagnostics submenu groups usage / history / config / validate.

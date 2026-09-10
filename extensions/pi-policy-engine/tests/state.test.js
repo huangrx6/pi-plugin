@@ -18,6 +18,7 @@ import {
   recordHistory,
 } from "../extensions/policy-engine/state.js";
 import { parsePolicyCommand } from "../extensions/policy-engine/helpers.js";
+import { EXTENSION_VERSION } from "../extensions/policy-engine/version.js";
 import {
   formatConfig,
   formatDiff,
@@ -45,7 +46,11 @@ test("recordHistory caps at HISTORY_CAP, drops oldest", () => {
     });
   }
   assert.equal(state.history.length, HISTORY_CAP);
-  assert.ok(state.history.every((entry) => entry.extensionVersion === "0.33.3"));
+  assert.ok(
+    state.history.every(
+      (entry) => entry.extensionVersion === EXTENSION_VERSION,
+    ),
+  );
   assert.match(state.history[0].prompt, /^prompt 5$/);
   assert.match(
     state.history[HISTORY_CAP - 1].prompt,
@@ -369,7 +374,7 @@ test("status names the version of the code loaded into Pi", () => {
     recognition: null,
     model: "host/model",
   });
-  assert.match(out, /^runtime version: 0\.33\.3$/m);
+  assert.ok(out.split("\n").includes(`runtime version: ${EXTENSION_VERSION}`));
 });
 
 test("agent_end history is a phase record, not a second recognition attempt", () => {

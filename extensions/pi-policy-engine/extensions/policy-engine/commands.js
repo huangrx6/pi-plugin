@@ -25,7 +25,12 @@ import {
   readHistory,
   resolveHistoryPath,
 } from "../../src/core/history-store.js";
-import { modelKey, notify, parsePolicyCommand } from "./helpers.js";
+import {
+  modelKey,
+  notify,
+  parsePolicyCommand,
+  syncPolicyStatus,
+} from "./helpers.js";
 import {
   buildEffectiveConfig,
   compareDecisions,
@@ -57,6 +62,15 @@ export function createCommandHandler({
       state.lastDecision = null;
       state.lastPrompt = null;
     }
+    syncPolicyStatus(
+      ctx,
+      state,
+      buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      }),
+    );
     try {
       const path = await saveConfig({
         mode,
@@ -469,6 +483,12 @@ export function createCommandHandler({
       state.lastPrompt = null;
       state.phase = "idle";
       state.outcome = "idle";
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      syncPolicyStatus(ctx, state, cfg);
       notify(ctx, "已清除当前任务关联，下一条请求将作为新任务。", "success");
       return;
     }
@@ -489,6 +509,12 @@ export function createCommandHandler({
       state.task.authorizationSource = "user_command";
       state.phase = "executing";
       state.outcome = "approved";
+      const cfg = buildEffectiveConfig({
+        packageRoot,
+        cwd: ctx?.cwd ?? process.cwd(),
+        state,
+      });
+      syncPolicyStatus(ctx, state, cfg);
       notify(ctx, "已批准当前版本计划。发送“继续”即可执行。", "success");
       return;
     }

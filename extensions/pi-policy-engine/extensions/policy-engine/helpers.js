@@ -25,9 +25,7 @@ export function findPackageRoot(startDir) {
   return resolve(startDir, "..", "..");
 }
 
-/** 0.38.2: append the latest recognition token usage to the footer
- *  status line (policy:rigor/phase ↑1.6k ↓96). Self-contained — no
- *  cross-extension coupling; the footer merely renders host status. */
+/** Append the latest recognition token usage to the host status text. */
 export function appendUsageBadge(state, text) {
   const decision = state?.lastDecision;
   const latest =
@@ -45,6 +43,55 @@ export function appendUsageBadge(state, text) {
         : String(n)
       : "?";
   return `${text} ↑${fmt(usage.input)} ↓${fmt(usage.output)}`;
+}
+
+const MODE_LABELS = {
+  auto: "自动",
+  strict: "谨慎",
+  off: "关闭",
+};
+
+const RIGOR_LABELS = {
+  quick: "轻量",
+  standard: "标准",
+  strict: "严格",
+  off: "关闭",
+};
+
+const PHASE_LABELS = {
+  planning: "规划中",
+  awaiting_approval: "待批准",
+  executing: "执行中",
+};
+
+const OUTCOME_LABELS = {
+  approved: "已批准",
+  awaiting_approval: "待批准",
+  blocked: "已阻止",
+  failed: "失败",
+  interrupted: "已中断",
+  missing_plan: "待补计划",
+  unverified: "待验证",
+  verified: "已验证",
+};
+
+/**
+ * Format the extension's live state for people, rather than exposing internal
+ * enum names such as `policy:standard/executing`.
+ */
+export function formatPolicyStatus(state, mode = "auto") {
+  if (state?.outcome === "blocked") return "未加载 · 已阻止";
+
+  const strategy = state?.lastDecision?.rigor
+    ? (RIGOR_LABELS[state.lastDecision.rigor] ?? state.lastDecision.rigor)
+    : (MODE_LABELS[mode] ?? mode);
+  const outcome = OUTCOME_LABELS[state?.outcome];
+  const phase = PHASE_LABELS[state?.phase];
+  const detail =
+    state?.outcome && !["idle", "in_progress"].includes(state.outcome)
+      ? outcome
+      : phase;
+  return [strategy, detail].filter(Boolean).join(" · ");
 }
 
 export function cleanModel(model) {
@@ -74,13 +121,21 @@ export function notify(ctx, message, level = "info") {
 
 export function setStatus(ctx, text) {
   try {
-    // footer-composer 协议：setStatus key 必须带 kind: 前缀。
-    // 'config:' 表明该状态属于 config 段，subkey 用 'policy-engine'
-    // 表明是本扩展的标识(与 lifecycle.js 502 行 `policy:` 子键区分)。
-    ctx?.ui?.setStatus?.("config:policy-engine", text);
+    ctx?.ui?.setStatus?.("pi-policy-engine", text);
   } catch {
     /* ignore */
   }
+}
+
+export function syncPolicyStatus(ctx, state, config = {}) {
+  const text =
+    config.showStatus === false
+      ? undefined
+      : appendUsageBadge(
+          state,
+          formatPolicyStatus(state, config.mode ?? "auto"),
+        );
+  setStatus(ctx, text);
 }
 
 /**

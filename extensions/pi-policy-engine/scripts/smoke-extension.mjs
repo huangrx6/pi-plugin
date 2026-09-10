@@ -69,6 +69,7 @@ const ctx = {
 };
 
 await handlers.get("session_start")({}, ctx);
+assert.ok(statuses.some(({ key }) => key === "pi-policy-engine"));
 
 const quick = await handlers.get("before_agent_start")(
   {
