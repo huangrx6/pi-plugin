@@ -64,18 +64,18 @@ test("configured full footer renders and compact/native selections persist", asy
     },
   );
   const full = component.render(200);
-  assert.ok(full[0].startsWith("──────┬"));
-  assert.ok(full.at(-1).startsWith("──────┴"));
-  assert.equal(full.length, 15, "seven category rows and eight horizontal rules");
-  assert.match(full.join("\n"), /状态 │/);
-  assert.match(full.join("\n"), /模型 │ model.*平台  provider.*思考 high/);
-  assert.match(full.join("\n"), /平台  provider/);
+  assert.ok(full[0].startsWith("────────┬"));
+  assert.ok(full.at(-1).startsWith("────────┴"));
+  assert.equal(full.length, 17, "eight category rows and nine horizontal rules");
+  assert.match(full.join("\n"), /状态 {3}│/);
+  assert.match(full.join("\n"), /模型\s+│\s+model.*平台\s+provider.*思考 high/);
+  assert.match(full.join("\n"), /平台\s+provider/);
   assert.match(full.join("\n"), /思考 high/);
-  assert.match(full.join("\n"), /分支  main/);
-  assert.match(full.join("\n"), /会话  session/);
-  assert.match(full.join("\n"), /窗口 │ 12.0% \/ 128k/);
-  assert.match(full.join("\n"), /额度 │ GLM 5h: 37%/);
-  assert.match(full.join("\n"), /用量 │ 输入 4.0M.*输出 147k.*缓存读 58M/);
+  assert.match(full.join("\n"), /分支\s+main/);
+  assert.match(full.join("\n"), /会话\s+session/);
+  assert.match(full.join("\n"), /窗口\s+│\s+12.0% \/ 128k/);
+  assert.match(full.join("\n"), /额度\s+│\s+GLM 5h: 37%/);
+  assert.match(full.join("\n"), /用量\s+│\s+输入 4.0M.*输出 147k.*缓存读 58M/);
   assert.match(full.join("\n"), /缓存读 58M.*命中 93.5%/);
   assert.match(full.join("\n"), /输入 4.0M/);
   assert.match(full.join("\n"), /输出 147k/);
@@ -89,7 +89,7 @@ test("configured full footer renders and compact/native selections persist", asy
   }
   branch = null;
   const withoutBranch = component.render(200).join("\n");
-  assert.match(withoutBranch, /会话  session/);
+  assert.match(withoutBranch, /会话 {2}session/);
   assert.doesNotMatch(withoutBranch, /分支/);
 
   await command?.("compact", ctx);
@@ -112,9 +112,9 @@ test("configured full footer renders and compact/native selections persist", asy
   assert.equal(compact.length, 7, "three category rows and four horizontal rules");
   assert.ok(compact[0].startsWith("──────┬"));
   assert.ok(compact.at(-1)?.startsWith("──────┴"));
-  assert.match(compact.join("\n"), /路径 │ \/tmp\/project.*分支  main.*会话  session/);
-  assert.match(compact.join("\n"), /模型 │ model.*思考 high.*额度  GLM 5h: 37%/);
-  assert.match(compact.join("\n"), /状态 │ 上下文 12.0% \/ 128k.*命中 93.5%.*权限 smart/);
+  assert.match(compact.join("\n"), /路径\s+│\s+\/tmp\/project.*分支\s+main.*会话\s+session/);
+  assert.match(compact.join("\n"), /模型\s+│\s+model.*思考 high.*额度\s+GLM 5h: 37%/);
+  assert.match(compact.join("\n"), /状态\s+│\s+上下文 12.0% \/ 128k.*命中 93.5%.*权限 smart/);
   assert.doesNotMatch(compact.join("\n"), /MCP ready/);
 
   await command?.("native", ctx);

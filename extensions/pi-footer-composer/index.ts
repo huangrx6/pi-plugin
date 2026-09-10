@@ -468,6 +468,19 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
                   ),
                 },
                 {
+                  // 1.0.2：拆“状态”行为两行。“上下文”行只装 context 语义族
+                  // （上下文百分比 + cache 命中率）；“状态”行装 config / misc
+                  // 兑底。原先两者拆到一个行，窄终端合并时会被压成“一长行”。
+                  label: "上下文",
+                  items: labelCells(
+                    [
+                      ...contextCell(activeCtx as Ctx, theme, activeModel),
+                      ...cacheHitCells(usage, theme),
+                    ],
+                    "",
+                  ),
+                },
+                {
                   label: "用量",
                   items: labelCells(
                     [...usageCells(usage, theme), ...sections.usage],
