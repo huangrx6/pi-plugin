@@ -72,3 +72,29 @@ test("idle, already aborted and queued-input states never start maintenance", ()
   h.state.pending = false; h.ctx.signal = AbortSignal.abort(); assert.equal(h.flow.request(h.ctx, "task"), false);
   assert.equal(h.calls(), 0);
 });
+
+test("user input between request and complete aborts resume (P2.2 microtask race)", () => {
+  // 模拟 race：用户开始输入（invalidate 增 generation），此时 compact 刚好完成。
+  // current() 检测到 generation 不一致，不续写；status=completed（不是 resumed）。
+  const h = harness();
+  assert.equal(h.flow.request(h.ctx, "fix login"), true);
+  // 用户输入
+  h.flow.invalidate();
+  h.complete();
+  // 不应续写；没有 resumed 通知
+  assert.deepEqual(h.resumed, []);
+  assert.equal(h.notices.length, 0, "race 下不应发任何 notice（generation 不一致，onComplete 早 return）");
+});
+
+test("user input after complete is allowed and race does not retroactively cancel (sanity check)", () => {
+  // 正常完成 → 续写；之后用户输入不影响已发生的续写（generation 后续才变）。
+  const h = harness();
+  assert.equal(h.flow.request(h.ctx, "fix login"), true);
+  h.complete();
+  assert.deepEqual(h.resumed, ["fix login"]);
+  assert.equal(h.notices[0]?.status, "resumed");
+  // 用户后续输入
+  h.flow.invalidate();
+  // 已有 resumed 不回退
+  assert.deepEqual(h.resumed, ["fix login"]);
+});
