@@ -332,7 +332,9 @@ function buildModeText(): string {
 }
 
 function renderStatus(ctx: UiCtx): void {
-  ctx.ui.setStatus("mode", buildModeText());
+  // footer-composer 协议：setStatus key 带 config: 前缀
+  // 归入 footer "config" 段。
+  ctx.ui.setStatus("config:mode", buildModeText());
 }
 
 // ---------------------------------------------------------------------------
