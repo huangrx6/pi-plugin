@@ -187,13 +187,29 @@
 
 | ID | 内容 | 验证 |
 |---|---|---|
-| P2.3.1 | 抽 `extensions/pi-todo/command-wiring.ts`（新）装 `/todos` 命令 handler（从 index.ts 拆） | 文件存在，index.ts 减 ≥300 行 |
-| P2.3.2 | 抽 `extensions/pi-todo/tool-wiring.ts`（新）装 `pi.registerTool` 块 | index.ts 再减 ≥150 行 |
-| P2.3.3 | 抽 `extensions/pi-todo/lifecycle-wiring.ts`（新）装 `session_start`/`session_compact`/`session_tree`/`session_shutdown`/`tool_execution_end` handler | index.ts 再减 ≥200 行 |
-| P2.3.4 | index.ts 保留 `< 300 行` 的 factory 装配 | `wc -l` 显示 < 300 |
-| P2.3.5 | 全量测试仍通过 | baseline 通过 |
+| **未完成** | 本会话尝试拆 3 个 wiring 文件（tool/command/lifecycle）并改 index.ts 为 thin factory，但闭包变量跨 wiring 传递需要大量 ctx 接口设计；本会话剩余能力不足以稳健完成 | — |
+| **计划变更** | 标注为「留待后续重构」，见 P2.3 风险说明。index.ts 1391 行物理上未拆 | — |
 
-**commit 序列**：3 个独立 commit，每个对应一个文件的拆出；最后 `chore(refactor): pi-todo index.ts 缩到装配层`。
+**P2.3 风险说明（为何本会话失败）**：
+
+1. **factory 闭包依赖深**：pi-todo index.ts 的 export default factory 闭包内含
+   `let overlay` / `let fgSession` / `let activeScope` 等可变状态，加上 `refreshOverlay`、
+   `setActiveScope`/`clearActiveScope`、`setFgSession`/`clearFgSession`/`evictScope`、
+   `sidFromCtx`、`requestModelReview` 等 helper 函数。三个 wiring 文件要拆出
+   `pi.on(...)` handler，每个 handler 都要访问这些闭包状态。
+2. **ctx 接口膨胀**：3 个 wiring ctx 各自需要 8-15 个字段才能覆盖所有 helper
+   调用点。设计过程中反复触发 TS 报错（字段未定义、`as unknown as` 与 `SAFETY:`
+   注释要求冲突等），子代理 worker 拒绝重做。
+3. **替代方案**：单 commit 物理抽取执行函数（`runTaskBrowser`/`executeTodo`/
+   `runMutationFlow` 等）到 `internal-*.ts`、保留单 export default factory，
+   能达到「index.ts < 300 行」的同等效果但工程量小一个量级；留待后续会话执行。
+
+后续会话或贡献者执行 P2.3 时建议：
+
+- 先将 runTaskBrowser / executeTodo / runMutationFlow / runGraphQuery 等执行函数
+  物理抽到 `internal-execution.ts`（约 600-800 行一次性搬出），factory 仍可访问
+- 暂不拆 wiring，验证 baseline 通过
+- 然后再做 wiring 拆（三文件），此时工厂闭包已缩小，ctx 接口设计更简单
 
 ### P2.4 pi-skill-inject findInlineSkills 回归测试深化
 

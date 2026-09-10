@@ -356,7 +356,9 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
   // session_start 触发 mountFooter 时会被真 renderer 替换。
   // SAFETY: FooterRenderer 与 pi 文档契约一致；返回 [] 是合法占位。
   // `setFooter` 在 shim 的 ui 子对象上（pi 0.85+）。
-  const placeholderUi = (pi as unknown as { ui?: { setFooter?: (r: unknown) => void } }).ui;
+  const placeholderUi = (
+    pi as unknown as { ui?: { setFooter?: (r: unknown) => void } }
+  ).ui;
   if (typeof placeholderUi?.setFooter === "function") {
     placeholderUi.setFooter(() => ({
       render: () => [],

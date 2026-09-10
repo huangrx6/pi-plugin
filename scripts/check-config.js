@@ -21,7 +21,13 @@
 //   node scripts/check-config.js
 //   或：npm run config:validate
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +39,9 @@ function agentDir() {
   const configured = process.env.PI_CODING_AGENT_DIR?.trim();
   if (!configured) return join(homedir(), ".pi", "agent");
   if (configured === "~") return homedir();
-  return configured.startsWith("~/") ? join(homedir(), configured.slice(2)) : configured;
+  return configured.startsWith("~/")
+    ? join(homedir(), configured.slice(2))
+    : configured;
 }
 
 /** 收集已知合法顶层 key 集合（每个扩展独立集合）。 */
@@ -71,12 +79,20 @@ function readUserConfig(pkg, dir) {
 const warnings = [];
 const errors = [];
 
-function warn(pkg, msg) { warnings.push(`[warn] ${pkg}: ${msg}`); }
-function error(pkg, msg) { errors.push(`[error] ${pkg}: ${msg}`); }
+function warn(pkg, msg) {
+  warnings.push(`[warn] ${pkg}: ${msg}`);
+}
+function error(pkg, msg) {
+  errors.push(`[error] ${pkg}: ${msg}`);
+}
 
 const pkgDirs = existsSync(extensionsDir)
   ? readdirSync(extensionsDir).filter((d) => {
-      try { return statSync(join(extensionsDir, d)).isDirectory(); } catch { return false; }
+      try {
+        return statSync(join(extensionsDir, d)).isDirectory();
+      } catch {
+        return false;
+      }
     })
   : [];
 
@@ -96,7 +112,11 @@ for (const pkg of pkgDirs.sort()) {
     continue;
   }
 
-  if (!user.config || typeof user.config !== "object" || Array.isArray(user.config)) {
+  if (
+    !user.config ||
+    typeof user.config !== "object" ||
+    Array.isArray(user.config)
+  ) {
     error(pkg, `config.json 顶层必须是 JSON 对象（${user.path}）`);
     continue;
   }
@@ -110,12 +130,10 @@ for (const pkg of pkgDirs.sort()) {
       continue;
     }
     const expectedType = defaults[key];
-    const actualType = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+    const actualType =
+      value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
     if (expectedType !== actualType) {
-      warn(
-        pkg,
-        `配置项 '${key}' 类型应为 ${expectedType}，实际 ${actualType}`,
-      );
+      warn(pkg, `配置项 '${key}' 类型应为 ${expectedType}，实际 ${actualType}`);
     }
   }
 }
@@ -140,6 +158,8 @@ if (warnings.length > 0) {
 }
 
 console.log("\n修复后再跑一次 config:validate 直到无 error。");
-console.log("warning 提示未知配置项 / 类型不匹配 — 通常是配置领先于扩展版本，或手敲时拼错。");
+console.log(
+  "warning 提示未知配置项 / 类型不匹配 — 通常是配置领先于扩展版本，或手敲时拼错。",
+);
 
 process.exit(errors.length > 0 ? 1 : 0);
