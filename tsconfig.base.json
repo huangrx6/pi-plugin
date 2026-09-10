@@ -1,0 +1,6 @@
+{
+  "//": "tsconfig.base.json — 仓库根共享 TypeScript 编译选项(0.1 骨架,0.2 由各扩展继承并逐步合并具体选项)。P1.3 globals.d.ts 单源化完成后会在这里补 ambient include 路径;在此之前本文件仅承担 'extends 链路可工作' 的占位作用。",
+  "compilerOptions": {
+    "skipLibCheck": true
+  }
+}
