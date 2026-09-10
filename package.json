@@ -5,7 +5,8 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test:all": "bash scripts/baseline.sh"
+    "test:all": "bash scripts/baseline.sh",
+    "config:validate": "node scripts/check-config.js"
   },
   "engines": {
     "node": ">=22.19"
