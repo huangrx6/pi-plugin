@@ -1,7 +1,7 @@
 {
   "name": "pi-footer-composer",
-  "version": "1.0.1",
-  "description": "Pi footer with a persistent compact-by-default category table, open sides, muted text and an optional full view.",
+  "version": "1.1.0",
+  "description": "Pi footer with a responsive three-column compact view, full details and configurable status routing.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -37,6 +37,8 @@
     "tests/",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "compact.ts",
+    "routing.ts"
   ]
 }

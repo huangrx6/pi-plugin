@@ -1,106 +1,36 @@
-# Design — pi-footer-composer 1.0.0
+# Design — pi-footer-composer
 
-> 本文档记录 pi-footer-composer 的内部架构与关键决策，补充 README 的用户视角。
-> 扩展独立性铁律：仅依赖 `@earendil-works/pi-coding-agent`，
-> 不依赖其他扩展的命令或事件（**过去踩过的坑**：依赖 substring 识别
-> 其他扩展 status key 字面量，违反 AGENTS.md 铁律）。本 1.0.0 起改为
-> prefix-only 协议。
+## 数据与职责
 
-## 架构
+只使用 Pi 的公开会话、上下文和 footer 状态接口，不读取其他扩展文件，不依赖其他扩展的命令或事件。配置与路由映射由本扩展独立保存。
 
 ```text
-                   exports: StatusKind, statusKey
-                          ↓
-   pi.on("session_start")  ──→   mountFooter(ctx)
-                                       ↓
-                          pi.ui.setFooter(renderer)
-                                       ↓
-   render(width): cell[]  ←─────   footer renderer
-   invalidate():  void           (闭包访问 activeCtx/
-   dispose():    unsubscribe()      activeModel/activeThinking/
-                                  footerMode/overlayCache)
-```text
+Pi session / context / footer status map
+                   ↓
+index.ts：收集数据、选择视图
+    ↓              ↓                ↓
+routing.ts      compact.ts       grid.ts
+精确映射与前缀    三列 / 纵向       完整分类表格
+                   ↓
+              layout.ts：终端净化与字宽
+```
 
-## 加载无闪烁（1.0.1 修复）
+## 紧凑布局
 
-症状：启动 pi 时 footer 区先显示 pi 内置 default footer 数百毫秒，
-随后被自定义 footer 替换（视觉上"跳一下"）。
+固定三组：项目与状态、模型与额度、上下文与集成。主信息与次要信息在上半区，状态在下半区，中间留一空行。状态各自折行，不拼成无边界的一长串。
 
-根因：`pi.on("session_start")` 是异步触发，pi 在启动早期就先把
-default footer 渲染了一帧。
+宽度达到 100 列启用三列；最多使用 132 列；列间固定四空格。列宽由可用宽度决定，与内容长度无关。更窄时按语义组依次纵向显示。只有上下边线，无内部网格、侧边线或额外背景。
 
-修法（已在 export default 函数同步路径里）：
+渲染前净化所有外部文本，再由本组件着色。主题正文、次要信息、边线分别使用 text、muted、dim；宿主提供的上下文百分比用于确定 warning/error，不从第三方自由文本推断严重性。
 
-- 立刻 setFooter 一个返回空数组 `[]` 的占位 renderer
-- 占位 renderer 让 pi 跳过 footer 区域显示（不渲染 default）
-- session_start 触发 mountFooter 时被真 renderer 替换
-- 用户视角：从「空白 → 自定义 footer」无可见闪烁
+## 状态归类
 
-## Status Key 协议（0.9.0 → 1.0.0）
+用户 statusRoutes 精确映射优先于已知 kind 前缀，其余 key 进入 misc。路由不包含特定发布者名称或内容匹配。配置无效时提示并回退默认紧凑视图；模式切换保存完整配置，保留映射。
 
-`sectionOf(key)` 只信任 `<kind>:` 前缀：
+紧凑视图保留 context 和 integration 信息，隐藏 usage。完整视图仅保留一个窗口占用行，命中率放在用量行。仅对与宿主一致的纯占用率摘要去重，保留附带说明。
 
-```text
-quota:        → quota section
-usage:        → usage section
-context:      → context section
-integration:  → integration section
-config:       → config section
-其他 key     → misc（兜底）
-```text
+## 生命周期与验证
 
-`statusKey(kind, subkey)` 工厂函数生成符合协议 key。
+session_start 加载配置并挂载 renderer，模型或思考等级改变时更新数据，轮次结束与分支变化请求重绘。dispose 注销分支监听。
 
-**迁移窗口（0.9.0-1.0.0）**：
-
-- `legacyRouteOf()` 曾作为 substring 兜底接受裸 key（"quota"、"mode"、"policy"）
-- 1.0.0 删除 `legacyRouteOf`，未识别 key 一律归 misc
-- 三个 publisher 已迁移：pi-quota-status（"quota:main"）、pi-policy-engine（"config:policy-engine"）、
-  pi-mode-switcher（"config:mode"）
-
-## /footer 命令
-
-`/footer [compact|full|native]`：
-
-- compact：4 行表格（路径、模型、上下文、状态）
-- full：8 行（路径/模型/额度/窗口/上下文/用量/集成/状态）
-- native：清空 footer，恢复 pi 内置 default
-- 无参数：交互式选择器
-
-模式持久化到 `<agent-dir>/extensions-data/pi-footer-composer/config.json`。
-
-## 渲染
-
-闭包访问的状态变量：
-
-- `activeCtx`：最近一次 session_start 提供的 ctx
-- `activeModel`：当前 model（model_select 时更新）
-- `activeThinking`：thinking_level_select 时更新
-- `requestRender`：renderer 内闭包，通过 `tui.requestRender()` 主动触发重绘
-
-每个 status extension 通过 `ctx.ui.setStatus("kind:subkey", text)` 注册；
-footer renderer 在每次 render 时读取 `footerData.getExtensionStatuses()` 拿到所有已注册
-key-value pairs，按 `sectionOf(key)` 归类。
-
-## 显示与边界
-
-- CJK 安全折行：`displayWidth` + `wrapTerminalText` 在 `terminal.ts`
-- 渲染用 pi 主题色：`theme.fg("text" / "dim" / "accent" / ...)`
-- 旧 footer 默认 footer 标记无法通过 `getExtensionStatuses` 读取（public API 限制）
-  → 需要完整原生 footer 时 `/footer native`
-- 多 footer renderer 并存时 Pi 取最后注册的（替换语义）
-
-## 已知边界
-
-- **多 footer 扩展并存**：本扩展替换内置 footer；其他同类扩展并存时只显示
-  最后注册的那个。这是 Pi 的设计，不是本扩展的 bug
-- **status map 顺序**：`Object.entries().sort([a],[b] => a.localeCompare(b))`
-  按 key 字母序——用户可能想要按时间序，但 locale-sort 更稳定可预期
-- **renderer 闭包持有 ctx 引用**：session_shutdown 清空，但 session_tree 时
-  闭包仍持有旧 ctx；model_select 用 requestRender 重绘触发下一帧用新 ctx
-
-## 未来可考虑的增强
-
-1. 自定义 status 分组（用户配置 kind → section 的非默认映射）
-2. footer 主题跟随 Pi 主题切换
-3. 多 renderer 合并（与其他 footer 扩展共存而非替换）
+测试直接调用生产路由与渲染器，覆盖真实命令切换和保存、宽窄边界、中文和 emoji、长内容、控制序列、颜色层级、上下文提示保留与去重。测试文件使用系统临时目录。

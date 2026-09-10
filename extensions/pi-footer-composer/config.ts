@@ -14,14 +14,10 @@ export type FooterMode = "compact" | "full" | "native";
 
 export interface FooterConfig {
   mode: FooterMode;
+  statusRoutes?: Record<string, StatusKind>;
 }
 
-/**
- * Status key 协议（0.9.0+）：所有调用 setStatus 的扩展必须用
- * "<kind>:<subkey>" 形式 key，sectionOf 只信任前缀 substring 。
- * 旧字面量 key ("quota"、"mode"、"policy"...) 在 0.9.0-1.0.0
- * 过渡期通过 legacyRouteOf 兑底；1.0.0 移除兑底（见 P1.1.9）。
- */
+/** Categories for public status keys and user-owned exact mappings. */
 export type StatusKind =
   | "quota"
   | "usage"
@@ -69,13 +65,24 @@ function parseConfig(raw: string, path: string): FooterConfig {
     throw new Error(`配置必须是 JSON 对象：${path}`);
   }
   const record = value as Record<string, unknown>;
-  const unknown = Object.keys(record).filter((key) => key !== "mode");
+  const unknown = Object.keys(record).filter((key) => key !== "mode" && key !== "statusRoutes");
   if (unknown.length) throw new Error(`未知配置项：${unknown.join(", ")}`);
   const mode = record.mode ?? DEFAULT_FOOTER_CONFIG.mode;
   if (mode !== "compact" && mode !== "full" && mode !== "native") {
     throw new Error("mode 必须是 compact、full 或 native");
   }
-  return { mode };
+  const routes = record.statusRoutes;
+  if (routes !== undefined) {
+    if (!routes || typeof routes !== "object" || Array.isArray(routes)) {
+      throw new Error("statusRoutes 必须是 key 到类别的 JSON 对象");
+    }
+    for (const [key, kind] of Object.entries(routes)) {
+      if (!key.trim() || !["quota", "usage", "context", "integration", "config", "misc"].includes(kind as string)) {
+        throw new Error(`statusRoutes 中的映射无效：${key}`);
+      }
+    }
+  }
+  return { mode, ...(routes === undefined ? {} : { statusRoutes: routes as Record<string, StatusKind> }) };
 }
 
 export function createFooterConfigStore(

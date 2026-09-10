@@ -1,32 +1,7 @@
-/**
- * section-routing.test.ts — Status key 协议测试 (0.9.0+)
- *
- * 验证：
- *   A. 显式 kind 前缀（quota:/usage:/context:/integration:/config:）
- *      正确路由到对应 section
- *   B. 旧字面量 key（"quota"/"mode"/"policy" 等）通过 legacyRouteOf
- *      兑底路由（0.9.0-1.0.0 过渡期行为）
- *   C. statusKey() 工厂函数生成正确的前缀格式
- *   D. 未识别的 key 静默归入 misc（不抛错）
- */
-
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-
-import { statusKey, type StatusKind } from "../config.ts";
-
-// 镜像 footer-composer/index.ts 的 sectionOf：1.0.0 移除 legacyRouteOf
-// 兑底后，只剩 prefix 路由 + 兜底 misc。
-type Section = StatusKind;
-
-function sectionOf(key: string): Section {
-  if (key.startsWith("quota:")) return "quota";
-  if (key.startsWith("usage:")) return "usage";
-  if (key.startsWith("context:")) return "context";
-  if (key.startsWith("integration:")) return "integration";
-  if (key.startsWith("config:")) return "config";
-  return "misc";
-}
+import { statusKey } from "../config.ts";
+import { sectionOf } from "../routing.ts";
 
 describe("status key prefix routing", () => {
   it("explicit kind prefixes map to matching section", () => {
@@ -107,4 +82,12 @@ describe("round-trip: factory output matches sectionOf", () => {
       assert.equal(sectionOf(k), kind, `kind=${kind} key=${k}`);
     }
   });
+});
+
+it("exact configured mappings override prefixes without substring guessing", () => {
+  const routes = { external: "integration", "quota:account": "misc" } as const;
+  assert.equal(sectionOf("external", routes), "integration");
+  assert.equal(sectionOf("external-extra", routes), "misc");
+  assert.equal(sectionOf("quota:account", routes), "misc");
+  assert.equal(sectionOf("toString", routes), "misc");
 });

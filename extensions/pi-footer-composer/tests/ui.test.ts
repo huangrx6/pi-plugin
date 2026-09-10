@@ -25,8 +25,11 @@ test("configured full footer renders and compact/native selections persist", asy
     } as never,
     {
       configStore: {
-        load: () => ({ mode: "full" }),
-        save: ({ mode }) => savedModes.push(mode),
+        load: () => ({ mode: "full", statusRoutes: { external: "integration" } }),
+        save: ({ mode, statusRoutes }) => {
+          assert.deepEqual(statusRoutes, { external: "integration" });
+          savedModes.push(mode);
+        },
       },
     },
   );
@@ -92,14 +95,14 @@ test("configured full footer renders and compact/native selections persist", asy
     },
   );
   const full = component.render(200);
-  assert.ok(full[0].startsWith("────────┬"));
-  assert.ok(full.at(-1).startsWith("────────┴"));
+  assert.ok(full[0].startsWith("──────┬"));
+  assert.ok(full.at(-1).startsWith("──────┴"));
   assert.equal(
     full.length,
-    17,
-    "eight category rows and nine horizontal rules",
+    15,
+    "seven categories without duplicate context row",
   );
-  assert.match(full.join("\n"), /状态 {3}│/);
+  assert.match(full.join("\n"), /状态 │/);
   assert.match(full.join("\n"), /模型\s+│\s+model.*平台\s+provider.*思考 high/);
   assert.match(full.join("\n"), /平台\s+provider/);
   assert.match(full.join("\n"), /思考 high/);
@@ -142,34 +145,23 @@ test("configured full footer renders and compact/native selections persist", asy
       getExtensionStatuses: () =>
         new Map([
           ["config:mode", "权限 smart"],
-          ["integration:mcp", "MCP ready"],
+          ["external", "MCP ready"],
+          ["context:paused", "Context 12% · 暂停"],
           ["quota:account", "GLM 5h: 37%"],
         ]),
       getAvailableProviderCount: () => 1,
       onBranchChange: () => () => {},
     },
   ).render(200);
-  assert.equal(
-    compact.length,
-    9,
-    "four category rows and five horizontal rules",
-  );
-  assert.ok(compact[0].startsWith("────────┬"));
-  assert.ok(compact.at(-1)?.startsWith("────────┴"));
-  assert.match(
-    compact.join("\n"),
-    /路径\s+│\s+\/tmp\/project.*分支\s+main.*会话\s+session/,
-  );
-  assert.match(
-    compact.join("\n"),
-    /模型\s+│\s+model.*思考 high.*额度\s+GLM 5h: 37%/,
-  );
-  assert.match(
-    compact.join("\n"),
-    /上下文\s+│\s+上下文 12.0% \/ 128k.*命中 93.5%/,
-  );
-  assert.match(compact.join("\n"), /状态\s+│\s+权限 smart/);
-  assert.doesNotMatch(compact.join("\n"), /MCP ready/);
+  assert.ok(compact[0].startsWith("─"));
+  assert.match(compact.join("\n"), /Context 12% · 暂停/);
+  assert.doesNotMatch(compact.join("\n"), /[│┬┴]/);
+  assert.match(compact.join("\n"), /project.*model.*上下文 12.0%/);
+  assert.match(compact.join("\n"), /main.*provider · high.*命中率 93.5%/);
+  assert.match(compact.join("\n"), /权限 smart.*GLM 5h: 37%/);
+  assert.doesNotMatch(compact.join("\n"), /\/tmp\/project|会话|缓存读|费用/);
+  assert.match(compact.join("\n"), /MCP ready/);
+  assert.ok(compact.every((line: string) => visibleWidth(line) <= 132));
 
   await command?.("native", ctx);
   assert.deepEqual(savedModes, ["compact", "native"]);

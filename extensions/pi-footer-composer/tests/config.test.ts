@@ -36,3 +36,20 @@ test("invalid footer config fails with a useful setting error", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("statusRoutes persists exact mappings and rejects unsupported categories", () => {
+  const root = mkdtempSync(join(tmpdir(), "pi-footer-routes-"));
+  try {
+    const path = join(root, "config.json");
+    const store = createFooterConfigStore(path);
+    const config = { mode: "compact", statusRoutes: { external: "integration", "quota:custom": "misc" } } as const;
+    store.save(config);
+    assert.deepEqual(store.load(), config);
+    for (const statusRoutes of [null, [], "integration", { external: "hidden" }, { "": "misc" }]) {
+      writeFileSync(path, JSON.stringify({ statusRoutes }));
+      assert.throws(() => store.load(), /statusRoutes/);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

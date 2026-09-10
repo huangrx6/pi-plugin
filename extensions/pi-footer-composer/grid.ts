@@ -5,7 +5,7 @@ type GridRow = { label: string; items: readonly string[] };
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
 /** Wrap complete graphemes; status text is untrusted, styling belongs here. */
-function wrap(text: string, width: number): string[] {
+export function wrap(text: string, width: number): string[] {
   const rows: string[] = [];
   for (const line of text.split("\n")) {
     let row = "";
@@ -22,7 +22,7 @@ function wrap(text: string, width: number): string[] {
   return rows;
 }
 
-function cleanText(text: string): string {
+export function cleanText(text: string): string {
   return sanitizeTerminalText(text)
     .replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "")
     .replace(/\r\n?/g, "\n").replace(/\t/g, " ").trim();

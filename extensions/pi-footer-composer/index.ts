@@ -1,10 +1,14 @@
 /**
- * pi-footer-composer — compact grouped table by default, full rows optional.
- * Each category occupies one row with a shared label divider and open sides.
- * grid.ts owns wrapping, alignment and quiet theme colors.
+ * pi-footer-composer — responsive compact columns, full category rows optional.
+ * compact.ts and grid.ts own wrapping, alignment and theme colors.
  * Data comes only from Pi's public session, context and footer surfaces.
  * `/footer native` restores Pi's built-in footer.
  */
+
+import { basename } from "node:path";
+import { renderCompact } from "./compact.ts";
+import { sectionOf } from "./routing.ts";
+import type { FooterConfig } from "./config.ts";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -244,20 +248,6 @@ type Section =
   | "misc";
 
 /**
- * Map a status key to its footer row. 仅信任 kind: 前缀 (0.9.0+)；
- * 未识别的 key 一律归入 misc。子集 "qos" / "lsp" / 裸 "policy"
- * 等字面量兑底在 1.0.0 移除（migration 窗口结束）。
- */
-function sectionOf(key: string): Section {
-  if (key.startsWith("quota:")) return "quota";
-  if (key.startsWith("usage:")) return "usage";
-  if (key.startsWith("context:")) return "context";
-  if (key.startsWith("integration:")) return "integration";
-  if (key.startsWith("config:")) return "config";
-  return "misc";
-}
-
-/**
  * Bucket every published status into a footer row. Content-agnostic:
  * one cell per status, sorted by key for stable placement within a
  * row. Empty cells are dropped so a cleared status never wastes a
@@ -267,6 +257,7 @@ function statusGroups(
   footerData: FooterData,
   theme: Theme,
   contextPercent?: number | null,
+  routes?: FooterConfig["statusRoutes"],
 ): Record<Section, Cell[]> {
   const groups: Record<Section, Cell[]> = {
     quota: [],
@@ -286,7 +277,7 @@ function statusGroups(
       .split("\n")
       .map((line) => line.replace(/^(?:[⚡🔌⚙◎]\uFE0F?\s*)+/u, ""))
       .join("\n");
-    const section = sectionOf(key);
+    const section = sectionOf(key, routes);
     const contextSummary =
       section === "context"
         ? clean.match(/^(?:Context|上下文)\s+(\d+(?:\.\d+)?)%$/i)
@@ -339,6 +330,7 @@ type FactoryOptions = { configStore?: FooterConfigStore };
 
 export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
   const configStore = options.configStore ?? createFooterConfigStore();
+  let footerConfig: FooterConfig = { ...DEFAULT_FOOTER_CONFIG };
   let footerMode: FooterMode = DEFAULT_FOOTER_CONFIG.mode;
   let activeCtx: Ctx | null = null;
   let activeModel: {
@@ -388,6 +380,7 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
               footerData,
               theme,
               activeCtx?.getContextUsage?.()?.percent,
+              footerConfig.statusRoutes,
             );
             const usage = collectUsageStats(activeCtx as Ctx);
             const labelCells = (cells: Cell[], labels: string | string[]) =>
@@ -419,41 +412,26 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
                 ],
               );
             if (footerMode === "compact") {
-              return renderGrid(
-                [
-                  { label: "路径", items: environmentItems() },
-                  {
-                    label: "模型",
-                    items: [
-                      ...modelItems(),
-                      ...labelCells(sections.quota, "额度"),
-                    ],
-                  },
-                  {
-                    // 1.0.2：从“状态”行拆出“上下文”行，与完整模式同结构。
-                    // 状态行原本装 5 类内容（contextCell + cacheHitCells +
-                    // sections.context + sections.config + sections.misc），
-                    // 窄终端合并后压成“一长行”。
-                    label: "上下文",
-                    items: labelCells(
-                      [
-                        ...contextCell(activeCtx as Ctx, theme, activeModel),
-                        ...cacheHitCells(usage, theme),
-                      ],
-                      "",
-                    ),
-                  },
-                  {
-                    label: "状态",
-                    items: labelCells(
-                      [...sections.config, ...sections.misc],
-                      "",
-                    ),
-                  },
-                ],
-                width,
-                theme,
-              );
+              const texts = (cells: Cell[]) => cells.map(cell => cell.text);
+              const percent = activeCtx?.getContextUsage?.()?.percent;
+              return renderCompact([
+                {
+                  primary: basename((activeCtx as Ctx).sessionManager.getCwd()) || "/",
+                  secondary: footerData.getGitBranch() || "",
+                  statuses: texts([...sections.config, ...sections.misc]),
+                },
+                {
+                  primary: activeModel?.id || "未选择模型",
+                  secondary: [activeModel?.provider, activeModel?.reasoning ? (activeThinking || "off") : ""].filter(Boolean).join(" · "),
+                  statuses: texts(sections.quota),
+                },
+                {
+                  primary: contextCell(activeCtx as Ctx, theme, activeModel)[0].text,
+                  primaryTone: typeof percent === "number" && percent > 90 ? "error" : typeof percent === "number" && percent > 70 ? "warning" : "text",
+                  secondary: cacheHitText(usage)?.replace(/^命中 /, "命中率 ") || "",
+                  statuses: texts([...sections.context, ...sections.integration]),
+                },
+              ], width, theme);
             }
             return renderGrid(
               [
@@ -471,19 +449,6 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
                         false,
                       ),
                       ...sections.context,
-                    ],
-                    "",
-                  ),
-                },
-                {
-                  // 1.0.2：拆“状态”行为两行。“上下文”行只装 context 语义族
-                  // （上下文百分比 + cache 命中率）；“状态”行装 config / misc
-                  // 兑底。原先两者拆到一个行，窄终端合并时会被压成“一长行”。
-                  label: "上下文",
-                  items: labelCells(
-                    [
-                      ...contextCell(activeCtx as Ctx, theme, activeModel),
-                      ...cacheHitCells(usage, theme),
                     ],
                     "",
                   ),
@@ -521,7 +486,8 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
     const label =
       mode === "compact" ? "紧凑" : mode === "full" ? "完整" : "Pi 原生";
     try {
-      configStore.save({ mode });
+      footerConfig = { ...footerConfig, mode };
+      configStore.save(footerConfig);
       ctx.ui.notify(`Footer · ${label} · 已保存`, "info");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -567,9 +533,11 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
     // session invalidate without firing session_shutdown.
     const footerCtx = ctx as FooterCtx;
     try {
-      footerMode = configStore.load().mode;
+      footerConfig = configStore.load();
+      footerMode = footerConfig.mode;
     } catch (error) {
-      footerMode = DEFAULT_FOOTER_CONFIG.mode;
+      footerConfig = { ...DEFAULT_FOOTER_CONFIG };
+      footerMode = footerConfig.mode;
       const message = error instanceof Error ? error.message : String(error);
       footerCtx.ui.notify(
         `Footer 配置无效，已使用紧凑模式：${message}`,
