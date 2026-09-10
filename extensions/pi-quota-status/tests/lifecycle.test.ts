@@ -177,7 +177,7 @@ test("/quota independently opens details and refreshes without a custom footer",
   assert.doesNotMatch(panels[1], /api.deepseek.com/);
 });
 
-test("publish writes both WIDGET_KEY (kind-prefix) and LEGACY_WIDGET_KEY (bare) for 0.3.0 transition", async (t) => {
+test("publish writes only WIDGET_KEY (kind-prefix) — 1.0.0+ removed LEGACY dual-write", async (t) => {
   credentials(t);
   t.mock.method(globalThis, "fetch", async () => balance("42"));
   const commands = new Map<string, any>();
@@ -215,11 +215,17 @@ test("publish writes both WIDGET_KEY (kind-prefix) and LEGACY_WIDGET_KEY (bare) 
     `expected setStatus("quota:main", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
   );
   assert.ok(
-    legacy,
-    `expected setStatus("quota", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
+    main.text && main.text.length > 0,
+    "主 key 应有有效文本",
   );
-  assert.equal(main.text, legacy.text);
-  assert.ok(main.text && main.text.length > 0, "主 key 应有有效文本");
+  // 1.0.0+：LEGACY_WIDGET_KEY 双写已移除。旧 footer 1.0.0 之前会同时收到
+  // "quota" 和 "quota:main"，两段归类不重叠（"quota" 兜底归 misc vs
+  // "quota:main" 归 quota），导致同一份文本在「额度」和「状态」段重复显示。
+  assert.equal(
+    legacy,
+    undefined,
+    `expected NO setStatus("quota", ...) — got keys: ${setStatusCalls.map((c) => c.key).join(", ")}`,
+  );
 });
 
 test("/quota keeps diagnostics secondary and non-TUI output non-interactive", async (t) => {
