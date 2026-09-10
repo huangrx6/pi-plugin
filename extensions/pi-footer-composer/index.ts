@@ -350,6 +350,21 @@ export default function (pi: ExtensionAPI, options: FactoryOptions = {}): void {
   let activeThinking: string | undefined;
   let requestRender: (() => void) | null = null;
 
+  // (1.0.1) 加载闪烁修复：在同步路径里立刻 setFooter 一个占位 renderer，
+  // 防止 pi 内置 default footer 首次渲染造成「default → 自定义」闪烁。
+  // 占位 renderer 返回空数组 → pi 跳过 footer 区域（不是显示默认 footer）。
+  // session_start 触发 mountFooter 时会被真 renderer 替换。
+  // SAFETY: FooterRenderer 与 pi 文档契约一致；返回 [] 是合法占位。
+  // `setFooter` 在 shim 的 ui 子对象上（pi 0.85+）。
+  const placeholderUi = (pi as unknown as { ui?: { setFooter?: (r: unknown) => void } }).ui;
+  if (typeof placeholderUi?.setFooter === "function") {
+    placeholderUi.setFooter(() => ({
+      render: () => [],
+      invalidate: () => {},
+      dispose: () => {},
+    }));
+  }
+
   const mountFooter = (ctx: FooterCtx): void => {
     activeCtx = ctx;
     activeModel = ctx.model ?? null;

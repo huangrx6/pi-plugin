@@ -109,6 +109,9 @@ pi install "$PWD"
 - 视图选择自动保存到扩展数据目录，重新加载和新会话会恢复上次选择。
 - Pi 的自定义底栏采用替换语义，同时启用多个渲染器时可能互相覆盖。
 - 原生底栏的部分内部标记无法通过公开接口读取；需要完整原生信息时执行 `/footer native`。
+- **加载无闪烁**：在 extension 同步路径里立刻 setFooter 一个返回空数组的占位
+  renderer，阻止 pi 内置 default footer 首次渲染造成「default → 自定义」闪烁。
+  session_start 触发 mountFooter 时才替换为真 renderer。
 
 ## 开发
 
