@@ -9,7 +9,7 @@ export interface ContinuationContext {
     customInstructions: string;
     onComplete(result: { tokensBefore: number; estimatedTokensAfter?: number }): void;
     onError(error: Error): void;
-  }): void;
+  }): void | Promise<void>;
 }
 
 export interface CompactionNotice {
@@ -82,7 +82,10 @@ export class CompactionContinuation {
       this.publishNotice({ status: "failed", text: `上下文压缩未完成：${error.message}。未自动重试；可查看 /context。` });
     };
     try {
-      ctx.compact({
+      // 0.5.0 兼容：pi 0.85 中 ctx.compact 是 callback 同步调用，调用本身
+      // 返回 void；如果未来改为返回 Promise，这里挂 catch 兑底 async
+      // rejection（try/catch 抓不住 thenable 错）。
+      const result = ctx.compact({
         customInstructions: "Preserve the current user objective, explicit constraints, unresolved evidence, modified files, decisions. Identify the next unfinished step and distinguish completed operations from pending ones.",
         onComplete: result => {
           if (!current()) return;
@@ -101,6 +104,9 @@ export class CompactionContinuation {
         },
         onError,
       });
+      if (result && typeof (result as { then?: unknown }).then === "function") {
+        (result as Promise<void>).catch(onError);
+      }
     } catch (error) {
       onError(error instanceof Error ? error : new Error(String(error)));
     }
