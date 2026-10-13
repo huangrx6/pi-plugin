@@ -19,6 +19,8 @@ import {
 	formatBar,
 	formatDuration,
 } from "../format.ts";
+import { LOADING_FRAMES } from "../constants.ts";
+import { createState } from "../state.ts";
 import { displayWidth, sanitizeTerminalText, truncateToWidth } from "../ui.ts";
 import type { QuotaBar } from "../types.ts";
 
@@ -94,6 +96,34 @@ describe("terminal-safe width", () => {
 
 describe("buildQuotaText", () => {
 	it("empty cache → null (footer stays silent, no placeholder noise)", () => {
-		assert.equal(buildQuotaText(), null);
+		assert.equal(buildQuotaText(createState()), null);
+	});
+
+	it("in-flight first query → frame placeholder instead of an empty cell", () => {
+		assert.equal(
+			buildQuotaText({ ...createState(), loading: true }),
+			`${LOADING_FRAMES[0]} 查询中…`,
+		);
+	});
+
+	it("the caller-provided frame is what animates", () => {
+		const frames = LOADING_FRAMES.slice(0, 3).map((frame) =>
+			buildQuotaText({ ...createState(), loading: true }, frame),
+		);
+		assert.deepEqual(frames, ["⠋ 查询中…", "⠙ 查询中…", "⠹ 查询中…"]);
+		assert.equal(new Set(frames).size, 3);
+	});
+
+	it("a refresh keeps the data on screen instead of a placeholder", () => {
+		const text = buildQuotaText({
+			...createState(),
+			loading: true,
+			quotaData: {
+				provider: "DeepSeek API",
+				bars: [{ kind: "balance", label: "", amount: 12, currency: "¥" }],
+			},
+		});
+		assert.match(text || "", /¥12\.00/);
+		assert.doesNotMatch(text || "", /查询中/);
 	});
 });

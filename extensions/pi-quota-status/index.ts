@@ -1,7 +1,7 @@
 /** Independent quota panel plus an optional native status summary. */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { ADAPTERS, subscriptionForProvider } from "./adapters.ts";
-import { STATUS_KEY, TREE_THROTTLE_MS, TURN_THROTTLE_MS } from "./constants.ts";
+import { LOADING_FRAMES, LOADING_INTERVAL_MS, STATUS_KEY, TREE_THROTTLE_MS, TURN_THROTTLE_MS } from "./constants.ts";
 import { buildQuotaText } from "./format.ts";
 import { createMonitor } from "./monitor.ts";
 import { quotaDiagnostics, quotaSummary } from "./panel.ts";
@@ -21,13 +21,50 @@ export default function (pi: ExtensionAPI): void {
   const monitor = createMonitor();
   const account = createMonitor();
   let generation = 0;
+  let animation: ReturnType<typeof setInterval> | undefined;
+  let frameIndex = 0;
+  let currentCtx: StatusCtx | null = null;
+  function stopAnimation(): void {
+    if (animation === undefined) return;
+    clearInterval(animation);
+    animation = undefined;
+  }
+  function startAnimation(): void {
+    if (animation !== undefined) return;
+    animation = setInterval(() => {
+      frameIndex = (frameIndex + 1) % LOADING_FRAMES.length;
+      if (currentCtx) publish(currentCtx);
+    }, LOADING_INTERVAL_MS);
+    // Never keep the process alive for a placeholder frame.
+    animation.unref?.();
+  }
+  /**
+   * Publish the summary and drive the in-flight placeholder.
+   *
+   * The repaint timer exists only while a first query owns the cell and a TUI
+   * can draw it, so it cannot outlive the query, the session, or a shutdown.
+   * RPC / print / json consumers get one static frame instead of a stream of
+   * status events.
+   */
   function publish(ctx: StatusCtx): void {
+    currentCtx = ctx;
+    const inFlight =
+      monitor.state.loading &&
+      !monitor.state.quotaData &&
+      !monitor.state.errorText;
+    if (inFlight && ctx.hasUI !== false && (ctx.mode ?? "tui") === "tui")
+      startAnimation();
+    else {
+      stopAnimation();
+      frameIndex = 0;
+    }
     if (ctx.hasUI === false) return;
     try {
-      const text = buildQuotaText(monitor.state) ?? undefined;
-      ctx.ui.setStatus(STATUS_KEY, text);
+      const text = buildQuotaText(monitor.state, LOADING_FRAMES[frameIndex]);
+      ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
     } catch {
       /* A replaced context owns no current UI. */
+      stopAnimation();
     }
   }
   function refresh(ctx: StatusCtx, model = ctx.model): Promise<void> {

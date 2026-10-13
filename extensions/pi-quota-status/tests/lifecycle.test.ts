@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension from "../index.ts";
+import { LOADING_INTERVAL_MS } from "../constants.ts";
 import { createMonitor } from "../monitor.ts";
 import { buildQuotaText } from "../format.ts";
 import { quotaDetails, quotaDiagnostics } from "../panel.ts";
@@ -203,7 +204,7 @@ test("publish writes only the extension-owned status key", async (t) => {
   } as unknown as import("@earendil-works/pi-coding-agent").ExtensionContext;
   // 走 /quota 命令，等待 refresh 完成后检查最后一次有效发布。
   await commands.get("quota")("", ctx);
-  // publish 被调两次：加载中（text=undefined）和成功（text 有值）。
+  // publish 被调多次：加载中（占位帧）和成功（text 有真实数值）。
   const main = [...setStatusCalls]
     .reverse()
     .find((c) => c.key === "pi-quota-status");
@@ -213,6 +214,52 @@ test("publish writes only the extension-owned status key", async (t) => {
   );
   assert.ok(main.text && main.text.length > 0, "主 key 应有有效文本");
   assert.equal(new Set(setStatusCalls.map((call) => call.key)).size, 1);
+});
+
+test("in-flight placeholder animates in a TUI, then stops with the query", async (t) => {
+  credentials(t);
+  const calls = pendingFetch(t);
+  const handlers = new Map<string, Function>();
+  extension({
+    on: (name, handler) => handlers.set(name, handler),
+    registerCommand: () => {},
+  } as unknown as ExtensionAPI);
+  const statuses: Array<string | undefined> = [];
+  const ctx = {
+    model,
+    hasUI: true,
+    mode: "tui",
+    ui: {
+      setStatus: (_key: string, text: string | undefined) => statuses.push(text),
+      notify() {},
+      async select() {
+        return undefined;
+      },
+    },
+  };
+  await handlers.get("session_start")!(
+    { type: "session_start", reason: "startup" },
+    ctx,
+  );
+  // 首帧在 fetch 挂起时就发布，而不是先空白几秒。
+  assert.equal(statuses.at(-1), "⠋ 查询中…");
+  await new Promise((resolve) =>
+    setTimeout(resolve, LOADING_INTERVAL_MS * 3 + 20),
+  );
+  const frames = statuses.filter((text) => /查询中/.test(String(text)));
+  assert.ok(frames.length >= 3, `expected repeated frames, got ${frames.length}`);
+  assert.ok(new Set(frames).size >= 2, "consecutive frames must differ");
+  calls[0].resolve(balance("42"));
+  await new Promise((resolve) => setTimeout(resolve, LOADING_INTERVAL_MS + 20));
+  // 占位被真实数值替换（含适配器自带的 provider 标记）。
+  assert.match(String(statuses.at(-1)), /¥42\.00/);
+  assert.doesNotMatch(String(statuses.at(-1)), /查询中/);
+  // 查询结束后定时器必须停：不再有重绘。
+  const settled = statuses.length;
+  await new Promise((resolve) =>
+    setTimeout(resolve, LOADING_INTERVAL_MS * 3 + 20),
+  );
+  assert.equal(statuses.length, settled, "no repaint after the query settled");
 });
 
 test("/quota keeps diagnostics secondary and non-TUI output non-interactive", async (t) => {

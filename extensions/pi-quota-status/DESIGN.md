@@ -1,4 +1,4 @@
-# Design — pi-quota-status 0.3.0
+# Design — pi-quota-status 0.4.0
 
 > 本文档记录 pi-quota-status 的内部架构与关键决策，补充 README 的用户视角。
 > 扩展独立性铁律：不修改其他扩展的状态、不依赖其命令或事件。
@@ -70,6 +70,8 @@ state 改变时通过 `controller?.abort()` 取消在飞的 fetch（避免过期
 ## 状态发布
 
 `publish()` 只使用扩展自有 key `pi-quota-status` 发布一份简短额度摘要。key 是本扩展稳定的公开标识，不编码显示位置或分类，也不重复发布兼容别名。
+
+首次查询（`loading && !quotaData && !errorText`）发布 `⠋ 查询中…` 占位，而不是让状态格空白：帧集合与 80ms 节奏直接对齐宿主 spinner（U+2800–28FF 盲文），所以能画出宿主 spinner 的终端就能画出它。重绘由本扩展自己的 80ms 定时器驱动（`setStatus` 会触发宿主 requestRender），定时器只在 TUI 模式且查询在飞时存在，`unref()` 不阻止进程退出，成功 / 失败 / 会话关闭都会清掉它；RPC / json / print 只发一帧静态占位，避免事件流被帧刷屏。已有数据时刷新不清屏：占位只在“无数据可显示”时出现。
 
 ## 已知边界
 

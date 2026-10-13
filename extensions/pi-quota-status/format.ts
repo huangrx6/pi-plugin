@@ -1,5 +1,5 @@
 /** Quota formatting for the optional status summary and standalone panel. */
-import { STALE_KEEP_MS } from "./constants.ts";
+import { LOADING_FRAMES, LOADING_LABEL, STALE_KEEP_MS } from "./constants.ts";
 import { state as defaultState, type ExtensionState } from "./state.ts";
 import type { QuotaBar } from "./types.ts";
 import { sanitizeTerminalText, truncateToWidth } from "./ui.ts";
@@ -50,12 +50,23 @@ export function formatBar(bar: QuotaBar): string {
     }
 }
 
-/** Build a compact, plain status contribution; `?` marks stale data. */
-export function buildQuotaText(state: ExtensionState = defaultState): string | null {
+/**
+ * Build a compact, plain status contribution; `?` marks stale data.
+ *
+ * `frame` is only advanced by the caller that owns a repaint timer; every
+ * other caller passes the default and therefore renders a static glyph.
+ */
+export function buildQuotaText(state: ExtensionState = defaultState, frame: string = LOADING_FRAMES[0]): string | null {
     if (state.errorText) {
         return truncateToWidth(`! ${state.errorText}`, 72);
     }
-    if (!state.quotaData) return null;
+    // No data yet: an in-flight query owns the cell (the placeholder is what
+    // tells the user a query is running), otherwise stay silent instead of
+    // showing a placeholder that would look like real data. Data already on
+    // screen keeps winning during a refresh.
+    if (!state.quotaData) {
+        return state.loading ? truncateToWidth(`${frame} ${LOADING_LABEL}`, 72) : null;
+    }
     const staleSuffix =
         state.lastRefreshError || (state.quotaFetchedAt > 0 &&
         Date.now() - state.quotaFetchedAt > STALE_KEEP_MS)
