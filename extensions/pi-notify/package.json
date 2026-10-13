@@ -1,7 +1,7 @@
 {
   "name": "pi-notify",
-  "version": "0.2.1",
-  "description": "Independent terminal notifications with OSC, multiplexer routing and diagnostic commands.",
+  "version": "0.3.0",
+  "description": "Independent notifications: OSC protocols, multiplexer routing, and a system fallback for terminals without one.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -19,6 +19,7 @@
     "pi-package",
     "pi-extension",
     "notification",
+    "desktop-notification",
     "osc",
     "terminal"
   ],
@@ -29,11 +30,12 @@
   },
   "scripts": {
     "check": "tsc -p . --noEmit",
-    "test": "tsx --test index.test.ts"
+    "test": "tsx --test *.test.ts"
   },
   "files": [
     "index.ts",
     "format.ts",
+    "notifier.ts",
     "terminal.ts",
     "tsconfig.json",
     "globals.d.ts",

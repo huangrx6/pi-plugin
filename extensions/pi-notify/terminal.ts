@@ -1,5 +1,11 @@
 /** Pure protocol selection and encoding. No terminal writes or subprocesses. */
-export type Protocol = "osc9" | "osc99" | "osc777" | "bell" | "off";
+export type Protocol =
+  | "osc9"
+  | "osc99"
+  | "osc777"
+  | "bell"
+  | "off"
+  | "system";
 export type Transport = "direct" | "tmux" | "screen" | "zellij";
 export interface TerminalPlan {
   terminal: string;
@@ -71,9 +77,24 @@ export function singleLine(value: string, max = 240): string {
 function detectTerminal(env: NodeJS.ProcessEnv): {
   name: string;
   protocol?: Protocol;
+  /** Recognized terminal that has no desktop-notification protocol at all. */
+  unsupported?: boolean;
+  notes?: string[];
 } {
   const program = (env.TERM_PROGRAM ?? "").toLowerCase();
   const term = (env.TERM ?? "").toLowerCase();
+  const emulator = (env.TERMINAL_EMULATOR ?? "").toLowerCase();
+  // Checked before the brand variables: an embedded terminal sets
+  // TERMINAL_EMULATOR itself, while TERM_PROGRAM can be inherited from the
+  // environment the IDE was launched in (for example a Ghostty shell).
+  if (emulator.includes("jetbrains"))
+    return {
+      name: "JetBrains 终端 (JediTerm)",
+      unsupported: true,
+      notes: [
+        "JetBrains 内嵌终端实现了 OSC 9;4 进度条，但没有实现桌面通知协议（OSC 9 / 99 / 777）。",
+      ],
+    };
   if (program === "ghostty" || term === "xterm-ghostty")
     return { name: "Ghostty", protocol: "osc9" };
   if (program === "iterm.app" || env.ITERM_SESSION_ID)
@@ -110,20 +131,42 @@ export function resolveTerminal(env: NodeJS.ProcessEnv): TerminalPlan {
           ? "direct"
           : undefined,
     blocked: false,
-    notes: [],
+    notes: [...(terminal.notes ?? [])],
   };
   const protocol = env.PI_NOTIFY_PROTOCOL?.toLowerCase() || "auto";
   const transport = env.PI_NOTIFY_TRANSPORT?.toLowerCase() || "auto";
   if (protocol !== "auto") {
-    if (["osc9", "osc99", "osc777", "bell", "off"].includes(protocol)) {
+    if (
+      ["osc9", "osc99", "osc777", "bell", "off", "system"].includes(protocol)
+    ) {
       plan.protocol = protocol as Protocol;
       plan.notes.push(`协议由 PI_NOTIFY_PROTOCOL=${protocol} 指定。`);
     } else {
       plan.blocked = true;
       plan.notes.push(
-        "PI_NOTIFY_PROTOCOL 无效；可选 auto / osc9 / osc99 / osc777 / bell / off。",
+        "PI_NOTIFY_PROTOCOL 无效；可选 auto / osc9 / osc99 / osc777 / bell / system / off。",
       );
     }
+  } else if (
+    terminal.unsupported ||
+    (!terminal.protocol && Boolean(env.PI_NOTIFY_COMMAND?.trim()))
+  ) {
+    // A terminal without a notification protocol cannot show anything, so an
+    // available system notifier is the only path that still notifies. An
+    // explicit protocol (including off / bell) always wins over this default.
+    plan.protocol = "system";
+    plan.notes.push(
+      terminal.unsupported
+        ? "该终端没有桌面通知协议，自动改用系统通知命令；PI_NOTIFY_PROTOCOL=bell / off / osc9 可显式覆盖。"
+        : "终端未识别但已配置 PI_NOTIFY_COMMAND，自动改用系统通知命令；PI_NOTIFY_PROTOCOL=bell / off 可显式覆盖。",
+    );
+  }
+  if (plan.protocol === "system") {
+    plan.transport = undefined;
+    plan.notes.push(
+      "系统通知命令不写入终端字节，也不经过 tmux / Zellij / screen 转发。",
+    );
+    return plan;
   }
   if (transport !== "auto") {
     if (["direct", "tmux", "screen", "zellij"].includes(transport)) {
@@ -210,7 +253,8 @@ export function notificationBytes(
     plan.blocked ||
     !plan.protocol ||
     !plan.transport ||
-    plan.protocol === "off"
+    plan.protocol === "off" ||
+    plan.protocol === "system"
   )
     return [];
   if (plan.protocol === "bell") return [BEL];

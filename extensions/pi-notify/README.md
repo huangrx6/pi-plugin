@@ -8,7 +8,7 @@
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
-离开当前终端后，也能知道 Pi 是否已经结束运行。通知等待重试和排队续接完成；终端识别、测试与会话开关集中在 `/notify`，发送结果始终可以查看。
+离开当前终端后，也能知道 Pi 是否已经结束运行。通知等待重试和排队续接完成；终端识别、测试与会话开关集中在 `/notify`，发送结果始终可以查看。终端本身没有通知协议时（例如 JetBrains 内嵌终端），改用系统通知命令，而不是静默丢弃。
 
 ## 快速开始
 
@@ -60,8 +60,23 @@ pi install "$PWD"
 | iTerm2 | OSC 9 | `TERM_PROGRAM=iTerm.app` 或 `ITERM_SESSION_ID` |
 | WezTerm | OSC 777 | `TERM_PROGRAM=WezTerm` 或 `WEZTERM_PANE` |
 | Kitty | OSC 99 | `KITTY_WINDOW_ID` 或 `TERM=xterm-kitty` |
+| JetBrains 终端 (JediTerm) | 系统通知命令 | `TERMINAL_EMULATOR=JetBrains-JediTerm` |
 
-未知终端不会被假定为支持某种桌面通知协议。扩展提示诊断信息后，可显式配置已确认支持的协议，或降级为响铃。Kitty 使用独立通知 ID，避免不同运行互相覆盖。
+未知终端不会被假定为支持某种桌面通知协议。扩展提示诊断信息后，可显式配置已确认支持的协议，降级为响铃，或改走系统通知命令。Kitty 使用独立通知 ID，避免不同运行互相覆盖。`TERMINAL_EMULATOR` 比 `TERM_PROGRAM` 更可信：IDE 内嵌终端会自己设置前者，而后者可能是 IDE 启动时从外层 shell 继承来的。
+
+### 系统通知降级
+
+JetBrains 内嵌终端实现了 OSC 9;4 进度条，但没有实现桌面通知协议（OSC 9 / 99 / 777），这类终端默认改走系统通知命令。只写终端字节的路径会在这里变成“什么都没发生”，降级是唯一还能通知出去的选择。
+
+| 平台 | 默认后端 | 说明 |
+| --- | --- | --- |
+| macOS | `/usr/bin/osascript` | AppleScript 的 `display notification`，标题与正文作为 argv 传入 |
+| Linux | `notify-send` | 需要正在运行的桌面通知服务 |
+| Windows | 无内置 | 需自行设置 `PI_NOTIFY_COMMAND` |
+
+触发规则：已识别为“没有通知协议”的终端自动降级；未识别终端只有在设置了 `PI_NOTIFY_COMMAND` 或显式 `PI_NOTIFY_PROTOCOL=system` 时才使用它，否则仍然阻断并给出诊断。显式设置 `PI_NOTIFY_PROTOCOL=bell` / `off` / `osc9` / `osc99` / `osc777` 都可以覆盖该默认。
+
+通知文本始终作为 argv 数据传给程序，不经过 shell，也不拼接进 AppleScript 源码：正文里的引号、反引号、`$()` 和分号只会作为文本出现。系统路径不重试，命令的退出码与错误输出会写入「最近发送」。
 
 <details>
 <summary>tmux、Zellij、GNU screen 与嵌套限制</summary>
@@ -85,22 +100,27 @@ Zellij 自动模式使用 OSC 9，由宿主转发配置决定外层协议。GNU 
 
 | 变量 | 可选值 | 默认 |
 | --- | --- | --- |
-| `PI_NOTIFY_PROTOCOL` | `auto`、`osc9`、`osc99`、`osc777`、`bell`、`off` | `auto` |
+| `PI_NOTIFY_PROTOCOL` | `auto`、`osc9`、`osc99`、`osc777`、`bell`、`system`、`off` | `auto` |
 | `PI_NOTIFY_TRANSPORT` | `auto`、`direct`、`tmux`、`screen`、`zellij` | `auto` |
+| `PI_NOTIFY_COMMAND` | 程序名或绝对路径 | 未设置 |
+| `PI_NOTIFY_COMMAND_ARGS` | JSON 字符串数组，可用 `{title}`、`{body}` 占位符 | `["{title}", "{body}"]` |
 
 ```bash
 PI_NOTIFY_PROTOCOL=osc9 pi
 PI_NOTIFY_PROTOCOL=bell pi
 PI_NOTIFY_PROTOCOL=off pi
+PI_NOTIFY_PROTOCOL=system pi
+PI_NOTIFY_COMMAND=terminal-notifier \
+  PI_NOTIFY_COMMAND_ARGS='["-title", "{title}", "-message", "{body}"]' pi
 ```
 
-第一条适用于终端身份被 SSH 等环境隐藏、且已确认宿主支持 OSC 9 的情况。`bell` 将响铃交给当前终端或复用器处理，不保证桌面横幅。无效的协议或转发配置会阻止发送，并在诊断中说明原因。
+第一条适用于终端身份被 SSH 等环境隐藏、且已确认宿主支持 OSC 9 的情况。`bell` 将响铃交给当前终端或复用器处理，不保证桌面横幅。`system` 强制使用系统通知命令；`PI_NOTIFY_COMMAND_ARGS` 必须是 JSON 字符串数组，空值或非法 JSON 会被判为配置无效并阻断发送。无效的协议或转发配置同样会阻止发送，并在诊断中说明原因。
 
 ## 诊断与验证边界
 
-只有在 Pi 交互终端模式、有 UI 且 stdout 为 TTY 时才写入终端控制序列。RPC 使用非交互摘要；JSON、print 和重定向输出不写入通知控制序列。扩展不注册模型工具，不执行系统通知命令。
+只有在 Pi 交互终端模式、有 UI 且 stdout 为 TTY 时才发送：终端路径写入控制序列，系统路径启动通知程序。RPC 使用非交互摘要；JSON、print 和重定向输出两条路径都不执行。扩展不注册模型工具。
 
-`/notify test` 显示「已写入」表示控制序列已经交给终端，**无法确认系统实际展示或用户收到通知**。未显示横幅时，先核对 `/notify status` 中的协议和路径，再检查宿主终端、复用器及系统通知设置。
+`/notify test` 显示「已写入」表示控制序列已经交给终端，**无法确认系统实际展示或用户收到通知**。系统路径显示「已运行 …（退出 0）」表示程序成功退出，同样无法确认横幅真的出现了。未看到通知时，先核对 `/notify status` 中的协议、后端和路径，再检查宿主终端、系统通知设置以及程序本身的输出。
 
 自动测试注入输出函数，不向真实终端发送。覆盖协议字节、转发组合、文本清理、重试与排队续接、结束原因、非交互隔离以及菜单开关；不同终端的实际桌面展示仍需实机验收。
 
@@ -111,6 +131,10 @@ PI_NOTIFY_PROTOCOL=off pi
 - [iTerm2 Escape Codes](https://iterm2.com/documentation-escape-codes.html)
 - [Kitty Desktop Notifications](https://sw.kovidgoyal.net/kitty/desktop-notifications/)
 - [WezTerm Notification Handling](https://wezterm.org/config/lua/config/notification_handling.html)
+- [JetBrains 终端只实现 OSC 9;4 进度条](https://github.com/JetBrains/intellij-community/pull/3532)
+- [JediTerm 的 `TERMINAL_EMULATOR` 标识](https://github.com/JetBrains/jediterm/issues/253)
+- [AppleScript `display notification`](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/reference/ASLR_cmds.html)
+- [notify-send(1)](https://man.archlinux.org/man/notify-send.1)
 - [tmux Passthrough FAQ](https://github.com/tmux/tmux/wiki/FAQ)
 - [Zellij Compatibility](https://zellij.dev/documentation/compatibility.html)
 - [GNU screen Manual](https://www.gnu.org/software/screen/manual/screen.pdf)

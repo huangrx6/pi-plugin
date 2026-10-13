@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { registerNotify, type NotifyIO } from "./index.ts";
+import { onPath, registerNotify, type NotifyIO, type RunResult } from "./index.ts";
 import {
   formatBody,
   formatDuration,
@@ -83,6 +86,57 @@ describe("protocol and transport", () => {
       [{ TERM: "xterm-kitty" }, "osc99"],
     ] as const)
       assert.equal(resolveTerminal(env).protocol, expected);
+  });
+  it("treats an embedded JetBrains terminal as a known unsupported terminal", () => {
+    const plan = resolveTerminal({
+      TERMINAL_EMULATOR: "JetBrains-JediTerm",
+      TERM: "xterm-256color",
+    });
+    assert.equal(plan.protocol, "system");
+    assert.equal(plan.blocked, false);
+    assert.deepEqual(notificationBytes(plan, "Pi", "hello", "id"), []);
+    assert.match(plan.notes.join("\n"), /JetBrains/);
+  });
+  it("trusts TERMINAL_EMULATOR over an inherited TERM_PROGRAM", () => {
+    const plan = resolveTerminal({
+      TERMINAL_EMULATOR: "JetBrains-JediTerm",
+      TERM_PROGRAM: "ghostty",
+      TERM: "xterm-256color",
+    });
+    assert.equal(plan.protocol, "system");
+    assert.equal(plan.transport, undefined);
+  });
+  it("lets an explicit protocol override the system fallback", () => {
+    for (const [protocol, expected] of [
+      ["bell", "bell"],
+      ["off", "off"],
+      ["osc9", "osc9"],
+    ] as const) {
+      const plan = resolveTerminal({
+        TERMINAL_EMULATOR: "JetBrains-JediTerm",
+        PI_NOTIFY_PROTOCOL: protocol,
+      });
+      assert.equal(plan.protocol, expected);
+    }
+  });
+  it("uses the configured system command for an unidentified terminal", () => {
+    assert.equal(
+      resolveTerminal({ TERM: "xterm-256color", PI_NOTIFY_COMMAND: "/bin/echo" })
+        .protocol,
+      "system",
+    );
+    // Without an explicit command the unknown terminal still refuses to guess.
+    assert.equal(resolveTerminal({ TERM: "xterm-256color" }).blocked, true);
+  });
+  it("accepts the system protocol explicitly and skips transport routing", () => {
+    const plan = resolveTerminal({
+      TERM: "xterm-256color",
+      PI_NOTIFY_PROTOCOL: "system",
+      TMUX: "1",
+    });
+    assert.equal(plan.protocol, "system");
+    assert.equal(plan.blocked, false);
+    assert.equal(plan.transport, undefined);
   });
   it("does not guess nested multiplexer order or ambiguous screen TERM", () => {
     for (const env of [
@@ -207,6 +261,8 @@ function harness(
     hasUI?: boolean;
     tty?: boolean;
     writeError?: boolean;
+    /** Whether a system-notification program is considered present. */
+    available?: (file: string) => boolean;
   } = {},
 ) {
   const handlers = new Map<
@@ -216,12 +272,15 @@ function harness(
   let command: (args: string, ctx: ExtensionContext) => unknown;
   const chunks: string[] = [],
     notices: string[] = [],
+    runs: Array<{ file: string; args: readonly string[] }> = [],
     menus: Array<{ title: string; options: string[] }> = [];
   let selection: string | undefined,
     pending = false,
     idle = true,
     time = 1_000,
-    id = 0;
+    id = 0,
+    runResult: RunResult = { code: 0, stderr: "" },
+    runError: Error | undefined;
   const io: NotifyIO = {
     env: () => options.env ?? { TERM_PROGRAM: "ghostty" },
     isTTY: () => options.tty ?? true,
@@ -230,6 +289,12 @@ function harness(
     write: (value) => {
       if (options.writeError) throw new Error("write failed");
       chunks.push(value);
+    },
+    available: options.available ?? (() => true),
+    run: async (file, args) => {
+      runs.push({ file, args });
+      if (runError) throw runError;
+      return runResult;
     },
   };
   // ui.* 只提供本测试用到的 notify + select；运行时 pi 都有完整 ui 集。
@@ -272,6 +337,7 @@ function harness(
   return {
     chunks,
     notices,
+    runs,
     menus,
     fire,
     finish,
@@ -289,6 +355,12 @@ function harness(
     },
     advance: (ms: number) => {
       time += ms;
+    },
+    runResult: (value: RunResult) => {
+      runResult = value;
+    },
+    runError: (value: Error) => {
+      runError = value;
     },
   };
 }
@@ -457,6 +529,102 @@ describe("settlement and standalone command", () => {
     h.fire("agent_start");
     assert.doesNotThrow(() => h.finish());
     assert.match(h.notices[0], /写入终端失败/);
+  });
+});
+
+describe("system notification path", () => {
+  it("finds absolute and PATH programs, and rejects missing ones", () => {
+    assert.equal(onPath("/bin/sh", {}), true);
+    assert.equal(onPath("/definitely/not/here", {}), false);
+    assert.equal(onPath("definitely-not-a-program", { PATH: "/bin" }), false);
+    const directory = mkdtempSync(join(tmpdir(), "pi-notify-path-"));
+    try {
+      writeFileSync(join(directory, "notifier-stub"), "#!/bin/sh\n", {
+        mode: 0o755,
+      });
+      assert.equal(onPath("notifier-stub", { PATH: directory }), true);
+      // A present but non-executable file is not a usable backend.
+      writeFileSync(join(directory, "not-executable"), "", { mode: 0o644 });
+      assert.equal(onPath("not-executable", { PATH: directory }), false);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+  const jetbrains = {
+    TERMINAL_EMULATOR: "JetBrains-JediTerm",
+    TERM: "xterm-256color",
+    PI_NOTIFY_COMMAND: "/bin/echo",
+    PI_NOTIFY_COMMAND_ARGS: '["{title}","{body}"]',
+  };
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+
+  it("runs the command instead of writing terminal bytes", async () => {
+    const h = harness({ env: jetbrains });
+    h.fire("agent_start");
+    h.finish();
+    await settle();
+    assert.equal(h.runs.length, 1);
+    assert.equal(h.runs[0].file, "/bin/echo");
+    assert.equal(h.runs[0].args[0], "Pi");
+    assert.match(h.runs[0].args[1], /✓ Pi · 已结束/);
+    assert.deepEqual(h.chunks, []);
+  });
+  it("reports a failed command in notices and diagnostics", async () => {
+    const h = harness({ env: jetbrains });
+    h.runResult({ code: 1, stderr: "notify failed" });
+    h.fire("agent_start");
+    h.finish();
+    await settle();
+    assert.match(h.notices.join("\n"), /系统通知命令失败（退出 1）：notify failed/);
+    await h.command("status");
+    assert.match(h.notices.at(-1)!, /最近发送：系统通知命令失败（退出 1）/);
+  });
+  it("survives a backend that cannot be started", async () => {
+    const h = harness({ env: jetbrains });
+    h.runError(new Error("spawn ENOENT"));
+    h.fire("agent_start");
+    h.finish();
+    await settle();
+    assert.match(h.notices.join("\n"), /系统通知命令无法启动：spawn ENOENT/);
+  });
+  it("runs the command for an explicit test notification", async () => {
+    const h = harness({ env: { ...jetbrains, PI_NOTIFY_PROTOCOL: "system" } });
+    await h.command("test hello");
+    assert.equal(h.runs.length, 1);
+    assert.match(h.runs[0].args[1], /测试通知 · hello/);
+    assert.match(h.notices.at(-1)!, /已运行 自定义命令/);
+  });
+  it("stays silent outside the interactive terminal", async () => {
+    for (const options of [
+      { env: jetbrains, mode: "rpc" as const },
+      { env: jetbrains, tty: false },
+      { env: { ...jetbrains, PI_NOTIFY_PROTOCOL: "off" } },
+    ]) {
+      const h = harness(options);
+      h.fire("agent_start");
+      h.finish();
+      await settle();
+      assert.deepEqual(h.runs, []);
+    }
+  });
+  it("keeps bell as an explicit terminal choice and blocks a missing backend", async () => {
+    const bell = harness({
+      env: { TERMINAL_EMULATOR: "JetBrains-JediTerm", PI_NOTIFY_PROTOCOL: "bell" },
+    });
+    bell.fire("agent_start");
+    bell.finish();
+    assert.deepEqual(bell.chunks, [BEL]);
+    assert.deepEqual(bell.runs, []);
+    const blocked = harness({
+      env: { TERMINAL_EMULATOR: "JetBrains-JediTerm", PI_NOTIFY_PROTOCOL: "system" },
+      available: () => false,
+    });
+    blocked.fire("agent_start");
+    blocked.finish();
+    await settle();
+    assert.deepEqual(blocked.runs, []);
+    assert.match(blocked.notices.join("\n"), /未发送：系统通知命令不可用/);
+    assert.match(blocked.notices.join("\n"), /PI_NOTIFY_COMMAND/);
   });
 });
 

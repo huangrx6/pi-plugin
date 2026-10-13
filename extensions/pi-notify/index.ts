@@ -1,10 +1,24 @@
-/** Terminal-only notifications after Pi's complete run has settled. */
+/**
+ * Notifications after Pi's complete run has settled.
+ *
+ * The terminal protocol is the preferred path; terminals that have no
+ * notification protocol at all fall back to a system notification command,
+ * which is started without a shell and only ever with argv data.
+ */
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { accessSync, constants } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { formatBody, freshStats, outcomeFor, type RunStats } from "./format.ts";
+import {
+  resolveSystemNotifier,
+  systemCommand,
+  type SystemNotifier,
+} from "./notifier.ts";
 import {
   notificationBytes,
   resolveTerminal,
@@ -14,12 +28,46 @@ import {
 
 export { formatBody, formatDuration } from "./format.ts";
 
+export interface RunResult {
+  /** Exit code, or null when the program could not be started or was killed. */
+  code: number | null;
+  stderr: string;
+}
+
 export interface NotifyIO {
   env(): NodeJS.ProcessEnv;
   isTTY(): boolean;
   write(value: string): void;
   now(): number;
   id(): string;
+  /** Whether a system-notification program is present. */
+  available(file: string): boolean;
+  /** Start a system-notification program; never through a shell. */
+  run(file: string, args: readonly string[]): Promise<RunResult>;
+}
+
+const SYSTEM_TIMEOUT_MS = 5000;
+
+/**
+ * Presence probe for a system-notification program: absolute paths are checked
+ * directly, bare names are searched on PATH. Exported for tests — the default
+ * backends depend on it, and the custom-command path does not.
+ */
+export function onPath(file: string, env: NodeJS.ProcessEnv): boolean {
+  const candidates = isAbsolute(file)
+    ? [file]
+    : (env.PATH ?? "")
+        .split(delimiter)
+        .filter(Boolean)
+        .map((directory) => join(directory, file));
+  return candidates.some((candidate) => {
+    try {
+      accessSync(candidate, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 const defaultIO: NotifyIO = {
@@ -30,6 +78,29 @@ const defaultIO: NotifyIO = {
   },
   now: Date.now,
   id: randomUUID,
+  available: (file) => onPath(file, process.env),
+  run: (file, args) =>
+    new Promise((resolve) => {
+      execFile(
+        file,
+        [...args],
+        { timeout: SYSTEM_TIMEOUT_MS, windowsHide: true },
+        (error, _stdout, stderr) => {
+          const code =
+            error === null
+              ? 0
+              : typeof (error as { code?: unknown }).code === "number"
+                ? (error as { code: number }).code
+                : null;
+          resolve({
+            code,
+            stderr: (stderr || (error ? error.message : ""))
+              .trim()
+              .slice(0, 200),
+          });
+        },
+      );
+    }),
 };
 
 function assistantReason(message: unknown): string | undefined {
@@ -57,11 +128,30 @@ export function registerNotify(
     return ctx.mode === "tui" && ctx.hasUI === true && io.isTTY();
   }
 
+  /**
+   * Resolve the delivery path, including whether a system backend can run.
+   * Backend availability needs the filesystem, so it is decided here instead of
+   * inside the pure terminal plan.
+   */
+  function planFor(): { plan: TerminalPlan; notifier?: SystemNotifier } {
+    const env = io.env();
+    const plan = resolveTerminal(env);
+    if (plan.protocol !== "system" || plan.blocked) return { plan };
+    const resolution = resolveSystemNotifier(env, process.platform, io.available);
+    if (!resolution.notifier) {
+      plan.blocked = true;
+      plan.notes.push(resolution.error ?? "系统通知命令不可用。");
+      return { plan };
+    }
+    plan.notes.push(`系统后端：${resolution.notifier.label}。`);
+    return { plan, notifier: resolution.notifier };
+  }
+
   function diagnostics(ctx: ExtensionContext, plan: TerminalPlan): string {
     return [
       `通知 · ${enabled && plan.protocol !== "off" ? "已开启" : "已关闭"}`,
       `终端：${plan.terminal}  ·  转发：${plan.detectedTransport}`,
-      `协议：${plan.protocol ?? "未识别"}  ·  发送路径：${plan.transport ?? "不可用"}`,
+      `协议：${plan.protocol ?? "未识别"}  ·  发送路径：${plan.transport ?? (plan.protocol === "system" ? "系统命令" : "不可用")}`,
       `输出：${terminalOnly(ctx) ? "交互终端" : `${ctx.mode ?? "未知模式"}，不写入终端控制序列`}`,
       `最近运行：${lastResult}`,
       `最近发送：${lastDelivery}`,
@@ -87,7 +177,45 @@ export function registerNotify(
     ].join("\n");
   }
 
-  function send(ctx: ExtensionContext, body: string, explicit = false): void {
+  async function sendSystem(
+    ctx: ExtensionContext,
+    notifier: SystemNotifier,
+    body: string,
+    explicit: boolean,
+  ): Promise<void> {
+    const command = systemCommand(notifier, "Pi", singleLine(body, 240));
+    try {
+      const result = await io.run(command.file, command.args);
+      if (result.code === 0) {
+        lastDelivery = `已运行 ${notifier.label}（退出 0），是否展示由系统决定`;
+        if (explicit) ctx.ui.notify(`${lastDelivery}。`, "info");
+        return;
+      }
+      lastDelivery = `系统通知命令失败（退出 ${result.code ?? "未知"}）`;
+      if (explicit || !warned.has(lastDelivery)) {
+        ctx.ui.notify(
+          `${lastDelivery}${result.stderr ? `：${result.stderr}` : ""}`,
+          "warning",
+        );
+        warned.add(lastDelivery);
+      }
+    } catch (error) {
+      lastDelivery = "系统通知命令无法启动";
+      if (explicit || !warned.has(lastDelivery)) {
+        ctx.ui.notify(
+          `${lastDelivery}${error instanceof Error ? `：${error.message}` : ""}`,
+          "warning",
+        );
+        warned.add(lastDelivery);
+      }
+    }
+  }
+
+  async function send(
+    ctx: ExtensionContext,
+    body: string,
+    explicit = false,
+  ): Promise<void> {
     if (!terminalOnly(ctx)) {
       if (explicit && ctx.hasUI)
         ctx.ui.notify(
@@ -96,7 +224,7 @@ export function registerNotify(
         );
       return;
     }
-    const plan = resolveTerminal(io.env());
+    const { plan, notifier } = planFor();
     if (!enabled || plan.protocol === "off") {
       if (explicit)
         ctx.ui.notify(
@@ -106,7 +234,10 @@ export function registerNotify(
       return;
     }
     if (plan.blocked) {
-      lastDelivery = "未发送：终端或转发路径需要配置";
+      lastDelivery =
+        plan.protocol === "system"
+          ? "未发送：系统通知命令不可用"
+          : "未发送：终端或转发路径需要配置";
       const detail = diagnostics(ctx, plan);
       const warningKey = JSON.stringify([
         plan.terminal,
@@ -117,11 +248,15 @@ export function registerNotify(
       ]);
       if (explicit || !warned.has(warningKey)) {
         ctx.ui.notify(
-          `${detail}\n用 /notify status 查看诊断；可显式设置 PI_NOTIFY_PROTOCOL=bell 降为终端响铃。`,
+          `${detail}\n用 /notify status 查看诊断；可显式设置 PI_NOTIFY_PROTOCOL=system 走系统通知命令，或用 bell 降为响铃。`,
           "warning",
         );
         warned.add(warningKey);
       }
+      return;
+    }
+    if (plan.protocol === "system" && notifier) {
+      await sendSystem(ctx, notifier, body, explicit);
       return;
     }
     try {
@@ -198,7 +333,7 @@ export function registerNotify(
     lastResult = `${body}${stats.errors > 0 ? `（过程中 ${stats.errors} 次工具错误）` : ""}`;
     // An abort can be a user cancellation or manual compaction. Neither is a
     // successful completion; keep it visible in diagnostics without a banner.
-    if (outcome !== "cancelled") send(ctx, body);
+    if (outcome !== "cancelled") void send(ctx, body);
   });
 
   pi.registerCommand("notify", {
@@ -207,7 +342,7 @@ export function registerNotify(
       const value = args.trim();
       if (!value) {
         if (!ctx.hasUI) return;
-        const plan = resolveTerminal(io.env());
+        const plan = planFor().plan;
         if (ctx.mode !== "tui") {
           ctx.ui.notify(summary(ctx, plan), "info");
           return;
@@ -222,7 +357,7 @@ export function registerNotify(
           ],
         );
         if (choice === "发送测试通知")
-          send(ctx, "测试通知 · Waiting for your input", true);
+          await send(ctx, "测试通知 · Waiting for your input", true);
         if (choice === "关闭本会话通知" || choice === "开启本会话通知") {
           enabled = choice === "开启本会话通知";
           ctx.ui.notify(
@@ -237,7 +372,7 @@ export function registerNotify(
       if (value === "status" || value === "help") {
         if (ctx.hasUI)
           ctx.ui.notify(
-            `${diagnostics(ctx, resolveTerminal(io.env()))}\n/notify test [内容] · /notify on · /notify off`,
+            `${diagnostics(ctx, planFor().plan)}\n/notify test [内容] · /notify on · /notify off`,
             "info",
           );
       } else if (value === "on" || value === "off") {
@@ -255,8 +390,7 @@ export function registerNotify(
             : value.startsWith("test ")
               ? value.slice(5).trim()
               : value;
-        send(ctx, `测试通知 · ${message}`, true);
-      }
+        send(ctx, `测试通知 · ${message}`, true);      }
     },
   });
 }
