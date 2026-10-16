@@ -1,6 +1,6 @@
 # AGENTS.md — huangrx6/pi-plugin 仓库规约
 
-个人 pi 扩展 monorepo。九个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-auto-compact` / `pi-browser-test`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
+个人 pi 扩展 monorepo。十个扩展：`pi-skill-inject` / `pi-mode-switcher` / `pi-quota-status` / `pi-throughput` / `pi-policy-engine` / `pi-footer-composer` / `pi-todo` / `pi-notify` / `pi-auto-compact` / `pi-browser-test`。以下是**必须遵守**的约定——每条都来自真实踩坑（标注了来源）。
 
 ## 扩展独立性（最高优先级约定）
 
@@ -32,6 +32,7 @@
 ## Manifest 铁律（本次审查修的四个坑，全部成文化）
 
 1. **根 `package.json` 的 `pi.extensions` 必须列全每个扩展**。新增扩展 = 建 `extensions/<name>/` 目录 + 在根 manifest 注册，缺一不可（`bin/install.sh` 靠目录自动发现，但根 manifest 漏注册 = 整库安装时该扩展静默不加载——policy-engine 曾经漏掉）。
+
 2. **`package.json` 的 `version` 必须等于该扩展 CHANGELOG 最新条目**（policy-engine 曾停在 0.1.0 而 CHANGELOG 已到 0.11.x）。
 3. **代码用了 Node 22+ API（如 `node:sqlite`、`node:zlib` zstd、`Array.prototype.toReversed`）必须声明 `engines: {"node": ">=22.15"}`**。
 4. **`description` 必须与实际行为一致**（mode-switcher 曾描述"Four-mode auto/plan/safe/lock"，实际是三模式 ask/smart/full）。改行为时同步改 description。

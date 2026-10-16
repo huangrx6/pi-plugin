@@ -1,7 +1,7 @@
 <!-- markdownlint-disable MD033 MD041 -->
 <h1 align="center">pi-plugin</h1>
 <p align="center"><strong>让 Pi 的执行过程可理解，让终端中的操作更直接。</strong></p>
-<p align="center">九个独立扩展 · 按需安装 · 原生终端交互</p>
+<p align="center">十个独立扩展 · 按需安装 · 原生终端交互</p>
 <p align="center">
   <a href="https://github.com/huangrx6/pi-plugin/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/huangrx6/pi-plugin/ci.yml?branch=main&amp;style=flat-square&amp;label=CI" alt="CI" /></a>
   <img src="https://img.shields.io/badge/license-MIT-555?style=flat-square" alt="MIT license" />
@@ -21,7 +21,7 @@
 pi install git:github.com/huangrx6/pi-plugin
 ```
 
-重启 Pi 或运行 `/reload`。整库安装会加载九个扩展；如果只需要其中一部分，使用下方按需安装方式。
+重启 Pi 或运行 `/reload`。整库安装会加载十个扩展；如果只需要其中一部分，使用下方按需安装方式。
 
 > 仓库声明 Node.js `>=22.19`；请同时满足已安装 Pi 宿主的运行要求。自动压缩生命周期在 Node.js 24 的真实 Pi SDK 上验证。
 
@@ -48,6 +48,7 @@ pi install git:github.com/huangrx6/pi-plugin
 | 扩展 | 实际职责 |
 | --- | --- |
 | [`pi-quota-status`](extensions/pi-quota-status/README.md) | 查询已适配服务的订阅窗口、账户余额或 API Key 消费上限。 |
+| [`pi-throughput`](extensions/pi-throughput/README.md) | 在状态区发布实时输出速率与首 token 延迟，并把每次调用样本写入会话。 |
 | [`pi-notify`](extensions/pi-notify/README.md) | 根据最终运行结果发送终端通知，提供发送测试与环境诊断。 |
 | [`pi-footer-composer`](extensions/pi-footer-composer/README.md) | 用配置编排行列、字段、原始状态 key、表格或信息带样式，并可切回 Pi 原生 Footer。 |
 
@@ -73,6 +74,7 @@ pi install git:github.com/huangrx6/pi-plugin
 | 长时间推进代码任务 | auto-compact + todo |
 | 提供领域工作方法 | skill-inject |
 | 查看额度与等待运行结束 | quota-status + notify |
+| 观察模型输出速度与首 token 延迟 | throughput |
 | 调整终端底部信息密度 | footer-composer |
 | 冻结并校验可审计的业务测试语义 | browser-test |
 
