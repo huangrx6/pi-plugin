@@ -111,39 +111,39 @@ test("liveTps uses the request anchor for the e2e denominator", () => {
 
 test("buildStatusText counts the wait, then shows live and final values", () => {
   const waiting = buildStatusText(live({ phase: "waiting", startedAt: 1000 }), DEFAULTS, 4200);
-  assert.equal(waiting, "首字：等待 3.2s");
+  assert.equal(waiting, "首字: 等待 3.2s");
   const streaming = buildStatusText(
     live({ tokens: 20, firstDeltaAt: 400 }),
     DEFAULTS,
     1500,
   );
-  assert.equal(streaming, "速率：18.2 t/s 首字：400ms");
+  assert.equal(streaming, "速率: 18.2 t/s 首字: 400ms");
   const done = buildStatusText(
     live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 }),
     DEFAULTS,
     2400,
   );
-  assert.equal(done, "速率：50.0 t/s 首字：400ms");
+  assert.equal(done, "速率: 50.0 t/s 首字: 400ms");
 });
 
 test("buildStatusText shows only the metrics that exist yet", () => {
   const warmUp = live({ tokens: 20, firstDeltaAt: 400 });
-  assert.equal(buildStatusText(warmUp, DEFAULTS, 600), "首字：400ms");
+  assert.equal(buildStatusText(warmUp, DEFAULTS, 600), "首字: 400ms");
   assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "tps" }, 600), null);
-  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "ttft" }, 600), "首字：400ms");
+  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "ttft" }, 600), "首字: 400ms");
 });
 
 test("the wait timer converts units instead of counting seconds forever", () => {
   const long = buildStatusText(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000);
-  assert.equal(long, "首字：等待 1m35s");
+  assert.equal(long, "首字: 等待 1m35s");
   assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000), true);
 });
 
 test("buildStatusText honours the display mode and stays silent when idle", () => {
   const done = live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 });
-  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "tps" }, 2400), "速率：50.0 t/s");
-  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "ttft" }, 2400), "首字：400ms");
-  assert.equal(buildStatusText(live({ phase: "idle" }), DEFAULTS, 0), null);
+  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "tps" }, 2400), "速率: 50.0 t/s");
+  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "ttft" }, 2400), "首字: 400ms");
+  assert.equal(buildStatusText(live({ phase: "idle" }), DEFAULTS, 0), "速率: -- 首字: --");
 });
 
 test("the ticker only runs while the wait timer owns the cell", () => {
