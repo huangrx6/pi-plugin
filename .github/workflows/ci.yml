@@ -227,7 +227,9 @@ jobs:
       # not match hidden path segments), so exclusions live on the command
       # line. .legacy/ is untracked local-only; kept for local/CI parity.
       - name: Run markdownlint-cli2
-        run: npx --yes markdownlint-cli2 "**/*.md" "#**/.legacy/**" "#**/node_modules/**"
+        run: >
+          npx --yes markdownlint-cli2 "**/*.md"
+          "#**/.legacy/**" "#**/node_modules/**"
 
 # Actions are pinned to the authoritative v4 commit SHAs (resolved via
 # api.github.com; see AGENTS.md 已知缺口 — the pin-when-online note is
