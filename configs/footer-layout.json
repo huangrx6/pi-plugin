@@ -1,0 +1,260 @@
+{
+  "mode": "compact",
+  "style": {
+    "textColor": "muted",
+    "borderColor": "dim",
+    "borders": "all",
+    "labelDivider": true,
+    "labelWidth": 4,
+    "columnGap": 3,
+    "fieldGap": 3,
+    "leftRatio": 0.5,
+    "narrowWidth": 72,
+    "overflow": "wrap",
+    "maxCellLines": 0
+  },
+  "views": {
+    "compact": {
+      "renderer": "table",
+      "showLabels": true,
+      "rows": [
+        [
+          {
+            "label": "项目",
+            "fields": [
+              {
+                "source": "project",
+                "prefix": "project: "
+              },
+              {
+                "source": "branch",
+                "prefix": "branch: "
+              }
+            ]
+          },
+          {
+            "label": "模型",
+            "fields": [
+              {
+                "source": "model",
+                "prefix": "model: "
+              },
+              {
+                "source": "provider",
+                "prefix": "provider: "
+              },
+              {
+                "source": "thinking",
+                "prefix": "thinking: "
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "label": "策略",
+            "fields": [
+              {
+                "status": "pi-policy-engine"
+              }
+            ]
+          },
+          {
+            "label": "额度",
+            "fields": [
+              {
+                "status": "pi-quota-status"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "label": "状态",
+            "fields": [
+              {
+                "status": "pi-mode-switcher"
+              },
+              "remaining"
+            ]
+          },
+          {
+            "label": "资源",
+            "fields": [
+              {
+                "source": "context",
+                "prefix": "ctx: "
+              },
+              {
+                "source": "cacheHit",
+                "prefix": "cache: "
+              },
+              {
+                "source": "input",
+                "prefix": "in: "
+              },
+              {
+                "source": "output",
+                "prefix": "out: "
+              },
+              {
+                "source": "cacheRead",
+                "prefix": "read: "
+              },
+              {
+                "source": "cacheWrite",
+                "prefix": "write: "
+              },
+              {
+                "source": "cost",
+                "prefix": "cost: "
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "label": "诊断",
+            "fields": [
+              {
+                "status": "pi-lens-lsp"
+              }
+            ]
+          },
+          {
+            "label": "速度",
+            "fields": [
+              {
+                "status": "pi-throughput"
+              }
+            ]
+          }
+        ]
+      ]
+    },
+    "overview": {
+      "renderer": "bands",
+      "showLabels": true,
+      "style": {
+        "borders": "outer",
+        "labelDivider": false,
+        "columnGap": 6,
+        "fieldGap": 3
+      },
+      "rows": [
+        [
+          {
+            "label": "项目",
+            "fields": [
+              {
+                "source": "project",
+                "prefix": "project: "
+              },
+              {
+                "source": "branch",
+                "prefix": "branch: "
+              }
+            ]
+          },
+          {
+            "label": "模型",
+            "fields": [
+              {
+                "source": "model",
+                "prefix": "model: "
+              },
+              {
+                "source": "provider",
+                "prefix": "provider: "
+              },
+              {
+                "source": "thinking",
+                "prefix": "thinking: "
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "label": "策略",
+            "fields": [
+              {
+                "status": "pi-policy-engine"
+              }
+            ]
+          },
+          {
+            "label": "额度",
+            "fields": [
+              {
+                "status": "pi-quota-status"
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "label": "状态",
+            "fields": [
+              {
+                "status": "pi-mode-switcher"
+              },
+              "remaining"
+            ]
+          },
+          {
+            "label": "资源",
+            "fields": [
+              {
+                "source": "context",
+                "prefix": "ctx: "
+              },
+              {
+                "source": "cacheHit",
+                "prefix": "cache: "
+              },
+              {
+                "source": "input",
+                "prefix": "in: "
+              },
+              {
+                "source": "output",
+                "prefix": "out: "
+              },
+              {
+                "source": "cacheRead",
+                "prefix": "read: "
+              },
+              {
+                "source": "cacheWrite",
+                "prefix": "write: "
+              },
+              {
+                "source": "cost",
+                "prefix": "cost: "
+              }
+            ]
+          }
+        ],
+        [
+          {
+            "label": "诊断",
+            "fields": [
+              {
+                "status": "pi-lens-lsp"
+              }
+            ]
+          },
+          {
+            "label": "速度",
+            "fields": [
+              {
+                "status": "pi-throughput"
+              }
+            ]
+          }
+        ]
+      ]
+    }
+  }
+}
