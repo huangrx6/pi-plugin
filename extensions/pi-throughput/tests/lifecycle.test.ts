@@ -123,13 +123,13 @@ test("one call walks placeholder → live → final and records a sample", async
   await emit("session_start", { type: "session_start" }, ctx);
   await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
   assert.equal(statuses.at(-1)?.key, "pi-throughput");
-  assert.match(statuses.at(-1)?.text ?? "", /^首字: 等待 \d+ms$/);
+  assert.match(statuses.at(-1)?.text ?? "", /^ttft: waiting \d+ms$/);
 
   await emit("message_update", delta(8), ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /^首字: \d+ms$/);
+  assert.match(statuses.at(-1)?.text ?? "", /^ttft: \d+ms$/);
 
   await emit("message_end", assistantEnd(50), ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /^速率: [\d.]+ t\/s 首字: \d+ms$/);
+  assert.match(statuses.at(-1)?.text ?? "", /^rate: [\d.]+ t\/s ttft: \d+ms$/);
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.customType, SAMPLE_TYPE);
   const recorded = entries[0]?.data as ThroughputSample;
@@ -154,7 +154,7 @@ test("display can be switched off without losing sample history", async (t) => {
   assert.equal(entries.length, 1);
 
   await run("throughput", "on", ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /速率: /);
+  assert.match(statuses.at(-1)?.text ?? "", /rate: /);
 });
 
 test("command subcommands persist configuration", async (t) => {
@@ -255,5 +255,5 @@ test("retainFinal keeps the final text after agent_end, otherwise it clears", as
   extension(pi2 as unknown as ExtensionAPI);
   const second = createCtx();
   await emit2("session_start", {}, second.ctx);
-  assert.equal(second.statuses.at(-1)?.text, "速率: -- 首字: --");
+  assert.equal(second.statuses.at(-1)?.text, "rate: -- ttft: --");
 });

@@ -122,8 +122,8 @@ function statusParts(
     live.firstDeltaAt !== null && live.startedAt !== null ? live.firstDeltaAt - live.startedAt : null;
   const tps = liveTps(live, config.measurement, now, config.minWindowMs);
   const parts: string[] = [];
-  if (config.display !== "ttft" && tps !== null) parts.push(`速率: ${formatTps(tps)} t/s`);
-  if (config.display !== "tps" && ttftMs !== null) parts.push(`首字: ${formatLatency(ttftMs)}`);
+  if (config.display !== "ttft" && tps !== null) parts.push(`rate: ${formatTps(tps)} t/s`);
+  if (config.display !== "tps" && ttftMs !== null) parts.push(`ttft: ${formatLatency(ttftMs)}`);
   const waitingFor =
     parts.length === 0 && inFlight && ttftMs === null && live.startedAt !== null
       ? Math.max(0, (live.endedAt ?? now) - live.startedAt)
@@ -134,8 +134,8 @@ function statusParts(
 /** 空闲占位：本会话还没有样本时，状态格也必须有内容。 */
 export function idleText(config: ThroughputConfig): string {
   const parts: string[] = [];
-  if (config.display !== "ttft") parts.push("速率: --");
-  if (config.display !== "tps") parts.push("首字: --");
+  if (config.display !== "ttft") parts.push("rate: --");
+  if (config.display !== "tps") parts.push("ttft: --");
   return parts.join(" ");
 }
 
@@ -150,7 +150,7 @@ export function buildStatusText(
   if (parts.length > 0) return truncateToWidth(parts.join(" "), MAX_STATUS_WIDTH);
   return waitingFor === null
     ? null
-    : truncateToWidth(`首字: 等待 ${formatLatency(waitingFor)}`, MAX_STATUS_WIDTH);
+    : truncateToWidth(`ttft: waiting ${formatLatency(waitingFor)}`, MAX_STATUS_WIDTH);
 }
 
 /** 当前文本是否是持续刷新的等待计时（决定要不要跑计时器）。 */
