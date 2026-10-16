@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "display": "full",
+  "measurement": "stream",
+  "retainFinal": true,
+  "history": true,
+  "minWindowMs": 500,
+  "throttleMs": 250
+}
