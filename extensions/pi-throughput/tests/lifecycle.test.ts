@@ -123,13 +123,13 @@ test("one call walks placeholder → live → final and records a sample", async
   await emit("session_start", { type: "session_start" }, ctx);
   await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
   assert.equal(statuses.at(-1)?.key, "pi-throughput");
-  assert.equal(statuses.at(-1)?.text, "⚡ … t/s · ⏱ …");
+  assert.equal(statuses.at(-1)?.text, "⠋ 等待首 token…");
 
   await emit("message_update", delta(8), ctx);
-  assert.equal(statuses.at(-1)?.text, "⚡ … t/s · ⏱ …");
+  assert.match(statuses.at(-1)?.text ?? "", /^首 token \d+ms$/);
 
   await emit("message_end", assistantEnd(50), ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /^⚡ [\d.]+ t\/s · ⏱ \d+(ms|\.\d+s)$/);
+  assert.match(statuses.at(-1)?.text ?? "", /^[\d.]+ t\/s · 首 token \d+ms$/);
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.customType, SAMPLE_TYPE);
   const recorded = entries[0]?.data as ThroughputSample;
@@ -154,7 +154,7 @@ test("display can be switched off without losing sample history", async (t) => {
   assert.equal(entries.length, 1);
 
   await run("throughput", "on", ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /^⚡ /);
+  assert.match(statuses.at(-1)?.text ?? "", /t\/s · 首 token /);
 });
 
 test("command subcommands persist configuration", async (t) => {

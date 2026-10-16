@@ -6,9 +6,9 @@
  * Pi 状态集合的底栏渲染器都可以显示它，本扩展不关心具体由谁绘制。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { PACKAGE_NAME, SAMPLE_TYPE, STATUS_KEY } from "./constants.ts";
+import { LOADING_FRAMES, LOADING_INTERVAL_MS, PACKAGE_NAME, SAMPLE_TYPE, STATUS_KEY } from "./constants.ts";
 import { loadConfig, saveConfig } from "./config.ts";
-import { buildStatusText } from "./format.ts";
+import { buildStatusText, isTicking } from "./format.ts";
 import { formatSummary, parseSamples, summarize } from "./stats.ts";
 import { createTracker } from "./tracker.ts";
 import type {
@@ -50,20 +50,64 @@ export default function (pi: ExtensionAPI): void {
   let config: ThroughputConfig = loadConfig();
   const tracker = createTracker();
   let lastPaintAt = Number.NEGATIVE_INFINITY;
+  let animation: ReturnType<typeof setInterval> | undefined;
+  let frameIndex = 0;
+  let currentCtx: StatusCtx | null = null;
 
+  function stopTicker(): void {
+    if (animation === undefined) return;
+    clearInterval(animation);
+    animation = undefined;
+    frameIndex = 0;
+  }
+
+  function startTicker(ctx: StatusCtx): void {
+    if (animation !== undefined) return;
+    animation = setInterval(() => {
+      // 会话被替换后旧上下文不再拥有 UI：停表而不是往旧状态格写入。
+      if (currentCtx !== ctx) {
+        stopTicker();
+        return;
+      }
+      frameIndex = (frameIndex + 1) % LOADING_FRAMES.length;
+      publish(ctx, true);
+    }, LOADING_INTERVAL_MS);
+    // 占位帧不为进程保活。
+    animation.unref?.();
+  }
+
+  /**
+   * 发布状态：等待首 token 期间跑盲文动画（仅 TUI），其余阶段按
+   * throttleMs 节流；没有指标可报时不重绘。
+   */
   function publish(ctx: StatusCtx, force = false): void {
+    currentCtx = ctx;
+    const live = tracker.snapshot();
     try {
-      if (ctx.hasUI === false) return;
+      if (ctx.hasUI === false) {
+        stopTicker();
+        return;
+      }
+      const now = performance.now();
+      const ticking =
+        config.enabled && (ctx.mode ?? "tui") === "tui" && isTicking(live, config, now);
+      // 占位符还在屏幕上时，第一批真实指标必须立刻换掉它，不受节流推迟。
+      const wasTicking = animation !== undefined;
+      if (ticking) startTicker(ctx);
+      else stopTicker();
       if (!config.enabled) {
         ctx.ui.setStatus(STATUS_KEY, undefined);
         return;
       }
-      const now = performance.now();
-      if (!force && now - lastPaintAt < config.throttleMs) return;
+      if (!force && !ticking && !wasTicking && now - lastPaintAt < config.throttleMs) return;
       lastPaintAt = now;
-      ctx.ui.setStatus(STATUS_KEY, buildStatusText(tracker.snapshot(), config, now) ?? undefined);
+      ctx.ui.setStatus(
+        STATUS_KEY,
+        buildStatusText(live, config, now, LOADING_FRAMES[frameIndex]) ?? undefined,
+      );
     } catch {
       /* 被替换的上下文不再拥有 UI */
+      stopTicker();
     }
   }
 
@@ -216,13 +260,17 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("agent_end", (_event, ctx) => {
-    if (config.retainFinal) return;
+    if (config.retainFinal) {
+      stopTicker();
+      return;
+    }
     tracker.reset();
     publish(ctx as StatusCtx, true);
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
     tracker.reset();
+    stopTicker();
     try {
       (ctx as StatusCtx).ui.setStatus(STATUS_KEY, undefined);
     } catch {

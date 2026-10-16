@@ -4,7 +4,13 @@
  * 不 import pi 任何东西，也不写终端颜色：状态文本以纯文本发布，
  * 配色由绘制底栏的一方决定。
  */
-import { CONTENT_CHARS_PER_TOKEN, MAX_STATUS_WIDTH } from "./constants.ts";
+import {
+  CONTENT_CHARS_PER_TOKEN,
+  LOADING_FRAMES,
+  MAX_STATUS_WIDTH,
+  MEASURING_LABEL,
+  WAITING_LABEL,
+} from "./constants.ts";
 import type {
   AssistantMessageLike,
   LiveState,
@@ -91,29 +97,50 @@ export function liveTps(
   return (live.tokens / spanMs) * 1000;
 }
 
-/** 状态格文本：`⚡ 42.1 t/s · ⏱ 412ms`；无事可报时返回 null。 */
+/**
+ * 状态文本各段的可用值。
+ *
+ * 只有真正测到的指标才进 `parts`；加载占位只在还没有任何指标、且
+ * 仍处于进行中的阶段时返回。
+ */
+function statusParts(
+  live: LiveState,
+  config: ThroughputConfig,
+  now: number,
+): { parts: string[]; loadingLabel: string | null } {
+  const pending = live.phase === "waiting" || live.phase === "streaming";
+  const ttftMs =
+    live.firstDeltaAt !== null && live.startedAt !== null ? live.firstDeltaAt - live.startedAt : null;
+  const tps = liveTps(live, config.measurement, now, config.minWindowMs);
+  const parts: string[] = [];
+  if (config.display !== "ttft" && tps !== null) parts.push(`${formatTps(tps)} t/s`);
+  if (config.display !== "tps" && ttftMs !== null) parts.push(`首 token ${formatLatency(ttftMs)}`);
+  let loadingLabel: string | null = null;
+  if (pending) {
+    if (ttftMs === null) loadingLabel = WAITING_LABEL;
+    else if (config.display !== "ttft") loadingLabel = MEASURING_LABEL;
+  }
+  return { parts, loadingLabel };
+}
+
+/** 状态格文本；无事可报时返回 null。 */
 export function buildStatusText(
   live: LiveState,
   config: ThroughputConfig,
   now: number,
+  frame: string = LOADING_FRAMES[0] ?? "",
 ): string | null {
   if (live.phase === "idle") return null;
-  const parts: string[] = [];
-  if (config.display !== "ttft") {
-    const tps = liveTps(live, config.measurement, now, config.minWindowMs);
-    parts.push(`⚡ ${tps === null ? "…" : formatTps(tps)} t/s`);
-  }
-  if (config.display !== "tps") {
-    const ttft =
-      live.firstDeltaAt !== null && live.startedAt !== null
-        ? live.firstDeltaAt - live.startedAt
-        : null;
-    parts.push(`⏱ ${ttft === null ? "…" : formatLatency(ttft)}`);
-  }
-  return parts.length > 0 ? truncateToWidth(parts.join(" · "), MAX_STATUS_WIDTH) : null;
+  const { parts, loadingLabel } = statusParts(live, config, now);
+  if (parts.length > 0) return truncateToWidth(parts.join(" · "), MAX_STATUS_WIDTH);
+  return loadingLabel === null
+    ? null
+    : truncateToWidth(`${frame} ${loadingLabel}`, MAX_STATUS_WIDTH);
 }
 
-/** 状态文本里是否还有未落地的指标（用于区分"正在等待"与"已完成"）。 */
-export function isPending(live: LiveState): boolean {
-  return live.phase === "waiting" || live.firstDeltaAt === null;
+/** 当前渲染的文本是否就是加载占位（决定要不要跑动画计时器）。 */
+export function isTicking(live: LiveState, config: ThroughputConfig, now: number): boolean {
+  if (live.phase === "idle") return false;
+  const { parts, loadingLabel } = statusParts(live, config, now);
+  return parts.length === 0 && loadingLabel !== null;
 }

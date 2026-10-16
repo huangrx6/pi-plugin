@@ -6,7 +6,7 @@ import {
   formatLatency,
   formatTokens,
   formatTps,
-  isPending,
+  isTicking,
   liveTps,
   sampleTps,
   tokenCount,
@@ -105,39 +105,49 @@ test("liveTps uses the request anchor for the e2e denominator", () => {
   assert.equal(liveTps(state, "e2e", 0, DEFAULT_MIN_WINDOW_MS), (100 / 2400) * 1000);
 });
 
-test("buildStatusText renders a waiting placeholder, live values and the final value", () => {
+test("buildStatusText renders a loading placeholder, live values and the final value", () => {
   const waiting = buildStatusText(live({ phase: "waiting" }), DEFAULTS, 10);
-  assert.equal(waiting, "⚡ … t/s · ⏱ …");
+  assert.equal(waiting, "⠋ 等待首 token…");
   const streaming = buildStatusText(
     live({ tokens: 20, firstDeltaAt: 400 }),
     DEFAULTS,
     1500,
   );
-  assert.equal(streaming, "⚡ 18.2 t/s · ⏱ 400ms");
+  assert.equal(streaming, "18.2 t/s · 首 token 400ms");
   const done = buildStatusText(
     live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 }),
     DEFAULTS,
     2400,
   );
-  assert.equal(done, "⚡ 50.0 t/s · ⏱ 400ms");
+  assert.equal(done, "50.0 t/s · 首 token 400ms");
+});
+
+test("buildStatusText shows only the metrics that exist yet", () => {
+  const warmUp = live({ tokens: 20, firstDeltaAt: 400 });
+  assert.equal(buildStatusText(warmUp, DEFAULTS, 600), "首 token 400ms");
+  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "tps" }, 600), "⠋ 测速中…");
+  assert.equal(buildStatusText(live({ phase: "waiting" }), { ...DEFAULTS, display: "tps" }, 10), "⠋ 等待首 token…");
+  assert.equal(buildStatusText(live({ phase: "waiting" }), { ...DEFAULTS, display: "ttft" }, 10), "⠋ 等待首 token…");
 });
 
 test("buildStatusText honours the display mode and stays silent when idle", () => {
   const done = live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 });
-  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "tps" }, 2400), "⚡ 50.0 t/s");
-  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "ttft" }, 2400), "⏱ 400ms");
+  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "tps" }, 2400), "50.0 t/s");
+  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "ttft" }, 2400), "首 token 400ms");
   assert.equal(buildStatusText(live({ phase: "idle" }), DEFAULTS, 0), null);
+});
+
+test("the ticker only runs while a loading placeholder owns the cell", () => {
+  assert.equal(isTicking(live({ phase: "waiting" }), DEFAULTS, 10), true);
+  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), DEFAULTS, 600), false);
+  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), { ...DEFAULTS, display: "tps" }, 600), true);
+  assert.equal(isTicking(live({ phase: "done", tokens: 0, firstDeltaAt: null, endedAt: 10 }), DEFAULTS, 20), false);
 });
 
 test("buildStatusText never exceeds the status width", () => {
   const text = buildStatusText(doneWithLongModel(), DEFAULTS, 2400);
   assert.notEqual(text, null);
   assert.ok(displayWidth(text ?? "") <= 72);
-});
-
-test("isPending covers waiting and first-delta-less phases", () => {
-  assert.equal(isPending(live({ phase: "waiting" })), true);
-  assert.equal(isPending(live({ phase: "streaming", firstDeltaAt: 10 })), false);
 });
 
 test("terminal text helpers strip control codes and measure CJK double width", () => {

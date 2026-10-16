@@ -41,3 +41,28 @@ export const DELTA_EVENT_TYPES: readonly string[] = [
   "thinking_delta",
   "toolcall_delta",
 ];
+
+// ── 加载占位 ──────────────────────────────────────────────────────────
+
+/** 等待首 token 时的盲文动画帧（与宿主 spinner 同一套字形）。 */
+export const LOADING_FRAMES: readonly string[] = [
+  "⠋",
+  "⠙",
+  "⠹",
+  "⠸",
+  "⠼",
+  "⠴",
+  "⠦",
+  "⠧",
+  "⠇",
+  "⠏",
+];
+
+/** 帧间隔（毫秒）：与宿主 spinner 节奏一致。 */
+export const LOADING_INTERVAL_MS = 80;
+
+/** 请求已发出、首 token 未到时的占位文案。 */
+export const WAITING_LABEL = "等待首 token…";
+
+/** 已有首 token、但速率窗口未满时的占位文案。 */
+export const MEASURING_LABEL = "测速中…";
