@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# baseline.sh — 仓库全 9 扩展测试基线（manual-only, 不替代各扩展自身 CI）
+# baseline.sh — 仓库全 10 扩展测试基线（manual-only, 不替代各扩展自身 CI）
 #
 # 作用：
-#   - 一次性跑完所有 9 个扩展的 `npm test`（policy-engine 加 `npm run check`）
+#   - 一次性跑完所有 10 个扩展的 `npm test`（policy-engine 加 `npm run check`）
 #   - 收集每个扩展的 pass / fail 数
 #   - 任一 fail 立即 exit 1（fail-fast）
 #   - 退出时打印汇总
@@ -22,7 +22,7 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# 9 个扩展按字母序遍历（仓库根 pi.extensions 也是这个顺序）。
+# 10 个扩展按字母序遍历（仓库根 pi.extensions 也是这个顺序）。
 # policy-engine 是 plain JS，需要额外跑 `npm run check`（node --check glob）。
 EXTENSIONS=(
   "pi-auto-compact"
@@ -33,6 +33,7 @@ EXTENSIONS=(
   "pi-policy-engine"
   "pi-quota-status"
   "pi-skill-inject"
+  "pi-throughput"
   "pi-todo"
 )
 

@@ -113,6 +113,28 @@ jobs:
         working-directory: extensions/pi-todo
         run: npm test
 
+  pi-throughput:
+    name: pi-throughput (ts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+      # Same local-parity pattern as pi-quota-status (v0.4.0): npm ci against
+      # the committed lockfile, then the same two scripts developers run.
+      - name: Install
+        working-directory: extensions/pi-throughput
+        run: npm ci --no-audit --no-fund
+      - name: Type check (tsc --noEmit)
+        working-directory: extensions/pi-throughput
+        run: npm run check
+      - name: Unit and lifecycle tests
+        working-directory: extensions/pi-throughput
+        run: npm test
+
   pi-notify:
     name: pi-notify (ts)
     runs-on: ubuntu-latest
