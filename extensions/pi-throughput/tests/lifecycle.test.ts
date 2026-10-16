@@ -123,7 +123,7 @@ test("one call walks placeholder → live → final and records a sample", async
   await emit("session_start", { type: "session_start" }, ctx);
   await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
   assert.equal(statuses.at(-1)?.key, "pi-throughput");
-  assert.equal(statuses.at(-1)?.text, "⠋ 等待首 token…");
+  assert.match(statuses.at(-1)?.text ?? "", /^等待 \d+ms$/);
 
   await emit("message_update", delta(8), ctx);
   assert.match(statuses.at(-1)?.text ?? "", /^首 token \d+ms$/);

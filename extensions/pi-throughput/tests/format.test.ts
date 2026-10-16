@@ -79,7 +79,11 @@ test("number formatting keeps the status bar stable", () => {
   assert.equal(formatTps(142.6), "143");
   assert.equal(formatTps(0), "--");
   assert.equal(formatLatency(412.4), "412ms");
-  assert.equal(formatLatency(1850), "1.85s");
+  assert.equal(formatLatency(1850), "1.9s");
+  assert.equal(formatLatency(42_400), "42s");
+  assert.equal(formatLatency(65_000), "1m5s");
+  assert.equal(formatLatency(120_000), "2m");
+  assert.equal(formatLatency(3_900_000), "1h5m");
   assert.equal(formatLatency(-1), "--");
   assert.equal(formatTokens(999), "999");
   assert.equal(formatTokens(12_345), "12.3k");
@@ -105,9 +109,9 @@ test("liveTps uses the request anchor for the e2e denominator", () => {
   assert.equal(liveTps(state, "e2e", 0, DEFAULT_MIN_WINDOW_MS), (100 / 2400) * 1000);
 });
 
-test("buildStatusText renders a loading placeholder, live values and the final value", () => {
-  const waiting = buildStatusText(live({ phase: "waiting" }), DEFAULTS, 10);
-  assert.equal(waiting, "⠋ 等待首 token…");
+test("buildStatusText counts the wait, then shows live and final values", () => {
+  const waiting = buildStatusText(live({ phase: "waiting", startedAt: 1000 }), DEFAULTS, 4200);
+  assert.equal(waiting, "等待 3.2s");
   const streaming = buildStatusText(
     live({ tokens: 20, firstDeltaAt: 400 }),
     DEFAULTS,
@@ -125,9 +129,14 @@ test("buildStatusText renders a loading placeholder, live values and the final v
 test("buildStatusText shows only the metrics that exist yet", () => {
   const warmUp = live({ tokens: 20, firstDeltaAt: 400 });
   assert.equal(buildStatusText(warmUp, DEFAULTS, 600), "首 token 400ms");
-  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "tps" }, 600), "⠋ 测速中…");
-  assert.equal(buildStatusText(live({ phase: "waiting" }), { ...DEFAULTS, display: "tps" }, 10), "⠋ 等待首 token…");
-  assert.equal(buildStatusText(live({ phase: "waiting" }), { ...DEFAULTS, display: "ttft" }, 10), "⠋ 等待首 token…");
+  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "tps" }, 600), null);
+  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "ttft" }, 600), "首 token 400ms");
+});
+
+test("the wait timer converts units instead of counting seconds forever", () => {
+  const long = buildStatusText(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000);
+  assert.equal(long, "等待 1m35s");
+  assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000), true);
 });
 
 test("buildStatusText honours the display mode and stays silent when idle", () => {
@@ -137,10 +146,10 @@ test("buildStatusText honours the display mode and stays silent when idle", () =
   assert.equal(buildStatusText(live({ phase: "idle" }), DEFAULTS, 0), null);
 });
 
-test("the ticker only runs while a loading placeholder owns the cell", () => {
-  assert.equal(isTicking(live({ phase: "waiting" }), DEFAULTS, 10), true);
+test("the ticker only runs while the wait timer owns the cell", () => {
+  assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 10), true);
   assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), DEFAULTS, 600), false);
-  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), { ...DEFAULTS, display: "tps" }, 600), true);
+  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), { ...DEFAULTS, display: "tps" }, 600), false);
   assert.equal(isTicking(live({ phase: "done", tokens: 0, firstDeltaAt: null, endedAt: 10 }), DEFAULTS, 20), false);
 });
 

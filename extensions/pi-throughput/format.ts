@@ -4,13 +4,7 @@
  * 不 import pi 任何东西，也不写终端颜色：状态文本以纯文本发布，
  * 配色由绘制底栏的一方决定。
  */
-import {
-  CONTENT_CHARS_PER_TOKEN,
-  LOADING_FRAMES,
-  MAX_STATUS_WIDTH,
-  MEASURING_LABEL,
-  WAITING_LABEL,
-} from "./constants.ts";
+import { CONTENT_CHARS_PER_TOKEN, MAX_STATUS_WIDTH } from "./constants.ts";
 import type {
   AssistantMessageLike,
   LiveState,
@@ -57,10 +51,25 @@ export function formatTps(tps: number): string {
   return tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
 }
 
-/** 延迟：1s 以下用毫秒，1s 及以上用两位小数的秒。 */
+/**
+ * 时长：60s 以内按秒（<10s 一位小数），超过后换成 分/时。
+ *
+ * 底栏宽度有限，长等待不能一直堆秒数（`65.00s`），
+ * `1m5s` 才是一眼能读的量。
+ */
 export function formatLatency(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "--";
-  return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) {
+    const minutes = Math.floor(ms / 60_000);
+    const seconds = Math.round((ms % 60_000) / 1000);
+    return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
+  }
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.round((ms % 3_600_000) / 60_000);
+  return minutes === 0 ? `${hours}h` : `${hours}h${minutes}m`;
 }
 
 /** token 数：万以上用 k，避免长会话数字撑爆底栏。 */
@@ -100,27 +109,26 @@ export function liveTps(
 /**
  * 状态文本各段的可用值。
  *
- * 只有真正测到的指标才进 `parts`；加载占位只在还没有任何指标、且
- * 仍处于进行中的阶段时返回。
+ * 只有真正测到的指标才进 `parts`；`waitingFor` 只在请求在飞、
+ * 首 token 未到、且没有任何指标可报时给出（用于实时等待计时）。
  */
 function statusParts(
   live: LiveState,
   config: ThroughputConfig,
   now: number,
-): { parts: string[]; loadingLabel: string | null } {
-  const pending = live.phase === "waiting" || live.phase === "streaming";
+): { parts: string[]; waitingFor: number | null } {
+  const inFlight = live.phase === "waiting" || live.phase === "streaming";
   const ttftMs =
     live.firstDeltaAt !== null && live.startedAt !== null ? live.firstDeltaAt - live.startedAt : null;
   const tps = liveTps(live, config.measurement, now, config.minWindowMs);
   const parts: string[] = [];
   if (config.display !== "ttft" && tps !== null) parts.push(`${formatTps(tps)} t/s`);
   if (config.display !== "tps" && ttftMs !== null) parts.push(`首 token ${formatLatency(ttftMs)}`);
-  let loadingLabel: string | null = null;
-  if (pending) {
-    if (ttftMs === null) loadingLabel = WAITING_LABEL;
-    else if (config.display !== "ttft") loadingLabel = MEASURING_LABEL;
-  }
-  return { parts, loadingLabel };
+  const waitingFor =
+    parts.length === 0 && inFlight && ttftMs === null && live.startedAt !== null
+      ? Math.max(0, (live.endedAt ?? now) - live.startedAt)
+      : null;
+  return { parts, waitingFor };
 }
 
 /** 状态格文本；无事可报时返回 null。 */
@@ -128,19 +136,17 @@ export function buildStatusText(
   live: LiveState,
   config: ThroughputConfig,
   now: number,
-  frame: string = LOADING_FRAMES[0] ?? "",
 ): string | null {
   if (live.phase === "idle") return null;
-  const { parts, loadingLabel } = statusParts(live, config, now);
+  const { parts, waitingFor } = statusParts(live, config, now);
   if (parts.length > 0) return truncateToWidth(parts.join(" · "), MAX_STATUS_WIDTH);
-  return loadingLabel === null
+  return waitingFor === null
     ? null
-    : truncateToWidth(`${frame} ${loadingLabel}`, MAX_STATUS_WIDTH);
+    : truncateToWidth(`等待 ${formatLatency(waitingFor)}`, MAX_STATUS_WIDTH);
 }
 
-/** 当前渲染的文本是否就是加载占位（决定要不要跑动画计时器）。 */
+/** 当前文本是否是持续刷新的等待计时（决定要不要跑计时器）。 */
 export function isTicking(live: LiveState, config: ThroughputConfig, now: number): boolean {
   if (live.phase === "idle") return false;
-  const { parts, loadingLabel } = statusParts(live, config, now);
-  return parts.length === 0 && loadingLabel !== null;
+  return statusParts(live, config, now).waitingFor !== null;
 }

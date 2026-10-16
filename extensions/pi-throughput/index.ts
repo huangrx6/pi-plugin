@@ -6,7 +6,7 @@
  * Pi 状态集合的底栏渲染器都可以显示它，本扩展不关心具体由谁绘制。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { LOADING_FRAMES, LOADING_INTERVAL_MS, PACKAGE_NAME, SAMPLE_TYPE, STATUS_KEY } from "./constants.ts";
+import { PACKAGE_NAME, SAMPLE_TYPE, STATUS_KEY, WAIT_TICK_MS } from "./constants.ts";
 import { loadConfig, saveConfig } from "./config.ts";
 import { buildStatusText, isTicking } from "./format.ts";
 import { formatSummary, parseSamples, summarize } from "./stats.ts";
@@ -51,14 +51,13 @@ export default function (pi: ExtensionAPI): void {
   const tracker = createTracker();
   let lastPaintAt = Number.NEGATIVE_INFINITY;
   let animation: ReturnType<typeof setInterval> | undefined;
-  let frameIndex = 0;
+  let lastText: string | null = null;
   let currentCtx: StatusCtx | null = null;
 
   function stopTicker(): void {
     if (animation === undefined) return;
     clearInterval(animation);
     animation = undefined;
-    frameIndex = 0;
   }
 
   function startTicker(ctx: StatusCtx): void {
@@ -69,16 +68,15 @@ export default function (pi: ExtensionAPI): void {
         stopTicker();
         return;
       }
-      frameIndex = (frameIndex + 1) % LOADING_FRAMES.length;
       publish(ctx, true);
-    }, LOADING_INTERVAL_MS);
-    // 占位帧不为进程保活。
+    }, WAIT_TICK_MS);
+    // 等待计时不为进程保活。
     animation.unref?.();
   }
 
   /**
-   * 发布状态：等待首 token 期间跑盲文动画（仅 TUI），其余阶段按
-   * throttleMs 节流；没有指标可报时不重绘。
+   * 发布状态：等待首 token 期间跑等待计时（仅 TUI），其余阶段按
+   * throttleMs 节流。
    */
   function publish(ctx: StatusCtx, force = false): void {
     currentCtx = ctx;
@@ -91,20 +89,22 @@ export default function (pi: ExtensionAPI): void {
       const now = performance.now();
       const ticking =
         config.enabled && (ctx.mode ?? "tui") === "tui" && isTicking(live, config, now);
-      // 占位符还在屏幕上时，第一批真实指标必须立刻换掉它，不受节流推迟。
+      // 计时器在屏上时，第一批真实指标必须立刻换掉它，不受节流推迟。
       const wasTicking = animation !== undefined;
       if (ticking) startTicker(ctx);
       else stopTicker();
       if (!config.enabled) {
+        lastText = null;
         ctx.ui.setStatus(STATUS_KEY, undefined);
         return;
       }
       if (!force && !ticking && !wasTicking && now - lastPaintAt < config.throttleMs) return;
       lastPaintAt = now;
-      ctx.ui.setStatus(
-        STATUS_KEY,
-        buildStatusText(live, config, now, LOADING_FRAMES[frameIndex]) ?? undefined,
-      );
+      const text = buildStatusText(live, config, now);
+      // 同一轮里指标暂时不可算（例如速率窗口未满）时保留上一帧，不闪空。
+      if (text === null && lastText !== null && live.phase !== "idle") return;
+      lastText = text;
+      ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
     } catch {
       /* 被替换的上下文不再拥有 UI */
       stopTicker();
