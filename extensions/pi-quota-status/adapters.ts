@@ -38,7 +38,7 @@ export const ADAPTERS = {
       const json = await fetchJsonBearer(ENDPOINTS.opencode, key, signal);
       const usage = object(json.usage, "套餐用量");
       const now = Date.now();
-      return [["rolling", "5h："], ["weekly", "周："], ["monthly", "月："]].map(([field, label]) => {
+      return [["rolling", "5h:"], ["weekly", "周:"], ["monthly", "月:"]].map(([field, label]) => {
         const win = object(usage[field], field);
         return { kind: "percentage", label, percent: percent(win.percent), resetsInMs: resetIn(win.resetsAt, now) } as QuotaBar;
       });
@@ -53,7 +53,7 @@ export const ADAPTERS = {
       if (json.success === false || (json.code !== undefined && ![0, 200, "0", "200"].includes(json.code as number | string))) throw new Error("套餐查询失败");
       const limits = array(object(json.data).limits, "套餐窗口").map(item => object(item));
       const bars: QuotaBar[] = [];
-      for (const [unit, label] of [[3, "5h："], [6, "周："]] as const) {
+      for (const [unit, label] of [[3, "5h:"], [6, "周:"]] as const) {
         const win = limits.find(item => item.type === "TOKENS_LIMIT" && item.unit === unit);
         if (win) bars.push({ kind: "percentage", label, percent: percent(win.percentage), resetsInMs: resetIn(win.nextResetTime, Date.now()) });
       }
@@ -73,8 +73,8 @@ export const ADAPTERS = {
       if (!bucket) throw new Error("无法确定共享套餐窗口");
       const bars: QuotaBar[] = [];
       for (const [field, label, wall, relative] of [
-        ["current_interval_remaining_percent", "5h：", "end_time", "remains_time"],
-        ["current_weekly_remaining_percent", "周：", "weekly_end_time", "weekly_remains_time"],
+        ["current_interval_remaining_percent", "5h:", "end_time", "remains_time"],
+        ["current_weekly_remaining_percent", "周:", "weekly_end_time", "weekly_remains_time"],
       ]) {
         if (!(field in bucket)) continue;
         const remaining = percent(bucket[field]);
@@ -95,9 +95,9 @@ export const ADAPTERS = {
       for (const item of json.limits === undefined ? [] : array(json.limits, "套餐窗口")) {
         const limit = object(item);
         const win = object(limit.window);
-        if (win.duration === 300 && ["TIME_UNIT_MINUTE", "MINUTE", "MINUTES"].includes(String(win.timeUnit).toUpperCase()) && limit.detail) bars.push(percentBarFromLimitRemaining(limit.detail, "5h：", Date.now()));
+        if (win.duration === 300 && ["TIME_UNIT_MINUTE", "MINUTE", "MINUTES"].includes(String(win.timeUnit).toUpperCase()) && limit.detail) bars.push(percentBarFromLimitRemaining(limit.detail, "5h:", Date.now()));
       }
-      if (json.usage) bars.push(percentBarFromLimitRemaining(json.usage, "套餐：", Date.now()));
+      if (json.usage) bars.push(percentBarFromLimitRemaining(json.usage, "套餐:", Date.now()));
       if (!bars.length) throw new Error("响应中无已识别的套餐窗口");
       return bars;
     },
@@ -114,9 +114,9 @@ export const ADAPTERS = {
       const bars = entries.map(item => {
         const entry = object(item);
         if (entry.currency !== "CNY" && entry.currency !== "USD") throw new Error("余额币种未知");
-        return money("余额：", entry.total_balance, entry.currency === "CNY" ? "¥" : "$");
+        return money("余额:", entry.total_balance, entry.currency === "CNY" ? "¥" : "$");
       });
-      if (!json.is_available) bars.push({ kind: "text", label: "状态：", text: "不可调用" });
+      if (!json.is_available) bars.push({ kind: "text", label: "状态:", text: "不可调用" });
       return bars;
     },
   },
@@ -127,7 +127,7 @@ export const ADAPTERS = {
     async fetch(key: string, signal?: AbortSignal) {
       const json = await fetchJsonBearer(ENDPOINTS.moonshot, key, signal);
       if (json.code !== 0 || json.status !== true) throw new Error("API 余额查询失败");
-      return [money("可用：", object(json.data).available_balance, "¥")];
+      return [money("可用:", object(json.data).available_balance, "¥")];
     },
   },
   siliconflow: {
@@ -137,7 +137,7 @@ export const ADAPTERS = {
     async fetch(key: string, signal?: AbortSignal) {
       const json = await fetchJsonBearer(ENDPOINTS.siliconflow, key, signal);
       if (json.code !== 20000 || json.status !== true) throw new Error("账户余额查询失败");
-      return [money("余额：", object(json.data).totalBalance, "¥")];
+      return [money("余额:", object(json.data).totalBalance, "¥")];
     },
   },
   openrouter: {
@@ -146,8 +146,8 @@ export const ADAPTERS = {
     endpoint: ENDPOINTS.openrouter, modelHosts: ["openrouter.ai"], note: "Key 的剩余消费上限，不代表账户余额；无限额不代表账户无限余额。",
     async fetch(key: string, signal?: AbortSignal) {
       const data = object((await fetchJsonBearer(ENDPOINTS.openrouter, key, signal)).data);
-      if (data.limit === null && data.limit_remaining === null) return [{ kind: "text", label: "Key：", text: "未设上限" }];
-      return [money("Key剩余：", data.limit_remaining, "$")];
+      if (data.limit === null && data.limit_remaining === null) return [{ kind: "text", label: "Key:", text: "未设上限" }];
+      return [money("Key剩余:", data.limit_remaining, "$")];
     },
   },
   openrouterAccount: {
@@ -158,7 +158,7 @@ export const ADAPTERS = {
       const data = object((await fetchJsonBearer(ENDPOINTS.openrouterAccount, key, signal)).data);
       const credits = number(data.total_credits, "累计充值");
       const usage = number(data.total_usage, "累计使用");
-      return [money("账户剩余：", credits === null || usage === null ? null : credits - usage, "$")];
+      return [money("账户剩余:", credits === null || usage === null ? null : credits - usage, "$")];
     },
   },
 } satisfies Record<string, QuotaAdapter>;

@@ -16,7 +16,7 @@ function response(t, data: unknown, status = 200) {
 test("Moonshot uses domestic API balance, including vouchers, with an explicit endpoint", async t => {
   const calls = response(t, { code: 0, status: true, data: { available_balance: 49.58894, voucher_balance: 46.58893, cash_balance: 3.00001 } });
   const bars = await ADAPTERS.moonshot.fetch("test-only-key");
-  assert.deepEqual(bars, [{ kind: "balance", label: "可用：", amount: 49.58894, currency: "¥" }]);
+  assert.deepEqual(bars, [{ kind: "balance", label: "可用:", amount: 49.58894, currency: "¥" }]);
   assert.equal(calls[0].url, ENDPOINTS.moonshot);
   assert.equal(calls[0].options.redirect, "error");
   assert.deepEqual(calls[0].options.headers, { Authorization: "Bearer test-only-key" });
@@ -27,19 +27,19 @@ test("Moonshot uses domestic API balance, including vouchers, with an explicit e
 test("SiliconFlow reads totalBalance, not only the promotional balance", async t => {
   response(t, { code: 20000, status: true, data: { balance: "0.88", chargeBalance: "88.00", totalBalance: "88.88" } });
   const [bar] = await ADAPTERS.siliconflow.fetch("test-only");
-  assert.deepEqual(bar, { kind: "balance", label: "余额：", amount: 88.88, currency: "¥" });
+  assert.deepEqual(bar, { kind: "balance", label: "余额:", amount: 88.88, currency: "¥" });
 });
 
 test("OpenRouter account balance is purchased minus used; negatives are preserved", async t => {
   const calls = response(t, { data: { total_credits: 10, total_usage: 12.25 } });
-  assert.deepEqual(await ADAPTERS.openrouterAccount.fetch("management-fixture"), [{ kind: "balance", label: "账户剩余：", amount: -2.25, currency: "$" }]);
+  assert.deepEqual(await ADAPTERS.openrouterAccount.fetch("management-fixture"), [{ kind: "balance", label: "账户剩余:", amount: -2.25, currency: "$" }]);
   assert.equal(calls[0].url, ENDPOINTS.openrouterAccount);
   assert.equal(ADAPTERS.openrouterAccount.apiKeyEnvVar, "OPENROUTER_MANAGEMENT_KEY");
 });
 
 test("OpenRouter key allowance and an unlimited key never masquerade as account money", async t => {
   response(t, { data: { limit: null, limit_remaining: null, is_free_tier: true } });
-  assert.deepEqual(await ADAPTERS.openrouter.fetch("key"), [{ kind: "text", label: "Key：", text: "未设上限" }]);
+  assert.deepEqual(await ADAPTERS.openrouter.fetch("key"), [{ kind: "text", label: "Key:", text: "未设上限" }]);
 });
 
 test("OpenRouter missing remaining allowance is unknown, not unlimited or zero", async t => {
@@ -53,9 +53,9 @@ test("OpenRouter missing remaining allowance is unknown, not unlimited or zero",
 test("DeepSeek unavailable keeps actual amounts and all reported currencies", async t => {
   response(t, { is_available: false, balance_infos: [{ currency: "CNY", total_balance: "-1.20" }, { currency: "USD", total_balance: "0.05" }] });
   assert.deepEqual(await ADAPTERS.deepseek.fetch("key"), [
-    { kind: "balance", label: "余额：", amount: -1.2, currency: "¥" },
-    { kind: "balance", label: "余额：", amount: 0.05, currency: "$" },
-    { kind: "text", label: "状态：", text: "不可调用" },
+    { kind: "balance", label: "余额:", amount: -1.2, currency: "¥" },
+    { kind: "balance", label: "余额:", amount: 0.05, currency: "$" },
+    { kind: "text", label: "状态:", text: "不可调用" },
   ]);
 });
 
@@ -67,7 +67,7 @@ test("GLM distinguishes known and null windows and rejects empty windows", async
 test("MiniMax remaining percent is inverted; missing reset never implies reset now", async t => {
   response(t, { base_resp: { status_code: 0 }, model_remains: [{ model_name: "general", current_interval_remaining_percent: 75, current_weekly_remaining_percent: null }] });
   const bars = await ADAPTERS.minimax.fetch("key");
-  assert.deepEqual(bars, [{ kind: "percentage", label: "5h：", percent: 25, resetsInMs: undefined }, { kind: "percentage", label: "周：", percent: null, resetsInMs: undefined }]);
+  assert.deepEqual(bars, [{ kind: "percentage", label: "5h:", percent: 25, resetsInMs: undefined }, { kind: "percentage", label: "周:", percent: null, resetsInMs: undefined }]);
 });
 
 test("MiniMax never picks an arbitrary model bucket from multiple plans", async t => {
@@ -77,7 +77,7 @@ test("MiniMax never picks an arbitrary model bucket from multiple plans", async 
 
 test("Kimi recognizes minutes and leaves the overall window named 套餐", async t => {
   response(t, { limits: [{ window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" }, detail: { limit: "100", remaining: "75" } }], usage: { limit: "200", remaining: "50" } });
-  assert.deepEqual((await ADAPTERS.kimi.fetch("key")).map(bar => [bar.label, bar.kind === "percentage" ? bar.percent : undefined]), [["5h：", 25], ["套餐：", 75]]);
+  assert.deepEqual((await ADAPTERS.kimi.fetch("key")).map(bar => [bar.label, bar.kind === "percentage" ? bar.percent : undefined]), [["5h:", 25], ["套餐:", 75]]);
 });
 
 test("Kimi does not equate a duration without units to five hours", async t => {
@@ -118,7 +118,7 @@ test("region/proxy mismatches are not assumed to share a billing account", () =>
 });
 
 test("zero/missing limits are unknown, numeric suffixes are rejected", () => {
-  const unknown = percentBarFromLimitRemaining({ limit: "0", remaining: "0" }, "套餐：", Date.now());
+  const unknown = percentBarFromLimitRemaining({ limit: "0", remaining: "0" }, "套餐:", Date.now());
   assert.equal(unknown.kind === "percentage" && unknown.percent, null);
-  assert.throws(() => percentBarFromLimitRemaining({ limit: "100x", remaining: "0" }, "套餐：", Date.now()), /数据格式异常/);
+  assert.throws(() => percentBarFromLimitRemaining({ limit: "100x", remaining: "0" }, "套餐:", Date.now()), /数据格式异常/);
 });
