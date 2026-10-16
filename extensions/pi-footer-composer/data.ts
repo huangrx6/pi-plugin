@@ -46,11 +46,12 @@ export function collectSnapshot(ctx: DataContext, model: Model, thinking: string
     branch: branch || "", session: ctx.sessionManager.getSessionName() || "",
     model: model?.id || "未选择模型", provider: model?.provider || "", thinking: model?.reasoning ? thinking || "off" : "",
     context: `${typeof percent === "number" && Number.isFinite(percent) ? percent.toFixed(1) + "%" : "?"} / ${window > 0 ? tokens(window) : "?"}`,
-    cacheHit: (total.cacheRead || total.cacheWrite) && hit !== undefined ? `◎${hit.toFixed(1)}%` : "",
+    cacheHit: (total.cacheRead || total.cacheWrite) && hit !== undefined ? `${hit.toFixed(1)}%` : "",
     cost: total.cost ? `$${total.cost.toFixed(3)}` : "",
   };
-  for (const [key, prefix] of [["input", "↑"], ["output", "↓"], ["cacheRead", "读"], ["cacheWrite", "写"]] as const) {
-    fields[key] = total[key] ? `${prefix}${tokens(total[key])}` : "";
+  // 字段值只给裸值：描述、单位和顺序由视图配置的 prefix/suffix 决定。
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
+    fields[key] = total[key] ? tokens(total[key]) : "";
   }
   return {
     fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, cleanText(value)])),

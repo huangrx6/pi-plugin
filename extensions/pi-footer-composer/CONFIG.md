@@ -72,10 +72,28 @@ Footer 从 Pi 的公开接口读取两类数据：
 | `thinking` | 思考等级 |
 | `context` | 上下文占用比例和窗口容量 |
 | `cacheHit` | 最近一条助手消息的缓存命中率 |
-| `input` / `output` | 会话累计输入、输出 Token，显示为 `↑` / `↓` |
-| `cacheRead` / `cacheWrite` | 会话累计缓存读写 Token，显示为 `读` / `写` |
+| `input` / `output` | 会话累计输入、输出 Token（裸值，描述由 `prefix` 提供） |
+| `cacheRead` / `cacheWrite` | 会话累计缓存读写 Token（裸值，同上） |
 | `cost` | 会话累计费用 |
 | `remaining` | 所有尚未被精确选择的状态 value |
+
+字段值是裸值，格内的描述、单位和顺序都由视图配置决定。要让每个元素按
+`描述：值` 排列（中文描述尽量不超过三个字），在字段对象里写 `prefix`：
+
+```json
+{
+  "label": "资源",
+  "fields": [
+    { "source": "context", "prefix": "上下文：" },
+    { "source": "cacheHit", "prefix": "缓存：" },
+    { "source": "input", "prefix": "入：" },
+    { "source": "output", "prefix": "出：" },
+    { "source": "cacheRead", "prefix": "读：" },
+    { "source": "cacheWrite", "prefix": "写：" },
+    { "source": "cost", "prefix": "费用：" }
+  ]
+}
+```
 
 内建字段可以写成对象，为非空值添加前后文，或者为空值提供替代文本：
 

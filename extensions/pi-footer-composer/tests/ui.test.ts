@@ -44,7 +44,7 @@ test("configured views render through Pi; reload is atomic and switching preserv
   });
   await handlers.get("session_start")!({}, ctx);
   const overview = component().render(200).join("\n");
-  for (const text of ["project", "provider", "high", "↑4.0M", "读58M", "◎93.5%", "policy:auto ↑922 ↓69", "额外用量 42"]) assert.ok(overview.includes(text), text);
+  for (const text of ["project", "provider", "high", "4.0M", "58M", "93.5%", "policy:auto ↑922 ↓69", "额外用量 42"]) assert.ok(overview.includes(text), text);
   assert.equal(overview.match(/Context 12%/g)?.length, 1);
   assert.doesNotMatch(overview, /bad|\x1b|│/);
   await command("compact", ctx);
@@ -54,7 +54,7 @@ test("configured views render through Pi; reload is atomic and switching preserv
   assert.match(compact, /策略 │ policy:auto ↑922 ↓69.*诊断 │ LSP/);
   assert.equal(compact.match(/policy:auto/g)?.length, 1);
   assert.match(compact, /main.ts · api.ts/);
-  assert.match(compact, /资源 │ 12\.0% \/ 128k +◎93\.5% +↑4\.0M +↓147k +读58M/);
+  assert.match(compact, /资源 │ 12\.0% \/ 128k +93\.5% +4\.0M +147k +58M/);
   assert.doesNotMatch(compact, /额外用量|\/tmp\/project/);
   for (const width of [1, 30, 60, 72, 100, 200]) assert.ok(compactComponent.render(width).every((line: string) => visibleWidth(line) <= width));
 

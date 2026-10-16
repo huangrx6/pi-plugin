@@ -45,10 +45,10 @@ test("data uses latest assistant cache ratio, includes all recorded usage and pr
       { type: "message", message: { role: "assistant", usage: { input: 10, cacheRead: 10 } } },
     ],
   } }, { id: "model", provider: "platform", reasoning: true, contextWindow: 1000000 }, "high", "main", new Map([["external", "\x1b[31mLSP detail\x1b[0m\nnext line"]]));
-  assert.equal(data.fields.cacheHit, "◎50.0%");
+  assert.equal(data.fields.cacheHit, "50.0%");
   assert.equal(data.fields.context, "? / 1.0M");
-  assert.equal(data.fields.output, "↓60");
-  assert.equal(data.fields.input, "↑115");
+  assert.equal(data.fields.output, "60");
+  assert.equal(data.fields.input, "115");
   assert.equal(data.fields.cost, "$0.300");
   assert.equal(data.statuses[0].key, "external");
   assert.equal(data.statuses[0].text, "LSP detail\nnext line");

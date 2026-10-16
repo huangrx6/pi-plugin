@@ -1,6 +1,6 @@
 {
   "name": "pi-footer-composer",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "A config-driven Pi footer with compact tables, open information bands, exact status keys, and responsive layout.",
   "license": "MIT",
   "type": "module",
