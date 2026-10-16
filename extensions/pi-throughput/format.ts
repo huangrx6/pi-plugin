@@ -122,8 +122,8 @@ function statusParts(
     live.firstDeltaAt !== null && live.startedAt !== null ? live.firstDeltaAt - live.startedAt : null;
   const tps = liveTps(live, config.measurement, now, config.minWindowMs);
   const parts: string[] = [];
-  if (config.display !== "ttft" && tps !== null) parts.push(`${formatTps(tps)} t/s`);
-  if (config.display !== "tps" && ttftMs !== null) parts.push(`首 token ${formatLatency(ttftMs)}`);
+  if (config.display !== "ttft" && tps !== null) parts.push(`速率：${formatTps(tps)} t/s`);
+  if (config.display !== "tps" && ttftMs !== null) parts.push(`首字：${formatLatency(ttftMs)}`);
   const waitingFor =
     parts.length === 0 && inFlight && ttftMs === null && live.startedAt !== null
       ? Math.max(0, (live.endedAt ?? now) - live.startedAt)
@@ -139,10 +139,10 @@ export function buildStatusText(
 ): string | null {
   if (live.phase === "idle") return null;
   const { parts, waitingFor } = statusParts(live, config, now);
-  if (parts.length > 0) return truncateToWidth(parts.join(" · "), MAX_STATUS_WIDTH);
+  if (parts.length > 0) return truncateToWidth(parts.join("  "), MAX_STATUS_WIDTH);
   return waitingFor === null
     ? null
-    : truncateToWidth(`等待 ${formatLatency(waitingFor)}`, MAX_STATUS_WIDTH);
+    : truncateToWidth(`首字：等待 ${formatLatency(waitingFor)}`, MAX_STATUS_WIDTH);
 }
 
 /** 当前文本是否是持续刷新的等待计时（决定要不要跑计时器）。 */
