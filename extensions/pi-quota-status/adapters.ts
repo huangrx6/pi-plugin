@@ -169,6 +169,20 @@ export const PROVIDER_TO_SUB: ReadonlyMap<string, Subscription> = new Map(
 export function subscriptionForProvider(provider: string | undefined): Subscription | null {
   return provider ? PROVIDER_TO_SUB.get(provider) ?? null : null;
 }
+/**
+ * 相近名称但未适配的 provider 提示。
+ *
+ * 两个服务同名不同账（`opencode` Zen 按量计费 vs `opencode-go` Go 套餐）时，
+ * 静默留空会让用户分不清「不支持」和「查询失败」，所以名称相近时明说一句。
+ * 完全没有相近服务的 provider 仍然保持静默，不往状态格塞无关噪音。
+ */
+export function unsupportedProviderHint(provider: string | undefined): string | null {
+  if (!provider) return null;
+  const near = (Object.keys(ADAPTERS) as Subscription[])
+    .flatMap(id => ADAPTERS[id].providerNames)
+    .filter(name => name !== provider && (name.startsWith(`${provider}-`) || provider.startsWith(`${name}-`)));
+  return near.length ? `${provider} 未适配，可查 ${near.slice(0, 2).join(" / ")}` : null;
+}
 export function adapterEnvVars(adapter: QuotaAdapter): readonly string[] {
   return [adapter.apiKeyEnvVar, ...(adapter.apiKeyEnvVarAliases ?? [])];
 }

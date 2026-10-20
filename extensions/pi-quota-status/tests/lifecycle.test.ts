@@ -54,6 +54,20 @@ test("switching to an unsupported provider cancels and rejects a late response",
   assert.equal(published.at(-1), null);
 });
 
+test("a near-miss provider name is explained instead of left blank", async () => {
+  const monitor = createMonitor();
+  const published: unknown[] = [];
+  await monitor.refresh({ provider: "opencode" }, () =>
+    published.push(buildQuotaText(monitor.state)),
+  );
+  assert.match(monitor.state.errorText, /opencode 未适配.*opencode-go/);
+  assert.match(String(published.at(-1)), /未适配/);
+  // 没有相近服务的 provider 依旧保持静默，不刷无关提示。
+  await monitor.refresh({ provider: "groq" }, () => {});
+  assert.equal(monitor.state.errorText, "");
+  assert.equal(monitor.state.quotaData, null);
+});
+
 test("missing key invalidates a pending request before the early return", async (t) => {
   credentials(t);
   const calls = pendingFetch(t);

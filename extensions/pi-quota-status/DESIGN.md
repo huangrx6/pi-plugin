@@ -73,6 +73,8 @@ state 改变时通过 `controller?.abort()` 取消在飞的 fetch（避免过期
 
 首次查询（`loading && !quotaData && !errorText`）发布 `⠋ 查询中…` 占位，而不是让状态格空白：帧集合与 80ms 节奏直接对齐宿主 spinner（U+2800–28FF 盲文），所以能画出宿主 spinner 的终端就能画出它。重绘由本扩展自己的 80ms 定时器驱动（`setStatus` 会触发宿主 requestRender），定时器只在 TUI 模式且查询在飞时存在，`unref()` 不阻止进程退出，成功 / 失败 / 会话关闭都会清掉它；RPC / json / print 只发一帧静态占位，避免事件流被帧刷屏。已有数据时刷新不清屏：占位只在“无数据可显示”时出现。
 
+没有适配器的 provider 默认保持静默（不把每个未支持服务都变成提示）。只剩一种会造成误导的情况要出声：provider 名称与已适配服务相近（`opencode` / `opencode-go`、`zai` / `zai-coding-cn`），用户以为自己已经切到了可查账户。此时由 `unsupportedProviderHint()` 在前缀互测后把 `provider 未适配，可查 <相近名称>` 写进 `errorText`，状态格以 `!` 开头，与真正的查询失败用同一条通道。
+
 ## 已知边界
 
 - **OpenRouter 管理账户 vs inference 账户是两个不同凭据**：管理账户需要

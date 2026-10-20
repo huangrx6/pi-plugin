@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.4 - 2026-10-20
+
+- 未适配但没有任何提示的 provider 现在会明说：名称与已适配服务相近时（如 `opencode` 与 `opencode-go`、`zai` 与 `zai-coding-cn`）额度格显示 `! <provider> 未适配，可查 <相近名称>`。之前这类情况静默留空，分不清「不支持」与「查询失败」。
+- 没有相近服务可指名的 provider（如 `groq`）依旧保持静默，不往状态格塞无关噪音。
+
 ## 0.4.3 - 2026-10-16
 
 - 额度元素标签改为英文：`week:`、`month:`、`balance:`、`plan:`、`available:`、`status:`、`key:`、`key left:`、`account left:`，与底栏其余单元格的全英文标签一致。

@@ -1,6 +1,6 @@
 {
   "name": "pi-quota-status",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Independent Pi quota panel and status summary for subscription windows, account balances, and API-key allowances.",
   "license": "MIT",
   "type": "module",

@@ -69,7 +69,7 @@ GLM 兼容 `ZAI_API_KEY`，MiniMax 兼容 `MINIMAX_API_KEY`，首选变量优先
 
 自动查询同时核对 Provider 和已提供的模型端点：端点必须使用 HTTPS，并匹配表中的主机；未提供端点时按 Provider 识别。国际站、代理和未知主机不自动映射为另一地区账户。`/quota account` 是独立查询入口，不要求当前模型为 OpenRouter。
 
-`moonshot` 表示 Kimi API 余额；Kimi Code 使用 `kimi-code` 等名称。`opencode` 不映射 Go 套餐。Kimi 总套餐窗口缺少元数据时只标为套餐，不推测固定一周。OpenRouter Key 未设置上限不表示账户余额无限。
+`moonshot` 表示 Kimi API 余额；Kimi Code 使用 `kimi-code` 等名称。`opencode` 不映射 Go 套餐（Zen 按量计费与 Go 套餐是两个账户体系）。名称相近却没有适配的 provider（如 `opencode`、`zai`）在额度格会明说 `provider 未适配，可查 …`，不留空白让人误以为查询失败；完全没有相近服务的 provider 依旧保持静默。Kimi 总套餐窗口缺少元数据时只标为套餐，不推测固定一周。OpenRouter Key 未设置上限不表示账户余额无限。
 
 </details>
 
@@ -83,6 +83,7 @@ GLM 兼容 `ZAI_API_KEY`，MiniMax 兼容 `MINIMAX_API_KEY`，首选变量优先
 | DeepSeek `is_available=false` | 保留实际余额，单独显示不可调用 |
 | 暂时性网络或服务错误 | 失败时仅保留最近 60 秒内取得的成功值，并标记刷新失败 |
 | 认证失败或服务、地区、凭证变化 | 清除旧值，阻止旧请求覆盖当前状态 |
+| Provider 名称未适配但有相近服务 | 显示 `未适配，可查 <相近名称>`，不静默留空 |
 
 没有轮询定时器，成功值不会在 60 秒时自动清除；唯一的定时器是首次查询在飞期间的状态栏重绘（80ms，仅用于动画帧，查询结束立即停止，且只在 TUI 模式存在）。详情页会按数据年龄提示过期，后续刷新重新判断是否保留。启动、切换模型和切换会话分支时刷新；回合结束的查询间隔至少 10 秒，手动刷新不受此限制。单次请求超时为 15 秒。
 

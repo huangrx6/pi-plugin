@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ADAPTERS, adapterEnvVars, adapterMatchesModel, resolveAdapterApiKey, subscriptionForProvider, type Subscription } from "./adapters.ts";
+import { ADAPTERS, adapterEnvVars, adapterMatchesModel, resolveAdapterApiKey, subscriptionForProvider, unsupportedProviderHint, type Subscription } from "./adapters.ts";
 import { STALE_KEEP_MS } from "./constants.ts";
 import { createState } from "./state.ts";
 import type { ModelLike } from "./types.ts";
@@ -53,7 +53,13 @@ export function createMonitor() {
       if (identity !== state.identity) clear();
       state.identity = identity;
       state.lastRefreshAt = Date.now();
-      if (!adapterId) { clear(); publish(); return; }
+      if (!adapterId) {
+        clear();
+        const hint = unsupportedProviderHint(model?.provider);
+        if (hint) state.errorText = hint;
+        publish();
+        return;
+      }
       const adapter = ADAPTERS[adapterId];
       if (!explicit && !adapterMatchesModel(adapter, model)) {
         clear(); state.errorText = `${adapter.display} 当前端点未适配，未查询其他地区账户`; publish(); return;
