@@ -4,10 +4,11 @@
  * 样本来自会话 JSONL 里的 custom entry（不进入 LLM context），
  * 所以恢复会话后还能复盘历史调用。
  */
-import { SAMPLE_TYPE } from "./constants.ts";
 import { formatLatency, formatTps } from "./format.ts";
-import type { BranchEntryLike, Measurement, ThroughputSample } from "./types.ts";
+import type { Measurement, ThroughputSample } from "./types.ts";
 import { sampleTps } from "./format.ts";
+import { sanitizeTerminalText } from "./ui.ts";
+export { isSample, parseSamples } from "./samples.ts";
 
 export interface MetricBucket {
   calls: number;
@@ -15,7 +16,9 @@ export interface MetricBucket {
   tokens: number;
   /** 未上报 usage 的调用数：不进 token 总数，也不进 Σ/Σ 速率。 */
   estimated: number;
-  /** 会话口径输出速度：Σtoken ÷ Σ时长（与宿主会话统计同口径）。 */
+  /** 未具备正文 token 拆分或正文传输窗口的成功调用数。 */
+  unavailableStream: number;
+  /** 会话口径输出速度：Σtoken ÷ Σ时长（分子与分母来自同一组调用）。 */
   tps: number | null;
   /** 模型用时：Σ（请求发出 → 消息结束）。 */
   modelMs: number | null;
@@ -44,48 +47,6 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isNullableDuration(value: unknown): value is number | null {
-  return value === null || (isFiniteNumber(value) && value >= 0);
-}
-
-/** 校验一条 entry.data 是否为本扩展的样本。 */
-export function isSample(value: unknown): value is ThroughputSample {
-  if (!value || typeof value !== "object") return false;
-  const sample = value as Record<string, unknown>;
-  return (
-    typeof sample.model === "string" &&
-    typeof sample.provider === "string" &&
-    isFiniteNumber(sample.tokens) &&
-    sample.tokens >= 0 &&
-    isFiniteNumber(sample.e2eMs) &&
-    sample.e2eMs >= 0 &&
-    isNullableDuration(sample.ttftMs) &&
-    isNullableDuration(sample.streamMs) &&
-    isFiniteNumber(sample.at)
-  );
-}
-
-/** 从会话分支里挑出本扩展的样本；坏数据静默丢弃。 */
-export function parseSamples(entries: Iterable<unknown>): ThroughputSample[] {
-  const samples: ThroughputSample[] = [];
-  for (const raw of entries) {
-    const entry = raw as BranchEntryLike | null | undefined;
-    if (entry?.type !== "custom" || entry.customType !== SAMPLE_TYPE) continue;
-    if (!isSample(entry.data)) continue;
-    const sample = entry.data;
-    samples.push({
-      ...sample,
-      provider: sample.provider,
-      model: sample.model,
-      estimated: sample.estimated === true,
-      aborted: sample.aborted === true,
-      ttftMs: sample.ttftMs === null ? null : Math.max(0, sample.ttftMs),
-      streamMs: sample.streamMs === null ? null : Math.max(0, sample.streamMs),
-    });
-  }
-  return samples;
-}
-
 /** 最近秩分位数；空数组返回 null。 */
 export function percentile(values: readonly number[], p: number): number | null {
   if (values.length === 0) return null;
@@ -103,7 +64,7 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
   const rates: number[] = [];
   // 速率的会话口径是 Σtoken ÷ Σ时长：先把分子分母各自累起来，
   // 不是「每次调用的 TPS 取平均」（长调用和短调用的权重不同，两者能差 10% 以上）。
-  // 与宿主 sessionStats 对齐：中断的调用不计时间，估算 token 不进 Σ/Σ；
+  // 本扩展的统计规则：中断的调用不计时间，估算 token 不进 Σ/Σ；
   // 单次调用分布（p50 / p95）与 Σ/Σ 同源，否则会把估算值和半截流读出的
   // 天文数字混进来。
   let spanTokens = 0;
@@ -111,6 +72,7 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
   let modelMs = 0;
   let tokens = 0;
   let estimated = 0;
+  let unavailableStream = 0;
   const ttft: number[] = [];
   for (const sample of samples) {
     const rate = sampleTps(sample, measurement);
@@ -120,9 +82,10 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
     if (sample.estimated) estimated += 1;
     else tokens += sample.tokens;
     if (sample.aborted) continue;
+    if (usable && sampleTps(sample, "stream") === null) unavailableStream += 1;
     if (usable && rate !== null && span !== null && span > 0) {
       rates.push(rate);
-      spanTokens += sample.tokens;
+      spanTokens += measurement === "stream" ? sample.streamTokens! : sample.tokens;
       spanMs += span;
     }
     if (isFiniteNumber(sample.e2eMs) && sample.e2eMs > 0) modelMs += sample.e2eMs;
@@ -133,6 +96,7 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
     aborted: samples.filter((sample) => sample.aborted).length,
     tokens,
     estimated,
+    unavailableStream,
     tps: spanMs > 0 ? (spanTokens / spanMs) * 1000 : null,
     modelMs: modelMs > 0 ? modelMs : null,
     avgTps: average(rates),
@@ -185,7 +149,7 @@ function percentileSuffix(bucketLike: MetricBucket): string {
 
 /** 人读汇总；样本为空时给出明确文案而不是空表。 */
 export function formatSummary(summary: ThroughputSummary): string {
-  const name = summary.measurement === "stream" ? "流式（首 token 后）" : "端到端（含首 token 等待）";
+  const name = summary.measurement === "stream" ? "流式正文（不含推理）" : "端到端（含推理与等待）";
   if (summary.overall.calls === 0) {
     return `尚未记录调用样本。口径：${name}`;
   }
@@ -203,9 +167,12 @@ export function formatSummary(summary: ThroughputSummary): string {
   if (overall.estimated > 0) {
     lines.push(`· ${overall.estimated} 次调用未上报 usage：不计入 token 与输出速度`);
   }
+  if (summary.measurement === "stream" && overall.unavailableStream > 0) {
+    lines.push(`· ${overall.unavailableStream} 次调用缺少可靠的正文 token 或传输窗口（含旧样本）：不计入流式速度`);
+  }
   for (const model of summary.byModel) {
     lines.push(
-      `· ${model.model || "未知模型"}：${model.calls} 次 ${metricLine(model)}`,
+      `· ${sanitizeTerminalText(model.model) || "未知模型"}：${model.calls} 次 ${metricLine(model)}`,
     );
   }
   return lines.join("\n");

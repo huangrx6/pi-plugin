@@ -1,5 +1,5 @@
 /**
- * 在 Pi 状态区发布实时输出速率与首 token 延迟，并把每次模型调用的
+ * 在 Pi 状态区发布会话级输出速率与首内容延迟，并把每次模型调用的
  * 样本写入会话（不进入 LLM context）。
  *
  * 发布约定：只写一个纯文本状态（key = pi-throughput）。任何按 key 读取
@@ -19,6 +19,7 @@ import type {
   DisplayMode,
   Measurement,
   ThroughputConfig,
+  ThroughputSample,
   ToolSample,
 } from "./types.ts";
 
@@ -41,8 +42,8 @@ const DISPLAY_LABEL: Record<DisplayMode, string> = {
 };
 
 const MEASUREMENT_LABEL: Record<Measurement, string> = {
-  stream: "流式（首 token 后）",
-  e2e: "端到端（含等待）",
+  stream: "流式正文（不含推理）",
+  e2e: "端到端（含推理与等待）",
 };
 
 function onOff(value: boolean): string {
@@ -54,6 +55,7 @@ export default function (pi: ExtensionAPI): void {
   const tracker = createTracker();
   const toolClock = createToolClock();
   let totals: SessionTotals = EMPTY_TOTALS;
+  let samples: ThroughputSample[] = [];
   let lastPaintAt = Number.NEGATIVE_INFINITY;
   let animation: ReturnType<typeof setInterval> | undefined;
   let currentCtx: StatusCtx | null = null;
@@ -64,11 +66,12 @@ export default function (pi: ExtensionAPI): void {
     animation = undefined;
   }
 
-  function startTicker(ctx: StatusCtx): void {
+  function startTicker(): void {
     if (animation !== undefined) return;
     animation = setInterval(() => {
-      // 会话被替换后旧上下文不再拥有 UI：停表而不是往旧状态格写入。
-      if (currentCtx !== ctx) {
+      // Pi 每次事件提供新 ctx；定时器读取当前上下文，生命周期事件负责停表。
+      const ctx = currentCtx;
+      if (!ctx) {
         stopTicker();
         return;
       }
@@ -94,7 +97,7 @@ export default function (pi: ExtensionAPI): void {
       const ticking = config.enabled && (ctx.mode ?? "tui") === "tui" && isTicking(live, now);
       // 计时器在屏上时，第一批真实指标必须立刻换掉它，不受节流推迟。
       const wasTicking = animation !== undefined;
-      if (ticking) startTicker(ctx);
+      if (ticking) startTicker();
       else stopTicker();
       if (!config.enabled) {
         ctx.ui.setStatus(STATUS_KEY, undefined);
@@ -110,17 +113,15 @@ export default function (pi: ExtensionAPI): void {
     }
   }
 
-  function samplesOf(ctx: StatusCtx) {
-    return parseSamples(ctx.sessionManager?.getBranch?.() ?? []);
-  }
-
   /** 从会话分支重建累计值：会话恢复、切换分支后四项统计不丢。 */
   function reseed(ctx: StatusCtx): void {
-    totals = totalsFromEntries(ctx.sessionManager?.getBranch?.() ?? []);
+    const entries = [...(ctx.sessionManager?.getBranch?.() ?? [])];
+    samples = parseSamples(entries);
+    totals = totalsFromEntries(entries);
   }
 
-  function summaryOf(ctx: StatusCtx): string {
-    return formatSummary(summarize(samplesOf(ctx), config.measurement, totals.toolMs));
+  function summaryOf(): string {
+    return formatSummary(summarize(samples, config.measurement, totals.toolMs));
   }
 
   function settingsLine(configValue: ThroughputConfig): string {
@@ -147,10 +148,10 @@ export default function (pi: ExtensionAPI): void {
         "重新读取配置",
         "关闭",
       ];
-      const selected = await ctx.ui.select(`${summaryOf(ctx)}\n\n当前：${settingsLine(config)}`, options);
+      const selected = await ctx.ui.select(`${summaryOf()}\n\n当前：${settingsLine(config)}`, options);
       if (!selected || selected === "关闭") return;
       if (selected === "会话统计") {
-        await ctx.ui.select(summaryOf(ctx), ["返回"]);
+        await ctx.ui.select(summaryOf(), ["返回"]);
       } else if (selected === "重新读取配置") {
         config = loadConfig();
         publish(ctx, true);
@@ -177,14 +178,14 @@ export default function (pi: ExtensionAPI): void {
       const isTui = (statusCtx.mode ?? "tui") === "tui" && statusCtx.hasUI !== false;
       if (!action || action === "status") {
         if (!isTui) {
-          statusCtx.ui.notify(`${summaryOf(statusCtx)}\n\n${settingsLine(config)}`, "info");
+          statusCtx.ui.notify(`${summaryOf()}\n\n${settingsLine(config)}`, "info");
           return;
         }
         await panel(statusCtx);
         return;
       }
       if (action === "stats") {
-        const text = summaryOf(statusCtx);
+        const text = summaryOf();
         if (isTui) await statusCtx.ui.select(text, ["返回"]);
         else statusCtx.ui.notify(text, "info");
         return;
@@ -222,6 +223,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", (_event, ctx) => {
+    stopTicker();
     config = loadConfig();
     tracker.reset();
     toolClock.reset();
@@ -231,6 +233,9 @@ export default function (pi: ExtensionAPI): void {
 
   // 切分支后累计值必须跟着分支走，否则四项统计会把另一条分支的调用算进来。
   pi.on("session_tree", (_event, ctx) => {
+    stopTicker();
+    tracker.reset();
+    toolClock.reset();
     reseed(ctx as StatusCtx);
     publish(ctx as StatusCtx, true);
   });
@@ -254,6 +259,7 @@ export default function (pi: ExtensionAPI): void {
     if (message?.role !== "assistant") return;
     const sample = tracker.finish(message);
     if (sample) {
+      samples.push(sample);
       totals = addCall(totals, sample);
       if (config.history) {
         try {
@@ -298,10 +304,12 @@ export default function (pi: ExtensionAPI): void {
   // 四项指标是会话级常驻值：回复结束只停掉等待计时，不清空统计。
   pi.on("agent_end", (_event, ctx) => {
     stopTicker();
+    tracker.reset();
     publish(ctx as StatusCtx, true);
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
+    currentCtx = null;
     tracker.reset();
     toolClock.reset();
     stopTicker();

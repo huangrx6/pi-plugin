@@ -5,7 +5,7 @@
  * 缺字段时一律走安全默认值。
  */
 
-/** TPS 分母口径：stream = 首 token → 结束；e2e = 请求发出 → 结束。 */
+/** stream = 正文/工具参数传输速度；e2e = 含推理与等待的整体输出速度。 */
 export type Measurement = "e2e" | "stream";
 
 /** 状态文本显示哪些指标。 */
@@ -32,11 +32,13 @@ export interface ThroughputSample {
   model: string;
   /** 输出 token：provider usage 权威值，或 chars/N 估算。 */
   tokens: number;
+  /** 正文/工具参数 token（总输出减推理）；缺失为旧样本，null 为无法可靠拆分。 */
+  streamTokens?: number | null;
   /** tokens 是否为估算值。 */
   estimated: boolean;
   /** 请求发出 → 首个内容增量；无增量（中断 / 空响应）时为 null。 */
   ttftMs: number | null;
-  /** 首个增量 → 消息结束；无增量时为 null。 */
+  /** 首个非空正文/工具参数增量 → 消息结束；无此增量时为 null。 */
   streamMs: number | null;
   /** 请求发出 → 消息结束。 */
   e2eMs: number;
@@ -67,6 +69,7 @@ export interface LiveState {
 
 export interface UsageLike {
   output?: number;
+  reasoning?: number;
 }
 
 export interface ContentBlockLike {

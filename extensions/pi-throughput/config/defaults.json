@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "display": "full",
-  "measurement": "stream",
+  "measurement": "e2e",
   "history": true,
   "throttleMs": 250
 }

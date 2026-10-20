@@ -13,7 +13,7 @@ import type { DisplayMode, Measurement, ThroughputConfig } from "./types.ts";
 export const DEFAULTS: ThroughputConfig = {
   enabled: true,
   display: "full",
-  measurement: "stream",
+  measurement: "e2e",
   history: true,
   throttleMs: DEFAULT_THROTTLE_MS,
 };

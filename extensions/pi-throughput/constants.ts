@@ -1,7 +1,7 @@
 /**
  * 跨模块常量 —— 纯值，无运行时依赖。
  *
- * 调整节流、窗口与宽度上限只改这里。
+ * 调整节流与宽度上限只改这里。
  */
 
 export const PACKAGE_NAME = "pi-throughput";
@@ -23,23 +23,7 @@ export const TOOL_SAMPLE_TYPE = "pi-throughput-tool";
 /** 流中状态写入节流（毫秒）：每个 delta 都重绘会抖动且浪费 CPU。 */
 export const DEFAULT_THROTTLE_MS = 250;
 
-/**
- * 流中 TPS 的最小分母窗口（毫秒）。
- *
- * provider 把 token 成批 flush 时，几个毫秒对几十个 token 会读出
- * 数千 t/s 的纯量化噪声；窗口不足时先显示占位符，等窗口够了再上数。
- * `message_end` 的终值不受此限制：那时的 token 数与窗口都是精确的。
- */
-export const DEFAULT_MIN_WINDOW_MS = 500;
-
-/** 无 provider usage 时的字符 → token 估算。
- *
- * CJK 基本是 1 字 1 token，拉丁/代码约 3.5 字符 1 token。
- * 旧值「一律 4 字符 1 token」系统性低估：16188 条真实 assistant 消息里
- * 字符 ÷ token 的中位数为 2.88、均值 2.73，按 4 估算的 token 数中位误差约 28%，
- * 流中的 rate 因此偏低，直到 `message_end` 拿到 usage 才跳变。
- * 低估只影响流中显示；终值仍以 provider usage 为准。
- */
+/** 无 provider usage 时只记录字符估算值；估算不进入任何速率。 */
 export const CJK_TOKENS_PER_CHAR = 1;
 
 export const OTHER_CHARS_PER_TOKEN = 3.5;

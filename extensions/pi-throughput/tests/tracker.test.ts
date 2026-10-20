@@ -28,12 +28,13 @@ test("one call produces TTFT, stream and e2e durations", () => {
     role: "assistant",
     provider: "opencode-go",
     model: "deepseek-v4.1-flash",
-    usage: { output: 10 },
+    usage: { output: 10, reasoning: 4 },
     stopReason: "stop",
   });
   assert.ok(sample);
   assert.equal(sample.ttftMs, 120);
-  assert.equal(sample.streamMs, 1080);
+  assert.equal(sample.streamMs, 500);
+  assert.equal(sample.streamTokens, 6);
   assert.equal(sample.e2eMs, 1200);
   assert.equal(sample.tokens, 10);
   assert.equal(sample.estimated, false);
@@ -103,11 +104,16 @@ test("finish without start is not recordable and resets to idle", () => {
   assert.equal(tracker.snapshot().phase, "idle");
 });
 
-test("an empty response with no deltas is not recordable", () => {
+test("an empty response still records its elapsed time and call count", () => {
   const { tracker, set } = clocked();
   tracker.start({});
   set(10);
-  assert.equal(tracker.finish({ role: "assistant", usage: { output: 0 } }), null);
+  const sample = tracker.finish({ role: "assistant", usage: { output: 0 } });
+  assert.ok(sample);
+  assert.equal(sample.tokens, 0);
+  assert.equal(sample.e2eMs, 10);
+  assert.equal(sample.ttftMs, null);
+  assert.equal(sample.estimated, false);
 });
 
 test("late deltas after finish are ignored", () => {
@@ -136,4 +142,62 @@ test("reset returns the tracker to idle", () => {
     firstDeltaAt: null,
     endedAt: null,
   });
+});
+
+test("hidden reasoning tokens are excluded from the body transfer numerator", () => {
+  const { tracker, set } = clocked();
+  tracker.start({ provider: "p", model: "m" });
+  set(10_000);
+  tracker.update({ type: "text_delta", delta: "answer" });
+  set(11_000);
+  const sample = tracker.finish({ role: "assistant", usage: { output: 1000, reasoning: 900 } });
+  assert.ok(sample);
+  assert.equal(sample.streamTokens, 100);
+  assert.equal(sample.streamMs, 1000);
+  assert.equal(sample.e2eMs, 11_000);
+});
+
+test("thinking without a trustworthy token split cannot produce a body transfer rate", () => {
+  for (const reasoning of [undefined, 0, -1, Number.NaN, 101]) {
+    const { tracker, set } = clocked();
+    tracker.start({});
+    set(100);
+    tracker.update({ type: "thinking_delta", delta: "thinking" });
+    set(500);
+    tracker.update({ type: "text_delta", delta: "answer" });
+    set(1500);
+    const sample = tracker.finish({ role: "assistant", usage: { output: 100, reasoning } });
+    assert.ok(sample);
+    assert.equal(sample.ttftMs, 100);
+    assert.equal(sample.streamMs, 1000);
+    assert.equal(sample.streamTokens, null);
+    assert.equal(sample.tokens, 100);
+  }
+});
+
+test("a tool-only answer has its own non-thinking stream window", () => {
+  const { tracker, set } = clocked();
+  tracker.start({});
+  set(100);
+  tracker.update({ type: "toolcall_delta", delta: '{"path":' });
+  set(500);
+  const sample = tracker.finish({ role: "assistant", usage: { output: 20 }, stopReason: "toolUse" });
+  assert.ok(sample);
+  assert.equal(sample.streamTokens, 20);
+  assert.equal(sample.streamMs, 400);
+});
+
+test("failure and cancellation before the first token are recorded exactly once", () => {
+  for (const stopReason of ["error", "aborted"]) {
+    const { tracker, set } = clocked();
+    tracker.start({ provider: "p", model: "m" });
+    set(5000);
+    const message = { role: "assistant", usage: { output: 0 }, stopReason };
+    const sample = tracker.finish(message);
+    assert.ok(sample);
+    assert.equal(sample.aborted, true);
+    assert.equal(sample.e2eMs, 5000);
+    assert.equal(sample.ttftMs, null);
+    assert.equal(tracker.finish(message), null);
+  }
 });

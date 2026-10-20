@@ -36,6 +36,7 @@ function sample(overrides: Partial<ThroughputSample> = {}): ThroughputSample {
     provider: "p",
     model: "m",
     tokens: 100,
+    streamTokens: overrides.tokens ?? 100,
     estimated: false,
     ttftMs: 400,
     streamMs: 2000,
@@ -87,7 +88,7 @@ test("contentChars survives circular tool arguments", () => {
 test("number formatting keeps the status bar stable", () => {
   assert.equal(formatTps(42.14), "42.1");
   assert.equal(formatTps(142.6), "143");
-  assert.equal(formatTps(0), "--");
+  assert.equal(formatTps(0), "0");
   assert.equal(formatLatency(412.4), "412ms");
   assert.equal(formatLatency(1850), "1.9s");
   assert.equal(formatLatency(42_400), "42s");
@@ -102,17 +103,24 @@ test("number formatting keeps the status bar stable", () => {
   assert.equal(formatTokens(12_345), "12.3k");
 });
 
+test("rounded durations carry across milliseconds, seconds, minutes and hours", () => {
+  for (const [ms, expected] of [
+    [999.6, "1.0s"], [59_999, "1m"], [119_999, "2m"],
+    [3_599_999, "1h"], [7_199_999, "2h"],
+  ] as const) assert.equal(formatLatency(ms), expected);
+});
+
 test("sampleTps follows the selected denominator", () => {
   assert.equal(sampleTps(sample(), "stream"), 50);
   assert.equal(sampleTps(sample(), "e2e"), (100 / 2400) * 1000);
   assert.equal(sampleTps(sample({ streamMs: null }), "stream"), null);
-  assert.equal(sampleTps(sample({ tokens: 0 }), "e2e"), null);
+  assert.equal(sampleTps(sample({ tokens: 0 }), "e2e"), 0);
 });
 
 test("the status cell shows the four session metrics even before any call", () => {
   assert.equal(
     buildStatusText(EMPTY_TOTALS, live({ phase: "idle" }), DEFAULTS, 0),
-    "llm: -- · tools: -- · ttft: -- · rate: --",
+    "llm: -- · tools: -- · ttft: -- · e2e: --",
   );
 });
 
@@ -121,12 +129,12 @@ test("a finished call feeds the four metrics and they stay on screen", () => {
   const done = live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 });
   assert.equal(
     buildStatusText(totals, done, DEFAULTS, 2400),
-    "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s",
+    "llm: 2.4s · tools: -- · ttft: 400ms · e2e: 41.7 t/s",
   );
   // agent_end 不再清空：同一份累计值继续渲染。
   assert.equal(
     buildStatusText(totals, live({ phase: "idle" }), DEFAULTS, 9_999),
-    "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s",
+    "llm: 2.4s · tools: -- · ttft: 400ms · e2e: 41.7 t/s",
   );
 });
 
@@ -134,7 +142,7 @@ test("tool time joins the same line as its own persistent metric", () => {
   const totals = addTool(addCall(EMPTY_TOTALS, sample()), 65_000);
   assert.equal(
     buildStatusText(totals, live({ phase: "idle" }), DEFAULTS, 0),
-    "llm: 2.4s · tools: 1m5s · ttft: 400ms · rate: 50.0 t/s",
+    "llm: 2.4s · tools: 1m5s · ttft: 400ms · e2e: 41.7 t/s",
   );
 });
 
@@ -142,7 +150,7 @@ test("the waiting suffix is appended without hiding the persistent metrics", () 
   const totals = addCall(EMPTY_TOTALS, sample());
   const waiting = buildStatusText(totals, live({ phase: "waiting", startedAt: 1000 }), DEFAULTS, 4200);
   // 在飞调用不提前计入任何一项（宿主口径按消息落地结算）。
-  assert.equal(waiting, "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s · wait 3.2s");
+  assert.equal(waiting, "llm: 2.4s · tools: -- · ttft: 400ms · e2e: 41.7 t/s · wait 3.2s");
   assert.equal(waitingMs(live({ phase: "waiting", startedAt: 1000 }), 4200), 3200);
   assert.equal(waitingMs(live({ firstDeltaAt: 500, startedAt: 1000 }), 4200), null);
 });
@@ -150,7 +158,7 @@ test("the waiting suffix is appended without hiding the persistent metrics", () 
 test("an in-flight call moves nothing but the wait timer", () => {
   const totals = addCall(EMPTY_TOTALS, sample());
   const streaming = live({ tokens: 20, startedAt: 0, firstDeltaAt: 400 });
-  const expected = "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s";
+  const expected = "llm: 2.4s · tools: -- · ttft: 400ms · e2e: 41.7 t/s";
   assert.equal(buildStatusText(totals, streaming, DEFAULTS, 600), expected);
   assert.equal(buildStatusText(totals, streaming, DEFAULTS, 1500), expected);
   assert.equal(buildStatusText(totals, live({ phase: "idle" }), DEFAULTS, 9_999), expected);
@@ -158,15 +166,15 @@ test("an in-flight call moves nothing but the wait timer", () => {
 
 test("the wait timer converts units instead of counting seconds forever", () => {
   const long = buildStatusText(EMPTY_TOTALS, live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000);
-  assert.equal(long, "llm: -- · tools: -- · ttft: -- · rate: -- · wait 1m35s");
+  assert.equal(long, "llm: -- · tools: -- · ttft: -- · e2e: -- · wait 1m35s");
   assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), 95_000), true);
 });
 
 test("the display mode narrows the same session metrics", () => {
   const totals = addTool(addCall(EMPTY_TOTALS, sample()), 65_000);
   assert.equal(
-    buildStatusText(totals, live({ phase: "idle" }), { ...DEFAULTS, display: "tps" }, 0),
-    "rate: 50.0 t/s",
+    buildStatusText(totals, live({ phase: "idle" }), { ...DEFAULTS, display: "tps", measurement: "stream" }, 0),
+    "stream: 50.0 t/s",
   );
   assert.equal(
     buildStatusText(totals, live({ phase: "idle" }), { ...DEFAULTS, display: "ttft" }, 0),

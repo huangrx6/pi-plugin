@@ -16,6 +16,7 @@ function sample(overrides: Partial<ThroughputSample> = {}): ThroughputSample {
     provider: "opencode-go",
     model: "deepseek-v4.1-flash",
     tokens: 100,
+    streamTokens: overrides.tokens ?? 100,
     estimated: false,
     ttftMs: 400,
     streamMs: 2000,
@@ -147,4 +148,21 @@ test("formatSummary distinguishes empty history from real aggregates", () => {
   assert.match(filled, /首 token 平均/);
   assert.match(filled, /输出速度 41\.7 t\/s/);
   assert.match(filled, /⚡/);
+});
+
+test("stream aggregates and percentiles use body tokens instead of total reasoning output", () => {
+  const samples = [sample({ tokens: 1000, streamTokens: 100, streamMs: 1000, e2eMs: 11_000 }),
+    sample({ tokens: 100, streamTokens: null }), sample({ streamTokens: undefined })];
+  const summary = summarize(samples, "stream");
+  assert.equal(summary.overall.tokens, 1200);
+  assert.equal(summary.overall.tps, 100);
+  assert.equal(summary.overall.p95Tps, 100);
+  assert.equal(summary.overall.unavailableStream, 2);
+  assert.match(formatSummary(summary), /2 次调用缺少可靠的正文 token/);
+});
+
+test("empty successful calls are included in the end-to-end average", () => {
+  const summary = summarize([sample({ tokens: 100, e2eMs: 1000 }), sample({ tokens: 0, e2eMs: 1000 })], "e2e");
+  assert.equal(summary.overall.tps, 50);
+  assert.equal(summary.overall.p50Tps, 0);
 });

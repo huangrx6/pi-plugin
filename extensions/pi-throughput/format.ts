@@ -20,11 +20,6 @@ export interface TokenCount {
   estimated: boolean;
 }
 
-export interface TokenCount {
-  tokens: number;
-  estimated: boolean;
-}
-
 /** 正文字符量：CJK 与其余字符分开累计，估算时分母不同。 */
 export interface ContentSize {
   cjk: number;
@@ -72,6 +67,7 @@ export function tokenCount(message: AssistantMessageLike | undefined): TokenCoun
     return { tokens: Math.round(reported), estimated: false };
   }
   const size = contentSize(message);
+  if (reported === 0 && size.cjk + size.other === 0) return { tokens: 0, estimated: false };
   return {
     tokens: Math.ceil(size.cjk * CJK_TOKENS_PER_CHAR + size.other / OTHER_CHARS_PER_TOKEN),
     estimated: true,
@@ -80,7 +76,8 @@ export function tokenCount(message: AssistantMessageLike | undefined): TokenCoun
 
 /** TPS：100 以下保留一位小数，100 及以上取整（底栏不抖动）。 */
 export function formatTps(tps: number): string {
-  if (!Number.isFinite(tps) || tps <= 0) return "--";
+  if (!Number.isFinite(tps) || tps < 0) return "--";
+  if (tps === 0) return "0";
   return tps >= 100 ? String(Math.round(tps)) : tps.toFixed(1);
 }
 
@@ -93,16 +90,18 @@ export function formatTps(tps: number): string {
  */
 export function formatLatency(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "--";
-  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
+  if (ms < 999.5) return `${Math.max(1, Math.round(ms))}ms`;
   if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  if (ms < 3_600_000) {
-    const minutes = Math.floor(ms / 60_000);
-    const seconds = Math.round((ms % 60_000) / 1000);
+  const roundedSeconds = Math.round(ms / 1000);
+  if (roundedSeconds < 60) return `${roundedSeconds}s`;
+  if (roundedSeconds < 3600) {
+    const minutes = Math.floor(roundedSeconds / 60);
+    const seconds = roundedSeconds % 60;
     return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
   }
-  const hours = Math.floor(ms / 3_600_000);
-  const minutes = Math.round((ms % 3_600_000) / 60_000);
+  const roundedMinutes = Math.round(ms / 60_000);
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
   return minutes === 0 ? `${hours}h` : `${hours}h${minutes}m`;
 }
 
@@ -115,9 +114,10 @@ export function formatTokens(tokens: number): string {
 /** 样本在指定口径下的 TPS；分母缺失或为零时为 null。 */
 export function sampleTps(sample: ThroughputSample, measurement: Measurement): number | null {
   const spanMs = measurement === "stream" ? sample.streamMs : sample.e2eMs;
+  const tokens = measurement === "stream" ? sample.streamTokens : sample.tokens;
   if (spanMs === null || !Number.isFinite(spanMs) || spanMs <= 0) return null;
-  if (!Number.isFinite(sample.tokens) || sample.tokens <= 0) return null;
-  return (sample.tokens / spanMs) * 1000;
+  if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return null;
+  return (tokens / spanMs) * 1000;
 }
 
 /**
@@ -134,7 +134,7 @@ export function waitingMs(live: LiveState, now: number): number | null {
 /**
  * 状态格文本：会话级四项常驻（llm / tools / ttft / rate），等待期追加 `wait`。
  *
- * 数值来自会话累计值（已完成调用）叠加在飞调用的贡献，
+ * 数值只来自会话累计值（已结束调用），
  * 不随单次调用重置；尚未有数据的位置用 `--` 占位，格子始终有内容。
  */
 export function buildStatusText(
@@ -153,7 +153,7 @@ export function buildStatusText(
     parts.push(`ttft: ${metrics.ttftMs === null ? "--" : formatLatency(metrics.ttftMs)}`);
   }
   if (config.display !== "ttft") {
-    parts.push(`rate: ${metrics.tps === null ? "--" : `${formatTps(metrics.tps)} t/s`}`);
+    parts.push(`${config.measurement}: ${metrics.tps === null ? "--" : `${formatTps(metrics.tps)} t/s`}`);
   }
   const waiting = waitingMs(live, now);
   if (waiting !== null) parts.push(`wait ${formatLatency(waiting)}`);

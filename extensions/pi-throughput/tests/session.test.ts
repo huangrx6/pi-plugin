@@ -16,6 +16,7 @@ function sample(overrides: Partial<ThroughputSample> = {}): ThroughputSample {
     provider: "opencode-go",
     model: "deepseek-v4.1-flash",
     tokens: 100,
+    streamTokens: overrides.tokens ?? 100,
     estimated: false,
     ttftMs: 400,
     streamMs: 2000,
@@ -58,8 +59,11 @@ test("a call without first token still spends model time but no decode rate", ()
   assert.equal(deriveMetrics(totals, "stream").tps, null);
 });
 
-test("a call with neither tokens nor measured time does not inflate counts", () => {
-  assert.deepEqual(addCall(EMPTY_TOTALS, sample({ tokens: 0, e2eMs: 0 })), EMPTY_TOTALS);
+test("an empty call is counted even when the measured duration rounds to zero", () => {
+  const totals = addCall(EMPTY_TOTALS, sample({ tokens: 0, e2eMs: 0, streamMs: null, ttftMs: null }));
+  assert.equal(totals.calls, 1);
+  assert.equal(totals.llmMs, 0);
+  assert.equal(totals.ttftSteps, 0);
 });
 
 test("a cleaned-up call is counted but adds no wall time or decode window", () => {
@@ -76,7 +80,7 @@ test("estimated tokens never enter the session rate", () => {
   // 模型用时与首 token 跟用量无关，照常计入。
   assert.equal(totals.llmMs, 2400);
   assert.equal(totals.ttftSteps, 1);
-  // Σ/Σ 只用 provider 上报的 token，估算值留在流中显示。
+  // Σ/Σ 只用 provider 上报的 token，估算值只随样本保留。
   assert.equal(totals.streamTokens, 0);
   assert.equal(totals.streamMs, 0);
   assert.equal(deriveMetrics(totals, "stream").tps, null);
@@ -132,4 +136,29 @@ test("totalsFromEntries skips samples whose fields are unusable", () => {
     { type: "custom", customType: SAMPLE_TYPE, data: { ...sample(), e2eMs: -1 } },
   ]);
   assert.deepEqual(totals, EMPTY_TOTALS);
+});
+
+test("old samples remain usable for e2e but never pretend to have body tokens", () => {
+  const old = sample();
+  delete old.streamTokens;
+  const totals = totalsFromEntries([{ type: "custom", customType: SAMPLE_TYPE, data: old }]);
+  assert.equal(deriveMetrics(totals, "stream").tps, null);
+  assert.ok(Math.abs(deriveMetrics(totals, "e2e").tps! - 100 / 2.4) < 1e-10);
+});
+
+test("zero-output successes contribute elapsed time to the end-to-end denominator", () => {
+  const totals = addCall(addCall(EMPTY_TOTALS, sample({ tokens: 100, e2eMs: 1000 })),
+    sample({ tokens: 0, e2eMs: 1000, streamMs: null, ttftMs: null }));
+  assert.equal(totals.calls, 2);
+  assert.equal(totals.llmMs, 2000);
+  assert.equal(deriveMetrics(totals, "e2e").tps, 50);
+});
+
+test("branch restoration rejects the same malformed samples as the stats panel", () => {
+  const entries = [
+    { type: "custom", customType: SAMPLE_TYPE, data: sample({ ttftMs: -1 }) },
+    { type: "custom", customType: SAMPLE_TYPE, data: sample({ streamTokens: 101 }) },
+    { type: "custom", customType: SAMPLE_TYPE, data: sample({ e2eMs: Number.POSITIVE_INFINITY }) },
+  ];
+  assert.deepEqual(totalsFromEntries(entries), EMPTY_TOTALS);
 });

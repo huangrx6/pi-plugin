@@ -122,7 +122,7 @@ test("one call walks placeholder → waiting → persistent metrics and records 
 
   await emit("session_start", { type: "session_start" }, ctx);
   assert.equal(statuses.at(-1)?.key, "pi-throughput");
-  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · rate: --");
+  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · e2e: --");
 
   await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
   assert.match(statuses.at(-1)?.text ?? "", /· wait \d+ms$/);
@@ -133,7 +133,7 @@ test("one call walks placeholder → waiting → persistent metrics and records 
   await emit("message_end", assistantEnd(50), ctx);
   assert.match(
     statuses.at(-1)?.text ?? "",
-    /^llm: \d+ms · tools: -- · ttft: \d+ms · rate: [\d.]+ t\/s$/,
+    /^llm: \d+ms · tools: -- · ttft: \d+ms · e2e: [\d.]+ t\/s$/,
   );
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.customType, SAMPLE_TYPE);
@@ -200,7 +200,7 @@ test("a cancelled call is recorded but does not spend model time", async (t) => 
     { type: "message_end", message: { role: "assistant", usage: { output: 5 }, stopReason: "aborted" } },
     ctx,
   );
-  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · rate: --");
+  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · e2e: --");
   assert.equal(entries.length, 1);
   assert.equal((entries[0]?.data as ThroughputSample).aborted, true);
 });
@@ -221,7 +221,7 @@ test("display can be switched off without losing sample history", async (t) => {
   assert.equal(entries.length, 1);
 
   await run("throughput", "on", ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /rate: /);
+  assert.match(statuses.at(-1)?.text ?? "", /e2e: /);
 });
 
 test("command subcommands persist configuration", async (t) => {
@@ -323,14 +323,14 @@ test("metrics survive agent_end and a new session re-seeds from its own branch",
   await emit("message_update", delta(30), ctx);
   await emit("message_end", assistantEnd(30), ctx);
   const final = statuses.at(-1)?.text;
-  assert.match(final ?? "", /^llm: .+ · tools: -- · ttft: .+ · rate: .+ t\/s$/);
+  assert.match(final ?? "", /^llm: .+ · tools: -- · ttft: .+ · e2e: .+ t\/s$/);
   await emit("agent_end", { type: "agent_end" }, ctx);
   assert.equal(statuses.at(-1)?.text, final);
 
   // 新会话没有历史：回到占位符，不拿上一个会话的数字充数。
   const empty = createCtx();
   await emit("session_start", {}, empty.ctx);
-  assert.equal(empty.statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · rate: --");
+  assert.equal(empty.statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · e2e: --");
 
   // 恢复的会话：从分支重建四项指标，不重复计入。
   const resumed = createCtx({
@@ -342,6 +342,90 @@ test("metrics survive agent_end and a new session re-seeds from its own branch",
   await emit("session_start", {}, resumed.ctx);
   assert.equal(
     resumed.statuses.at(-1)?.text,
-    "llm: 2.2s · tools: 3.0s · ttft: 380ms · rate: 66.7 t/s",
+    "llm: 2.2s · tools: 3.0s · ttft: 380ms · e2e: 55.0 t/s",
   );
+});
+
+test("stats and status include unsaved calls while history is disabled", async (t) => {
+  withAgentDir(t);
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const { pi, emit, run, entries } = createFakePi();
+  extension(pi as unknown as ExtensionAPI);
+  const branch: unknown[] = [];
+  const { ctx, statuses, selects } = createCtx({ entries: branch });
+  await emit("session_start", {}, ctx);
+  await run("throughput", "history off", ctx);
+  await emit("before_provider_request", {}, ctx);
+  now = 100;
+  await emit("message_update", delta(10), ctx);
+  now = 1000;
+  await emit("message_end", assistantEnd(100), ctx);
+  await run("throughput", "stats", ctx);
+  assert.equal(entries.length, 0);
+  assert.match(statuses.at(-1)?.text ?? "", /e2e: 100 t\/s/);
+  assert.match(selects.at(-1) ?? "", /调用 1 次/);
+  assert.match(selects.at(-1) ?? "", /输出速度 100 t\/s/);
+  await run("throughput", "history on", ctx);
+  await run("throughput", "stats", ctx);
+  assert.match(selects.at(-1) ?? "", /调用 1 次/);
+  await emit("session_tree", {}, ctx);
+  await run("throughput", "stats", ctx);
+  assert.match(selects.at(-1) ?? "", /尚未记录调用样本/);
+  assert.doesNotMatch(statuses.at(-1)?.text ?? "", /wait /);
+});
+
+test("an empty delta with a fresh Pi context does not freeze or duplicate the wait ticker", async (t) => {
+  withAgentDir(t);
+  let now = 0;
+  let tick = () => {};
+  let starts = 0;
+  let stops = 0;
+  t.mock.method(performance, "now", () => now);
+  t.mock.method(globalThis, "setInterval", ((callback: () => void) => {
+    tick = callback;
+    starts += 1;
+    return { unref() {} };
+  }) as unknown as typeof setInterval);
+  t.mock.method(globalThis, "clearInterval", () => { stops += 1; });
+  const { pi, emit } = createFakePi();
+  extension(pi as unknown as ExtensionAPI);
+  const { ctx, statuses } = createCtx();
+  await emit("session_start", {}, { ...ctx });
+  await emit("before_provider_request", {}, { ...ctx });
+  now = 50;
+  await emit("message_update", { assistantMessageEvent: { type: "text_delta", delta: "" } }, { ...ctx });
+  now = 1000;
+  tick();
+  assert.match(statuses.at(-1)?.text ?? "", /wait 1\.0s$/);
+  assert.equal(starts, 1);
+  assert.equal(stops, 0);
+  await emit("agent_end", {}, { ...ctx });
+  assert.equal(stops, 1);
+  assert.doesNotMatch(statuses.at(-1)?.text ?? "", /wait /);
+  await emit("session_shutdown", {}, { ...ctx });
+  const count = statuses.length;
+  tick();
+  assert.equal(statuses.length, count);
+});
+
+test("zero-token errors and successful empty responses appear in the same session history", async (t) => {
+  withAgentDir(t);
+  let now = 0;
+  t.mock.method(performance, "now", () => now);
+  const { pi, emit, run, entries } = createFakePi();
+  extension(pi as unknown as ExtensionAPI);
+  const { ctx, statuses, selects } = createCtx();
+  await emit("session_start", {}, ctx);
+  await emit("before_provider_request", {}, ctx);
+  now = 5000;
+  await emit("message_end", { message: { role: "assistant", usage: { output: 0 }, stopReason: "error" } }, ctx);
+  await emit("before_provider_request", {}, ctx);
+  now = 10_000;
+  await emit("message_end", assistantEnd(0), ctx);
+  await run("throughput", "stats", ctx);
+  assert.equal(entries.length, 2);
+  assert.match(selects.at(-1) ?? "", /调用 2 次 · 中断 1 次/);
+  assert.match(statuses.at(-1)?.text ?? "", /llm: 5\.0s/);
+  assert.match(statuses.at(-1)?.text ?? "", /e2e: 0 t\/s/);
 });
