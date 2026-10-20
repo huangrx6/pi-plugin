@@ -48,15 +48,16 @@ test("normalizeConfig coerces invalid values back to defaults", () => {
     minWindowMs: 1200.6,
     throttleMs: 4000,
   });
+  // 0.8.0 起四项指标常驻，retainFinal 不再是配置项：旧文件里的键静默丢弃。
   assert.deepEqual(kept, {
     enabled: false,
     display: "ttft",
     measurement: "e2e",
-    retainFinal: false,
     history: false,
     minWindowMs: 1201,
     throttleMs: 4000,
   });
+  assert.equal("retainFinal" in kept, false);
 });
 
 test("loadConfig returns defaults when the file is missing or corrupt", (t) => {

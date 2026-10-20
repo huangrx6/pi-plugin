@@ -19,9 +19,7 @@ export interface ThroughputConfig {
   enabled: boolean;
   display: DisplayMode;
   measurement: Measurement;
-  /** 回复结束后是否保留终值，直到下一次请求。 */
-  retainFinal: boolean;
-  /** 是否把每次调用样本写入会话。 */
+  /** 是否把每次调用样本与工具用时写入会话。 */
   history: boolean;
   minWindowMs: number;
   throttleMs: number;
@@ -45,6 +43,13 @@ export interface ThroughputSample {
   e2eMs: number;
   /** 用户中断或 provider 报错结束。 */
   aborted: boolean;
+}
+
+/** 一次工具执行的时长记录（写入会话的 custom entry，不含参数与结果）。 */
+export interface ToolSample {
+  /** 写入时刻（epoch 毫秒）。 */
+  at: number;
+  durationMs: number;
 }
 
 /** 流中状态机的只读快照（performance.now 基准）。 */

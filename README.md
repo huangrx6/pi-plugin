@@ -48,7 +48,7 @@ pi install git:github.com/huangrx6/pi-plugin
 | 扩展 | 实际职责 |
 | --- | --- |
 | [`pi-quota-status`](extensions/pi-quota-status/README.md) | 查询已适配服务的订阅窗口、账户余额或 API Key 消费上限。 |
-| [`pi-throughput`](extensions/pi-throughput/README.md) | 在状态区发布实时输出速率与首 token 延迟，按会话统计模型用时 / 首 token 平均 / 输出速度，并把每次调用样本写入会话。 |
+| [`pi-throughput`](extensions/pi-throughput/README.md) | 在状态区常驻显示会话级的模型用时、工具调用用时、首 token 平均与输出速度，并把调用与工具时长样本写入会话。 |
 | [`pi-notify`](extensions/pi-notify/README.md) | 根据最终运行结果发送终端通知，提供发送测试与环境诊断。 |
 | [`pi-footer-composer`](extensions/pi-footer-composer/README.md) | 用配置编排行列、字段、原始状态 key、表格或信息带样式，并可切回 Pi 原生 Footer。 |
 

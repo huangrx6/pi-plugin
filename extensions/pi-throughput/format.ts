@@ -5,6 +5,7 @@
  * 配色由绘制底栏的一方决定。
  */
 import { CJK_TOKENS_PER_CHAR, MAX_STATUS_WIDTH, OTHER_CHARS_PER_TOKEN } from "./constants.ts";
+import { deriveMetrics, overlayLive, type SessionTotals } from "./session.ts";
 import type {
   AssistantMessageLike,
   LiveState,
@@ -119,74 +120,49 @@ export function sampleTps(sample: ThroughputSample, measurement: Measurement): n
 }
 
 /**
- * 流中 TPS。
+ * 等待首 token 的时长（毫秒）：只在请求已发出、首 token 未到时给出。
  *
- * 未结束时窗口不足 minWindowMs 一律返回 null（量化噪声），
- * 结束后的终值不再受窗口限制。
+ * 模型用时与速率已经是会话级常驻值，这里的数字只回答“这一次还要等多久”，
+ * 所以作为短后缀追加在四项之后，不占用任何常驻位。
  */
-export function liveTps(
-  live: LiveState,
-  measurement: Measurement,
-  now: number,
-  minWindowMs: number,
-): number | null {
-  if (live.tokens <= 0 || live.firstDeltaAt === null || live.startedAt === null) return null;
-  const end = live.endedAt ?? now;
-  const spanMs = measurement === "stream" ? end - live.firstDeltaAt : end - live.startedAt;
-  if (!Number.isFinite(spanMs) || spanMs <= 0) return null;
-  if (live.endedAt === null && spanMs < minWindowMs) return null;
-  return (live.tokens / spanMs) * 1000;
+export function waitingMs(live: LiveState, now: number): number | null {
+  if (live.phase !== "waiting" || live.startedAt === null || live.firstDeltaAt !== null) return null;
+  return Math.max(0, (live.endedAt ?? now) - live.startedAt);
 }
 
 /**
- * 状态文本各段的可用值。
+ * 状态格文本：会话级四项常驻（llm / tools / ttft / rate），等待期追加 `wait`。
  *
- * 只有真正测到的指标才进 `parts`；`waitingFor` 只在请求在飞、
- * 首 token 未到、且没有任何指标可报时给出（用于实时等待计时）。
+ * 数值来自会话累计值（已完成调用）叠加在飞调用的贡献，
+ * 不随单次调用重置；尚未有数据的位置用 `--` 占位，格子始终有内容。
  */
-function statusParts(
-  live: LiveState,
-  config: ThroughputConfig,
-  now: number,
-): { parts: string[]; waitingFor: number | null } {
-  const inFlight = live.phase === "waiting" || live.phase === "streaming";
-  const ttftMs =
-    live.firstDeltaAt !== null && live.startedAt !== null ? live.firstDeltaAt - live.startedAt : null;
-  const tps = liveTps(live, config.measurement, now, config.minWindowMs);
-  const parts: string[] = [];
-  if (config.display !== "ttft" && tps !== null) parts.push(`rate: ${formatTps(tps)} t/s`);
-  if (config.display !== "tps" && ttftMs !== null) parts.push(`ttft: ${formatLatency(ttftMs)}`);
-  const waitingFor =
-    parts.length === 0 && inFlight && ttftMs === null && live.startedAt !== null
-      ? Math.max(0, (live.endedAt ?? now) - live.startedAt)
-      : null;
-  return { parts, waitingFor };
-}
-
-/** 空闲占位：本会话还没有样本时，状态格也必须有内容。 */
-export function idleText(config: ThroughputConfig): string {
-  const parts: string[] = [];
-  if (config.display !== "ttft") parts.push("rate: --");
-  if (config.display !== "tps") parts.push("ttft: --");
-  return parts.join(" ");
-}
-
-/** 状态格文本；无事可报时返回 null。 */
 export function buildStatusText(
+  totals: SessionTotals,
   live: LiveState,
   config: ThroughputConfig,
   now: number,
-): string | null {
-  if (live.phase === "idle") return truncateToWidth(idleText(config), MAX_STATUS_WIDTH);
-  const { parts, waitingFor } = statusParts(live, config, now);
-  if (parts.length > 0) return truncateToWidth(parts.join(" "), MAX_STATUS_WIDTH);
-  return waitingFor === null
-    ? null
-    : truncateToWidth(`ttft: waiting ${formatLatency(waitingFor)}`, MAX_STATUS_WIDTH);
+): string {
+  const metrics = deriveMetrics(
+    overlayLive(totals, live, config.measurement, now, config.minWindowMs),
+    config.measurement,
+  );
+  const parts: string[] = [];
+  if (config.display === "full") {
+    parts.push(`llm: ${metrics.llmMs === null ? "--" : formatLatency(metrics.llmMs)}`);
+    parts.push(`tools: ${metrics.toolMs === null ? "--" : formatLatency(metrics.toolMs)}`);
+  }
+  if (config.display !== "tps") {
+    parts.push(`ttft: ${metrics.ttftMs === null ? "--" : formatLatency(metrics.ttftMs)}`);
+  }
+  if (config.display !== "ttft") {
+    parts.push(`rate: ${metrics.tps === null ? "--" : `${formatTps(metrics.tps)} t/s`}`);
+  }
+  const waiting = waitingMs(live, now);
+  if (waiting !== null) parts.push(`wait ${formatLatency(waiting)}`);
+  return truncateToWidth(parts.join(" · "), MAX_STATUS_WIDTH);
 }
 
-/** 当前文本是否是持续刷新的等待计时（决定要不要跑计时器）。 */
-export function isTicking(live: LiveState, config: ThroughputConfig, now: number): boolean {
-  if (live.phase === "idle") return false;
-  return statusParts(live, config, now).waitingFor !== null;
+/** 当前文本是否带等待计时（决定要不要跑重绘定时器）。 */
+export function isTicking(live: LiveState, now: number): boolean {
+  return waitingMs(live, now) !== null;
 }

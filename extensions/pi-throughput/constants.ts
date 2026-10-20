@@ -17,6 +17,9 @@ export const STATUS_KEY = PACKAGE_NAME;
 /** 会话内样本 entry 的 customType；不进入 LLM context。 */
 export const SAMPLE_TYPE = "pi-throughput-sample";
 
+/** 会话内工具用时 entry 的 customType；与模型调用样本分开记。 */
+export const TOOL_SAMPLE_TYPE = "pi-throughput-tool";
+
 /** 流中状态写入节流（毫秒）：每个 delta 都重绘会抖动且浪费 CPU。 */
 export const DEFAULT_THROTTLE_MS = 250;
 

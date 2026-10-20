@@ -32,6 +32,8 @@ export interface ModelSummary extends MetricBucket {
 
 export interface ThroughputSummary {
   measurement: Measurement;
+  /** 工具调用用时（Σ 工具执行时长）；未传入或为零时渲染成 `--`。 */
+  toolMs: number | null;
   overall: MetricBucket;
   byModel: ModelSummary[];
 }
@@ -133,6 +135,7 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
 export function summarize(
   samples: readonly ThroughputSample[],
   measurement: Measurement,
+  toolMs: number | null = null,
 ): ThroughputSummary {
   const groups = new Map<string, ThroughputSample[]>();
   for (const sample of samples) {
@@ -151,7 +154,7 @@ export function summarize(
     });
   }
   byModel.sort((a, b) => b.calls - a.calls || a.model.localeCompare(b.model));
-  return { measurement, overall: bucket(samples, measurement), byModel };
+  return { measurement, toolMs: toolMs !== null && toolMs > 0 ? toolMs : null, overall: bucket(samples, measurement), byModel };
 }
 
 function metricLine(bucketLike: MetricBucket): string {
@@ -176,11 +179,12 @@ export function formatSummary(summary: ThroughputSummary): string {
   const overall = summary.overall;
   const tps = overall.tps === null ? "--" : `${formatTps(overall.tps)} t/s`;
   const modelMs = overall.modelMs === null ? "--" : formatLatency(overall.modelMs);
+  const toolMs = summary.toolMs === null ? "--" : formatLatency(summary.toolMs);
   const ttft = overall.avgTtftMs === null ? "--" : formatLatency(overall.avgTtftMs);
   const lines = [
     `调用 ${overall.calls} 次 · 中断 ${overall.aborted} 次 · ${overall.tokens} token`,
-    `模型用时 ${modelMs} · 首 token 平均 ${ttft}`,
-    `输出速度 ${tps}${percentileSuffix(overall)}`,
+    `模型用时 ${modelMs} · 工具调用用时 ${toolMs}`,
+    `首 token 平均 ${ttft} · 输出速度 ${tps}${percentileSuffix(overall)}`,
     `口径：${name}；输出速度 = Σtoken ÷ Σ时长`,
   ];
   for (const model of summary.byModel) {

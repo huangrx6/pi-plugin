@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import extension from "../index.ts";
-import { SAMPLE_TYPE } from "../constants.ts";
+import { SAMPLE_TYPE, TOOL_SAMPLE_TYPE } from "../constants.ts";
 import { loadConfig } from "../config.ts";
 import type { ThroughputSample } from "../types.ts";
 
@@ -114,28 +114,56 @@ const sample: ThroughputSample = {
   aborted: false,
 };
 
-test("one call walks placeholder → live → final and records a sample", async (t) => {
+test("one call walks placeholder → waiting → persistent metrics and records a sample", async (t) => {
   withAgentDir(t);
   const { pi, emit, entries } = createFakePi();
   extension(pi as unknown as ExtensionAPI);
   const { ctx, statuses } = createCtx();
 
   await emit("session_start", { type: "session_start" }, ctx);
-  await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
   assert.equal(statuses.at(-1)?.key, "pi-throughput");
-  assert.match(statuses.at(-1)?.text ?? "", /^ttft: waiting \d+ms$/);
+  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · rate: --");
+
+  await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
+  assert.match(statuses.at(-1)?.text ?? "", /· wait \d+ms$/);
 
   await emit("message_update", delta(8), ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /^ttft: \d+ms$/);
+  assert.doesNotMatch(statuses.at(-1)?.text ?? "", /wait /);
 
   await emit("message_end", assistantEnd(50), ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /^rate: [\d.]+ t\/s ttft: \d+ms$/);
+  assert.match(
+    statuses.at(-1)?.text ?? "",
+    /^llm: \d+ms · tools: -- · ttft: \d+ms · rate: [\d.]+ t\/s$/,
+  );
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.customType, SAMPLE_TYPE);
   const recorded = entries[0]?.data as ThroughputSample;
   assert.equal(recorded.tokens, 50);
   assert.equal(recorded.model, "deepseek-v4.1-flash");
   assert.equal(typeof recorded.ttftMs, "number");
+
+  // 响应结束不再清空：四项统计是会话级常驻值。
+  const final = statuses.at(-1)?.text;
+  await emit("agent_end", { type: "agent_end" }, ctx);
+  assert.equal(statuses.at(-1)?.text, final);
+});
+
+test("tool time is recorded and joins the persistent line", async (t) => {
+  withAgentDir(t);
+  const { pi, emit, entries } = createFakePi();
+  extension(pi as unknown as ExtensionAPI);
+  const { ctx, statuses } = createCtx();
+
+  await emit("session_start", {}, ctx);
+  await emit("tool_execution_end", { type: "tool_execution_end", toolCallId: "c1", toolName: "read", durationMs: 1500 }, ctx);
+  assert.match(statuses.at(-1)?.text ?? "", /tools: 1\.5s/);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]?.customType, TOOL_SAMPLE_TYPE);
+  assert.equal((entries[0]?.data as { durationMs: number }).durationMs, 1500);
+
+  // 宿主没给 durationMs（工具没真跑）时不计入，也不写记录。
+  await emit("tool_execution_end", { type: "tool_execution_end", toolCallId: "c2" }, ctx);
+  assert.equal(entries.length, 1);
 });
 
 test("display can be switched off without losing sample history", async (t) => {
@@ -165,11 +193,15 @@ test("command subcommands persist configuration", async (t) => {
 
   await run("throughput", "measurement e2e", ctx);
   await run("throughput", "display ttft", ctx);
-  await run("throughput", "retain off", ctx);
+  await run("throughput", "history off", ctx);
   assert.deepEqual(
-    { measurement: loadConfig(env).measurement, display: loadConfig(env).display, retainFinal: loadConfig(env).retainFinal },
-    { measurement: "e2e", display: "ttft", retainFinal: false },
+    { measurement: loadConfig(env).measurement, display: loadConfig(env).display, history: loadConfig(env).history },
+    { measurement: "e2e", display: "ttft", history: false },
   );
+
+  // retainFinal 已随 0.8.0 常驻化下线：旧子命令不再写任何配置。
+  await run("throughput", "retain off", ctx);
+  assert.equal("retainFinal" in loadConfig(env), false);
 
   await run("throughput", "reload", ctx);
   assert.equal(notices.at(-1)?.includes("端到端"), true);
@@ -178,16 +210,21 @@ test("command subcommands persist configuration", async (t) => {
   assert.match(notices.at(-1) ?? "", /\/throughput/);
 });
 
-test("stats reads samples from the session branch", async (t) => {
+test("stats reads samples from the session branch and includes tool time", async (t) => {
   withAgentDir(t);
-  const { pi, run } = createFakePi();
+  const { pi, emit, run } = createFakePi();
   extension(pi as unknown as ExtensionAPI);
   const { ctx, selects } = createCtx({
-    entries: [{ type: "custom", customType: SAMPLE_TYPE, data: sample }],
+    entries: [
+      { type: "custom", customType: SAMPLE_TYPE, data: sample },
+      { type: "custom", customType: TOOL_SAMPLE_TYPE, data: { at: 1, durationMs: 3000 } },
+    ],
   });
 
+  await emit("session_start", {}, ctx);
   await run("throughput", "stats", ctx);
   assert.match(selects.at(-1) ?? "", /调用 1 次/);
+  assert.match(selects.at(-1) ?? "", /工具调用用时 3\.0s/);
   assert.match(selects.at(-1) ?? "", /deepseek-v4\.1-flash/);
 });
 
@@ -236,7 +273,7 @@ test("session shutdown clears the published status", async (t) => {
   assert.equal(statuses.at(-1)?.text, undefined);
 });
 
-test("retainFinal keeps the final text after agent_end, otherwise it clears", async (t) => {
+test("metrics survive agent_end and a new session re-seeds from its own branch", async (t) => {
   withAgentDir(t);
   const { pi, emit } = createFakePi();
   extension(pi as unknown as ExtensionAPI);
@@ -247,13 +284,25 @@ test("retainFinal keeps the final text after agent_end, otherwise it clears", as
   await emit("message_update", delta(30), ctx);
   await emit("message_end", assistantEnd(30), ctx);
   const final = statuses.at(-1)?.text;
+  assert.match(final ?? "", /^llm: .+ · tools: -- · ttft: .+ · rate: .+ t\/s$/);
   await emit("agent_end", { type: "agent_end" }, ctx);
   assert.equal(statuses.at(-1)?.text, final);
 
-  await emit("session_start", {}, ctx);
-  const { pi: pi2, emit: emit2 } = createFakePi();
-  extension(pi2 as unknown as ExtensionAPI);
-  const second = createCtx();
-  await emit2("session_start", {}, second.ctx);
-  assert.equal(second.statuses.at(-1)?.text, "rate: -- ttft: --");
+  // 新会话没有历史：回到占位符，不拿上一个会话的数字充数。
+  const empty = createCtx();
+  await emit("session_start", {}, empty.ctx);
+  assert.equal(empty.statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · rate: --");
+
+  // 恢复的会话：从分支重建四项指标，不重复计入。
+  const resumed = createCtx({
+    entries: [
+      { type: "custom", customType: SAMPLE_TYPE, data: sample },
+      { type: "custom", customType: TOOL_SAMPLE_TYPE, data: { at: 1, durationMs: 3000 } },
+    ],
+  });
+  await emit("session_start", {}, resumed.ctx);
+  assert.equal(
+    resumed.statuses.at(-1)?.text,
+    "llm: 2.2s · tools: 3.0s · ttft: 380ms · rate: 66.7 t/s",
+  );
 });

@@ -6,9 +6,10 @@
  * Pi 状态集合的底栏渲染器都可以显示它，本扩展不关心具体由谁绘制。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { PACKAGE_NAME, SAMPLE_TYPE, STATUS_KEY, WAIT_TICK_MS } from "./constants.ts";
+import { PACKAGE_NAME, SAMPLE_TYPE, STATUS_KEY, TOOL_SAMPLE_TYPE, WAIT_TICK_MS } from "./constants.ts";
 import { loadConfig, saveConfig } from "./config.ts";
 import { buildStatusText, isTicking } from "./format.ts";
+import { EMPTY_TOTALS, addCall, addTool, totalsFromEntries, type SessionTotals } from "./session.ts";
 import { formatSummary, parseSamples, summarize } from "./stats.ts";
 import { createTracker } from "./tracker.ts";
 import type {
@@ -17,6 +18,7 @@ import type {
   DisplayMode,
   Measurement,
   ThroughputConfig,
+  ToolSample,
 } from "./types.ts";
 
 interface StatusCtx {
@@ -32,9 +34,9 @@ interface StatusCtx {
 }
 
 const DISPLAY_LABEL: Record<DisplayMode, string> = {
-  full: "速率 + 首 token",
-  tps: "仅速率",
-  ttft: "仅首 token",
+  full: "会话四项",
+  tps: "仅输出速度",
+  ttft: "仅首 token 平均",
 };
 
 const MEASUREMENT_LABEL: Record<Measurement, string> = {
@@ -49,9 +51,9 @@ function onOff(value: boolean): string {
 export default function (pi: ExtensionAPI): void {
   let config: ThroughputConfig = loadConfig();
   const tracker = createTracker();
+  let totals: SessionTotals = EMPTY_TOTALS;
   let lastPaintAt = Number.NEGATIVE_INFINITY;
   let animation: ReturnType<typeof setInterval> | undefined;
-  let lastText: string | null = null;
   let currentCtx: StatusCtx | null = null;
 
   function stopTicker(): void {
@@ -75,8 +77,8 @@ export default function (pi: ExtensionAPI): void {
   }
 
   /**
-   * 发布状态：等待首 token 期间跑等待计时（仅 TUI），其余阶段按
-   * throttleMs 节流。
+   * 发布状态：四项会话指标常驻，等待首 token 期间追加 `wait` 并跑重绘计时器（仅 TUI），
+   * 其余情况按 throttleMs 节流。
    */
   function publish(ctx: StatusCtx, force = false): void {
     currentCtx = ctx;
@@ -87,24 +89,19 @@ export default function (pi: ExtensionAPI): void {
         return;
       }
       const now = performance.now();
-      const ticking =
-        config.enabled && (ctx.mode ?? "tui") === "tui" && isTicking(live, config, now);
+      const ticking = config.enabled && (ctx.mode ?? "tui") === "tui" && isTicking(live, now);
       // 计时器在屏上时，第一批真实指标必须立刻换掉它，不受节流推迟。
       const wasTicking = animation !== undefined;
       if (ticking) startTicker(ctx);
       else stopTicker();
       if (!config.enabled) {
-        lastText = null;
         ctx.ui.setStatus(STATUS_KEY, undefined);
         return;
       }
       if (!force && !ticking && !wasTicking && now - lastPaintAt < config.throttleMs) return;
       lastPaintAt = now;
-      const text = buildStatusText(live, config, now);
-      // 同一轮里指标暂时不可算（例如速率窗口未满）时保留上一帧，不闪空。
-      if (text === null && lastText !== null && live.phase !== "idle") return;
-      lastText = text;
-      ctx.ui.setStatus(STATUS_KEY, text ?? undefined);
+      const text = buildStatusText(totals, live, config, now);
+      ctx.ui.setStatus(STATUS_KEY, text);
     } catch {
       /* 被替换的上下文不再拥有 UI */
       stopTicker();
@@ -115,15 +112,19 @@ export default function (pi: ExtensionAPI): void {
     return parseSamples(ctx.sessionManager?.getBranch?.() ?? []);
   }
 
+  /** 从会话分支重建累计值：会话恢复、切换分支后四项统计不丢。 */
+  function reseed(ctx: StatusCtx): void {
+    totals = totalsFromEntries(ctx.sessionManager?.getBranch?.() ?? []);
+  }
+
   function summaryOf(ctx: StatusCtx): string {
-    return formatSummary(summarize(samplesOf(ctx), config.measurement));
+    return formatSummary(summarize(samplesOf(ctx), config.measurement, totals.toolMs));
   }
 
   function settingsLine(configValue: ThroughputConfig): string {
     return (
       `显示 ${onOff(configValue.enabled)} · ${DISPLAY_LABEL[configValue.display]} · ` +
-      `口径 ${MEASUREMENT_LABEL[configValue.measurement]} · ` +
-      `终值保留 ${onOff(configValue.retainFinal)} · 样本记录 ${onOff(configValue.history)}`
+      `口径 ${MEASUREMENT_LABEL[configValue.measurement]} · 样本记录 ${onOff(configValue.history)}`
     );
   }
 
@@ -139,7 +140,6 @@ export default function (pi: ExtensionAPI): void {
         `状态显示：${onOff(config.enabled)}`,
         `显示指标：${DISPLAY_LABEL[config.display]}`,
         `TPS 口径：${MEASUREMENT_LABEL[config.measurement]}`,
-        `终值保留：${onOff(config.retainFinal)}`,
         `样本记录：${onOff(config.history)}`,
         "会话统计",
         "重新读取配置",
@@ -160,8 +160,6 @@ export default function (pi: ExtensionAPI): void {
         apply(ctx, { ...config, display: next });
       } else if (selected.startsWith("TPS 口径")) {
         apply(ctx, { ...config, measurement: config.measurement === "stream" ? "e2e" : "stream" });
-      } else if (selected.startsWith("终值保留")) {
-        apply(ctx, { ...config, retainFinal: !config.retainFinal });
       } else if (selected.startsWith("样本记录")) {
         apply(ctx, { ...config, history: !config.history });
       }
@@ -170,7 +168,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("throughput", {
     description:
-      "查看或调整实时输出速率与首 token 延迟；stats 会话统计；on/off；display；measurement；reload",
+      "查看会话级输出速度与首 token 平均；stats 会话统计；on/off；display；measurement；history；reload",
     handler: async (args, ctx) => {
       const statusCtx = ctx as StatusCtx;
       const action = args.trim().toLowerCase();
@@ -208,18 +206,14 @@ export default function (pi: ExtensionAPI): void {
         apply(statusCtx, { ...config, measurement: value });
         return;
       }
-      if ((key === "retain" || key === "history") && (value === "on" || value === "off")) {
-        const enabledValue = value === "on";
-        apply(
-          statusCtx,
-          key === "retain" ? { ...config, retainFinal: enabledValue } : { ...config, history: enabledValue },
-        );
+      if (key === "history" && (value === "on" || value === "off")) {
+        apply(statusCtx, { ...config, history: value === "on" });
         return;
       }
       statusCtx.ui.notify(
         `${PACKAGE_NAME}：/throughput 打开设置 · /throughput stats 会话统计 · ` +
           "/throughput on|off · /throughput display full|tps|ttft · " +
-          "/throughput measurement stream|e2e · /throughput retain|history on|off · /throughput reload",
+          "/throughput measurement stream|e2e · /throughput history on|off · /throughput reload",
         "info",
       );
     },
@@ -228,6 +222,13 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     config = loadConfig();
     tracker.reset();
+    reseed(ctx as StatusCtx);
+    publish(ctx as StatusCtx, true);
+  });
+
+  // 切分支后累计值必须跟着分支走，否则四项统计会把另一条分支的调用算进来。
+  pi.on("session_tree", (_event, ctx) => {
+    reseed(ctx as StatusCtx);
     publish(ctx as StatusCtx, true);
   });
 
@@ -249,9 +250,28 @@ export default function (pi: ExtensionAPI): void {
     const message = (event as { message?: AssistantMessageLike } | undefined)?.message;
     if (message?.role !== "assistant") return;
     const sample = tracker.finish(message);
-    if (sample && config.history) {
+    if (sample) {
+      totals = addCall(totals, sample);
+      if (config.history) {
+        try {
+          pi.appendEntry(SAMPLE_TYPE, sample);
+        } catch {
+          /* 记录失败不影响显示 */
+        }
+      }
+    }
+    publish(ctx as StatusCtx, true);
+  });
+
+  // 工具用时进会话统计：用宿主给的 durationMs（单调时钟测得），不自己计时。
+  pi.on("tool_execution_end", (event, ctx) => {
+    const durationMs = (event as { durationMs?: unknown } | undefined)?.durationMs;
+    if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return;
+    totals = addTool(totals, durationMs);
+    if (config.history) {
       try {
-        pi.appendEntry(SAMPLE_TYPE, sample);
+        const entry: ToolSample = { at: Date.now(), durationMs };
+        pi.appendEntry(TOOL_SAMPLE_TYPE, entry);
       } catch {
         /* 记录失败不影响显示 */
       }
@@ -259,12 +279,9 @@ export default function (pi: ExtensionAPI): void {
     publish(ctx as StatusCtx, true);
   });
 
+  // 四项指标是会话级常驻值：回复结束只停掉等待计时，不清空统计。
   pi.on("agent_end", (_event, ctx) => {
-    if (config.retainFinal) {
-      stopTicker();
-      return;
-    }
-    tracker.reset();
+    stopTicker();
     publish(ctx as StatusCtx, true);
   });
 

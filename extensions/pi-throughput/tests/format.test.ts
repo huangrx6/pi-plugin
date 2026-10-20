@@ -7,11 +7,11 @@ import {
   formatTokens,
   formatTps,
   isTicking,
-  liveTps,
   sampleTps,
   tokenCount,
+  waitingMs,
 } from "../format.ts";
-import { DEFAULT_MIN_WINDOW_MS } from "../constants.ts";
+import { EMPTY_TOTALS, addCall, addTool, overlayLive } from "../session.ts";
 import { displayWidth, sanitizeTerminalText, truncateToWidth } from "../ui.ts";
 import { DEFAULTS } from "../config.ts";
 import type { LiveState, ThroughputSample } from "../types.ts";
@@ -106,67 +106,89 @@ test("sampleTps follows the selected denominator", () => {
   assert.equal(sampleTps(sample({ tokens: 0 }), "e2e"), null);
 });
 
-test("liveTps gates the mid-stream window but not the final value", () => {
-  const streaming = live({ tokens: 10, firstDeltaAt: 400, endedAt: null });
-  assert.equal(liveTps(streaming, "stream", 500, DEFAULT_MIN_WINDOW_MS), null);
-  assert.equal(liveTps(streaming, "stream", 1000, DEFAULT_MIN_WINDOW_MS), 10 / 0.6);
-  const done = live({ phase: "done", tokens: 10, firstDeltaAt: 400, endedAt: 500 });
-  assert.equal(liveTps(done, "stream", 9999, DEFAULT_MIN_WINDOW_MS), 100);
-});
-
-test("liveTps uses the request anchor for the e2e denominator", () => {
-  const state = live({ tokens: 100, firstDeltaAt: 400, endedAt: 2400 });
-  assert.equal(liveTps(state, "e2e", 0, DEFAULT_MIN_WINDOW_MS), (100 / 2400) * 1000);
-});
-
-test("buildStatusText counts the wait, then shows live and final values", () => {
-  const waiting = buildStatusText(live({ phase: "waiting", startedAt: 1000 }), DEFAULTS, 4200);
-  assert.equal(waiting, "ttft: waiting 3.2s");
-  const streaming = buildStatusText(
-    live({ tokens: 20, firstDeltaAt: 400 }),
-    DEFAULTS,
-    1500,
+test("the status cell shows the four session metrics even before any call", () => {
+  assert.equal(
+    buildStatusText(EMPTY_TOTALS, live({ phase: "idle" }), DEFAULTS, 0),
+    "llm: -- · tools: -- · ttft: -- · rate: --",
   );
-  assert.equal(streaming, "rate: 18.2 t/s ttft: 400ms");
-  const done = buildStatusText(
-    live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 }),
-    DEFAULTS,
-    2400,
-  );
-  assert.equal(done, "rate: 50.0 t/s ttft: 400ms");
 });
 
-test("buildStatusText shows only the metrics that exist yet", () => {
-  const warmUp = live({ tokens: 20, firstDeltaAt: 400 });
-  assert.equal(buildStatusText(warmUp, DEFAULTS, 600), "ttft: 400ms");
-  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "tps" }, 600), null);
-  assert.equal(buildStatusText(warmUp, { ...DEFAULTS, display: "ttft" }, 600), "ttft: 400ms");
+test("a finished call feeds the four metrics and they stay on screen", () => {
+  const totals = addCall(EMPTY_TOTALS, sample());
+  const done = live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 });
+  assert.equal(
+    buildStatusText(totals, done, DEFAULTS, 2400),
+    "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s",
+  );
+  // agent_end 不再清空：同一份累计值继续渲染。
+  assert.equal(
+    buildStatusText(totals, live({ phase: "idle" }), DEFAULTS, 9_999),
+    "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s",
+  );
+});
+
+test("tool time joins the same line as its own persistent metric", () => {
+  const totals = addTool(addCall(EMPTY_TOTALS, sample()), 65_000);
+  assert.equal(
+    buildStatusText(totals, live({ phase: "idle" }), DEFAULTS, 0),
+    "llm: 2.4s · tools: 1m5s · ttft: 400ms · rate: 50.0 t/s",
+  );
+});
+
+test("the waiting suffix is appended without hiding the persistent metrics", () => {
+  const totals = addCall(EMPTY_TOTALS, sample());
+  const waiting = buildStatusText(totals, live({ phase: "waiting", startedAt: 1000 }), DEFAULTS, 4200);
+  // 在飞调用也已计入模型用时：2.4s（已完成） + 3.2s（本次等待）
+  assert.equal(waiting, "llm: 5.6s · tools: -- · ttft: 400ms · rate: 50.0 t/s · wait 3.2s");
+  assert.equal(waitingMs(live({ phase: "waiting", startedAt: 1000 }), 4200), 3200);
+  assert.equal(waitingMs(live({ firstDeltaAt: 500, startedAt: 1000 }), 4200), null);
+});
+
+test("an in-flight call moves model time and, once the window is usable, the rate", () => {
+  const totals = addCall(EMPTY_TOTALS, sample());
+  const streaming = live({ tokens: 20, startedAt: 0, firstDeltaAt: 400 });
+  // 窗口不足 minWindowMs 时只叠模型用时，不把噪声算进速率。
+  const early = buildStatusText(totals, streaming, DEFAULTS, 600);
+  assert.equal(early, "llm: 3.0s · tools: -- · ttft: 400ms · rate: 50.0 t/s");
+  // 120 token ÷（2000ms + 1100ms 在飞窗口）
+  const steady = buildStatusText(totals, streaming, DEFAULTS, 1500);
+  assert.equal(steady, "llm: 3.9s · tools: -- · ttft: 400ms · rate: 38.7 t/s");
+  const overlay = overlayLive(totals, streaming, "stream", 1500, DEFAULTS.minWindowMs);
+  assert.equal(overlay.streamTokens, 120);
+  assert.equal(overlay.streamMs, 3100);
 });
 
 test("the wait timer converts units instead of counting seconds forever", () => {
-  const long = buildStatusText(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000);
-  assert.equal(long, "ttft: waiting 1m35s");
-  assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000), true);
+  const long = buildStatusText(EMPTY_TOTALS, live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000);
+  assert.equal(long, "llm: 1m35s · tools: -- · ttft: -- · rate: -- · wait 1m35s");
+  assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), 95_000), true);
 });
 
-test("buildStatusText honours the display mode and stays silent when idle", () => {
-  const done = live({ phase: "done", tokens: 100, firstDeltaAt: 400, endedAt: 2400 });
-  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "tps" }, 2400), "rate: 50.0 t/s");
-  assert.equal(buildStatusText(done, { ...DEFAULTS, display: "ttft" }, 2400), "ttft: 400ms");
-  assert.equal(buildStatusText(live({ phase: "idle" }), DEFAULTS, 0), "rate: -- ttft: --");
+test("the display mode narrows the same session metrics", () => {
+  const totals = addTool(addCall(EMPTY_TOTALS, sample()), 65_000);
+  assert.equal(
+    buildStatusText(totals, live({ phase: "idle" }), { ...DEFAULTS, display: "tps" }, 0),
+    "rate: 50.0 t/s",
+  );
+  assert.equal(
+    buildStatusText(totals, live({ phase: "idle" }), { ...DEFAULTS, display: "ttft" }, 0),
+    "ttft: 400ms",
+  );
 });
 
-test("the ticker only runs while the wait timer owns the cell", () => {
-  assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 10), true);
-  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), DEFAULTS, 600), false);
-  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), { ...DEFAULTS, display: "tps" }, 600), false);
-  assert.equal(isTicking(live({ phase: "done", tokens: 0, firstDeltaAt: null, endedAt: 10 }), DEFAULTS, 20), false);
+test("the ticker only runs while the wait timer is on screen", () => {
+  assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), 10), true);
+  assert.equal(isTicking(live({ tokens: 20, firstDeltaAt: 400 }), 600), false);
+  assert.equal(isTicking(live({ phase: "done", tokens: 0, firstDeltaAt: null, endedAt: 10 }), 20), false);
 });
 
 test("buildStatusText never exceeds the status width", () => {
-  const text = buildStatusText(doneWithLongModel(), DEFAULTS, 2400);
-  assert.notEqual(text, null);
-  assert.ok(displayWidth(text ?? "") <= 72);
+  const totals = addTool(
+    addCall(EMPTY_TOTALS, sample({ tokens: 123_456, streamMs: 1200, e2eMs: 3_900_000, ttftMs: 3_600_000 })),
+    3_900_000,
+  );
+  const text = buildStatusText(totals, doneWithLongModel(), DEFAULTS, 2400);
+  assert.ok(displayWidth(text) <= 72);
 });
 
 test("terminal text helpers strip control codes and measure CJK double width", () => {
