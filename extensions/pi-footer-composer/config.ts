@@ -135,7 +135,7 @@ export function migrateLegacyConfig(value: unknown): FooterConfig {
         const item = object(cell, "旧配置.cell"); text(item.label, "旧配置.label");
         if (!Array.isArray(item.fields)) throw new Error("旧配置.fields 必须是数组");
         for (const field of item.fields) {
-          if (!item.hidden && !["项目", "策略", "速度"].includes(item.label) && (field === "remaining" || field?.source === "remaining")) next.more.includeUnmapped = true;
+          // 旧 remaining 不再自动打开兜底，避免把内部状态 key 和重复摘要搬进详情。
           if (typeof field !== "object" || !field || !Object.hasOwn(field, "status")) continue;
           text(field.status, "旧配置.status");
           if (seen.has(field.status)) continue;

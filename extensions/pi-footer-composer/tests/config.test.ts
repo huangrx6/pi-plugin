@@ -9,13 +9,14 @@ test("strict config rejects typos, ambiguous keys and unsafe text", () => {
   assert.deepEqual(resolveFooterConfig({}), defaultFooterConfig());
   for (const value of [{ version: 6 }, { collapsed: true }, { style: { panelWidth: 1 } }, { style: { gap: NaN } }, { more: { sections: [{ label: "X", status: "\x1b[31mfoo" }] } }, { more: { sections: [{ label: "A", status: "a" }, { label: "B", status: "a" }] } }]) assert.throws(() => resolveFooterConfig(value));
 });
-test("legacy selectors migrate once with byte-for-byte backup, hidden policy and generic status groups", () => {
+test("legacy selectors migrate once with byte-for-byte backup, hidden policy and generic status groups without automatic catch-all", () => {
   const dir = mkdtempSync(join(tmpdir(), "footer-config-"));
   try {
     const path = footerConfigPath(dir), store = createFooterConfigStore(path); store.load();
     const legacy = { mode: "compact", views: { compact: { rows: [[{ label: "状态", fields: [{ status: "access" }, "remaining"] }, { label: "策略", fields: [{ status: "policy" }] }]] } } };
     const raw = JSON.stringify(legacy); writeFileSync(path, raw);
     const migrated = store.load(); assert.equal(migrated.version, 5);
+    assert.equal(migrated.more.includeUnmapped, false);
     assert.deepEqual(migrated.more.sections, [{ label: "状态", status: "access" }, { label: "策略", status: "policy", hidden: true }]);
     const backupDir = join(dir, "extensions-data", ".backups", "pi-footer-composer");
     assert.equal(readFileSync(join(backupDir, readdirSync(backupDir)[0]), "utf8"), raw);

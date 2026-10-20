@@ -1,4 +1,4 @@
-import { panelContent, panelLines, summary, type Hit, type Theme } from "./render.ts";
+import { panelCloseColumn, panelContent, panelInnerWidth, panelLines, panelText, summary, type Hit, type Theme } from "./render.ts";
 import type { FooterConfig, PanelId } from "./settings.ts";
 import type { Snapshot } from "./types.ts";
 export type MouseEvent = { type: string; button: string; x: number; y: number; screenX: number; screenY: number; shift?: boolean; alt?: boolean; ctrl?: boolean; clickCount?: number; wheelDelta?: number };
@@ -18,7 +18,7 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
   let active: PanelId | null = null, hits: Hit[] = [], disposed = false, scroll = 0, maxOffset = 0;
   let columns = tui.terminal?.columns ?? 80, bottomDistance = 0;
   let overlay: ReturnType<NonNullable<Tui["showOverlay"]>> | undefined, unlisten: (() => void) | undefined;
-  const options: OverlayOptions = { row: 0, col: 0, width: 54, maxHeight: 12, nonCapturing: true, margin: 0, visible: (w, h) => w >= 16 && h >= 5 };
+  const options: OverlayOptions = { row: 0, col: 0, width: 54, maxHeight: 12, nonCapturing: true, margin: 0, visible: (w, h) => w >= 18 && h >= 7 };
   const refresh = () => tui.requestRender();
   const close = () => {
     active = null; scroll = 0; overlay?.hide(); overlay = undefined;
@@ -29,9 +29,9 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     const w = tui.terminal?.columns ?? columns, h = tui.terminal?.rows ?? 24;
     const footerY = Math.max(0, h - 1 - bottomDistance);
     options.width = Math.min(config.style.panelWidth, w);
-    const inner = Math.max(1, options.width - 4);
+    const inner = panelInnerWidth(options.width);
     const contentLength = active ? panelContent(active, snapshot(), config, data.getExtensionStatuses(), inner).rows.length : 0;
-    options.maxHeight = Math.min(Math.max(4, footerY), contentLength + 4);
+    options.maxHeight = Math.min(Math.max(6, footerY), contentLength + 4);
     options.row = Math.max(0, footerY - options.maxHeight);
     options.col = Math.max(0, Math.min(hits.find(hit => hit.id === active)?.x ?? 0, w - options.width));
   };
@@ -47,7 +47,7 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     handleMouse(event) {
       if (event.type === "wheel") { scrollBy((event.wheelDelta ?? 0) > 0 ? 3 : -3); return { handled: true }; }
       if (!plainClick(event)) return undefined;
-      if (event.y === 1 && event.x >= options.width - 5 && event.x < options.width - 2) {
+      if (event.y === 1 && Math.abs(event.x - panelCloseColumn(options.width)) <= 1) {
         if (event.type === "click") close();
         if (event.type === "press" || event.type === "click") return { handled: true, render: event.type === "click" };
       }
@@ -59,9 +59,9 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     if (disposed) return;
     if (active === id) { close(); return; }
     close();
-    if (!tui.showOverlay || !tui.addInputListener || (tui.terminal?.columns ?? columns) < 16 || (tui.terminal?.rows ?? 24) < 5) {
+    if (!tui.showOverlay || !tui.addInputListener || (tui.terminal?.columns ?? columns) < 18 || (tui.terminal?.rows ?? 24) < 7) {
       const content = panelContent(id, snapshot(), config, data.getExtensionStatuses(), 64);
-      fallback(content.title, content.rows.join("\n")); return;
+      fallback(content.title, panelText(content)); return;
     }
     active = id; place();
     overlay = tui.showOverlay(card, options);

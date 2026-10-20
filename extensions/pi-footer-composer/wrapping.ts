@@ -27,3 +27,21 @@ export function cleanText(text: string): string {
     .replace(/\r\n?/g, "\n").replace(/\t/g, " ").trim();
 }
 
+/** Prefer spaces/punctuation when wrapping status prose; never split a grapheme. */
+export function wrapWords(text: string, width: number): string[] {
+  if (width <= 0) return [];
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    let current = "";
+    for (const word of paragraph.split(/(\s+)/u).filter(Boolean)) {
+      if (!current && !word.trim()) continue;
+      if (visibleWidth(current + word) <= width) { current += word; continue; }
+      if (current.trimEnd()) lines.push(current.trimEnd());
+      const chunks = wrap(word.trimStart(), width);
+      lines.push(...chunks.slice(0, -1));
+      current = chunks.at(-1) ?? "";
+    }
+    if (current.trimEnd() || !paragraph) lines.push(current.trimEnd());
+  }
+  return lines;
+}
