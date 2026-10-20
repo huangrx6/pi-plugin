@@ -122,10 +122,14 @@ function view(value: unknown, path: string, fallback: ViewConfig, baseStyle: Sty
 }
 export function resolveFooterConfig(value: unknown): FooterConfig {
   const obj = object(value, "config");
-  keys(obj, ["$schema", "mode", "style", "views"], "config");
+  keys(obj, ["$schema", "mode", "collapsed", "style", "views"], "config");
   const result = defaultFooterConfig();
   if (obj.$schema !== undefined) { exactText(obj.$schema, "$schema"); result.$schema = obj.$schema; }
   if (obj.mode !== undefined) { choice(obj.mode, ["compact", "overview", "native"], "mode"); result.mode = obj.mode as FooterConfig["mode"]; }
+  if (obj.collapsed !== undefined) {
+    if (typeof obj.collapsed !== "boolean") throw new Error("collapsed 必须是布尔值");
+    result.collapsed = obj.collapsed;
+  }
   if (obj.style !== undefined) applyStyle(result.style, obj.style, "style");
   if (obj.views !== undefined) {
     const views = object(obj.views, "views"); keys(views, ["compact", "overview"], "views");

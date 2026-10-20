@@ -7,6 +7,7 @@
   "properties": {
     "$schema": { "type": "string", "minLength": 1 },
     "mode": { "enum": ["compact", "overview", "native"] },
+    "collapsed": { "type": "boolean", "default": true },
     "style": { "$ref": "#/$defs/style" },
     "views": {
       "type": "object",

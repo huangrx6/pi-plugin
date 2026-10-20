@@ -27,11 +27,14 @@ export type StyleConfig = {
 export type FooterConfig = {
   $schema?: string;
   mode: FooterMode;
+  /** 每次会话启动时收起详情；点击只改变本次会话的展开状态。 */
+  collapsed: boolean;
   style: StyleConfig;
   views: { compact: ViewConfig; overview: ViewConfig };
 };
 export const DEFAULT_FOOTER_CONFIG: FooterConfig = {
   mode: "compact",
+  collapsed: true,
   style: {
     textColor: "muted", borderColor: "dim", borders: "all", labelDivider: true,
     labelWidth: 4, columnGap: 3, fieldGap: 3, leftRatio: 0.5, narrowWidth: 72,

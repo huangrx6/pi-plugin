@@ -22,7 +22,7 @@ test("missing file materializes editable defaults and changes round-trip", () =>
 
 test("invalid nested settings fail with their path; obsolete placement configuration is not interpreted", () => {
   for (const [value, error] of [
-    [{ mode: "wide" }, /mode/], [{ statusCells: {} }, /statusCells/], [{ style: { gap: 4 } }, /style.gap/],
+    [{ mode: "wide" }, /mode/], [{ collapsed: "yes" }, /collapsed/], [{ statusCells: {} }, /statusCells/], [{ style: { gap: 4 } }, /style.gap/],
     [{ style: { leftRatio: 1 } }, /style.leftRatio/], [{ style: { fieldGap: -1 } }, /style.fieldGap/],
     [{ style: { maxCellLines: 1.5 } }, /style.maxCellLines/], [{ style: { labelDivider: "yes" } }, /style.labelDivider/],
     [{ statusRoutes: {} }, /statusRoutes/], [{ views: { full: {} } }, /views.full/],

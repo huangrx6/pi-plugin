@@ -9,7 +9,7 @@ test("configured views render through Pi; reload is atomic and switching preserv
   let command: Function = () => {};
   const footerCalls: any[] = [], notices: string[] = [], saved: any[] = [];
   let failedLoad = false;
-  let disk = resolveFooterConfig({ mode: "overview" });
+  let disk = resolveFooterConfig({ mode: "overview", collapsed: false });
   disk.views.compact.rows = [
     [{ label: "项目", fields: ["project", "branch"] }, { label: "模型", fields: ["model", "provider", "thinking"] }],
     [{ label: "资源", fields: ["context", "cacheHit", "input", "output", "cacheRead", "cost"] }, { label: "额度", fields: [{ status: "pi-quota-status" }] }],

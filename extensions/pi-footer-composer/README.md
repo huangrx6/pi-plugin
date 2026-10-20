@@ -8,7 +8,13 @@
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
 </p>
 
-行序、左右位置、标签、字段顺序、外部状态、渲染器、列宽、间距、边框、颜色和溢出方式均由配置决定。紧凑视图使用对齐表格；概览视图使用没有竖线和单元格框的三行信息带。两者都使用统一灰色文字。
+默认只占一行，显示展开入口、项目、模型和上下文摘要。点击标题行展开详情，再点收起；展开后的行序、字段、外部状态、样式和溢出方式仍由配置决定。紧凑视图使用对齐表格，概览视图使用没有竖线和单元格框的信息带。
+
+```text
+▸ 详情（点击展开） · project · model · ctx: 25.6% / 1.0M
+```
+
+点击需要支持组件鼠标事件的 Pi 全屏模式与终端。普通终端模式显示 `/footer toggle` 提示，可用命令展开和收起。详情区域的选择、滚轮与带修饰键的点击不会触发折叠。
 
 ## 快速开始
 
@@ -29,12 +35,16 @@ pi install "$PWD"
 | 命令 | 行为 |
 | --- | --- |
 | `/footer` | 打开单层视图选择器，并提供“重新加载配置” |
-| `/footer compact` | 使用 `views.compact`，自动保存 |
-| `/footer overview` | 使用 `views.overview` 信息带，自动保存 |
+| `/footer toggle` | 展开或收起详情 |
+| `/footer expand` / `collapse` | 明确展开 / 收起 |
+| `/footer compact` | 展开 `views.compact`，保存视图选择 |
+| `/footer overview` | 展开 `views.overview` 信息带，保存视图选择 |
 | `/footer native` | 恢复 Pi 原生底栏，自动保存 |
 | `/footer reload` | 校验并应用刚编辑的 `config.json` |
 
 修改配置后执行 `/footer reload` 即可，不必重启 Pi。校验失败时保留当前显示并指出具体配置路径；切换模式前会重新读取文件，避免覆盖外部编辑。
+
+`collapsed` 默认为 `true`，旧配置缺少此项也会默认收起。点击与折叠命令只影响本次会话，不写入配置；要始终展开，可设置 `"collapsed": false`。重新加载配置或启动会话时按该配置初始化。
 
 ## 布局模型
 

@@ -15,10 +15,13 @@ test("published JSON Schema compiles and validates the complete example", () => 
   const config = resolveFooterConfig(example);
   assert.equal(config.views.compact.rows.length, 2);
   assert.equal(config.views.overview.renderer, "bands");
+  assert.equal(config.collapsed, true);
 });
 
 test("published JSON Schema rejects unknown sources and settings", () => {
   const validate = new Ajv2020({ strict: true }).compile(schema);
+  assert.equal(validate({ collapsed: false }), true);
+  assert.equal(validate({ collapsed: "yes" }), false);
   assert.equal(validate({ style: { magicGap: 4 } }), false);
   assert.equal(validate({ views: { compact: { rows: [[{ label: "X", fields: ["unknown"] }]] } } }), false);
 });

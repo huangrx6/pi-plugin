@@ -1,7 +1,7 @@
 {
   "name": "pi-footer-composer",
-  "version": "4.1.0",
-  "description": "A config-driven Pi footer with compact tables, open information bands, exact status keys, and responsive layout.",
+  "version": "4.2.0",
+  "description": "A collapsible, clickable Pi footer with a one-line summary and configurable table or information-band details.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -30,6 +30,7 @@
   },
   "files": [
     "index.ts",
+    "disclosure.ts",
     "config.ts",
     "layout.ts",
     "compose.ts",

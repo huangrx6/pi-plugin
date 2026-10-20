@@ -1,4 +1,4 @@
-# Design — pi-footer-composer 4.0
+# Design — pi-footer-composer 4.2
 
 ## 边界
 
@@ -18,6 +18,10 @@ table.ts / bands.ts
                 ↓
 Pi footer renderer
 ```
+
+折叠时由 `disclosure.ts` 输出一行经过清洗与宽度截断的摘要；展开时在标题行后接入上述配置渲染链。`collapsed` 配置只定义启动状态，点击改变内存状态，不保存布局。旧配置缺少此项时默认收起。
+
+鼠标使用 Pi 公开的组件事件。标题行先认领普通左键按下事件，让全屏 renderer 在未拖动的释放后派发 click；click 再切换状态。它不请求键盘焦点，不消费详情区域、滚动或带修饰键的操作。收起时强制刷新以清除旧详情行。普通终端模式不派发组件鼠标事件，摘要改为提示 `/footer toggle`。
 
 `settings.ts` 是默认配置和配置类型的唯一来源。`config.ts` 负责读取、补齐、验证和原子写入，不参与布局。缺少配置文件时会写出完整默认值，便于用户直接编辑。
 

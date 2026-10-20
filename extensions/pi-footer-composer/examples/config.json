@@ -1,6 +1,7 @@
 {
   "$schema": "../schema/config.schema.json",
   "mode": "compact",
+  "collapsed": true,
   "style": {
     "textColor": "muted",
     "borderColor": "dim",

@@ -16,11 +16,16 @@ Footer 从 Pi 的公开接口读取两类数据：
 | 配置 | 类型 | 用途 |
 | --- | --- | --- |
 | `mode` | `compact` / `overview` / `native` | 当前视图 |
+| `collapsed` | 布尔，默认 `true` | 会话启动或加载配置时是否收起为一行摘要；点击只影响当前会话 |
 | `style` | 对象 | 控制颜色、边框、间距、列宽和溢出 |
 | `views.compact` | 视图 | 紧凑模式的行与单元格 |
 | `views.overview` | 视图 | 概览信息带的行与单元格 |
 
 未知配置项会被拒绝，避免拼写错误被静默忽略。
+
+旧配置不需要迁移；缺少 `collapsed` 时自动补齐 `true`。展开仍使用 `mode` 指定的视图和原有 `rows`；切换到 compact/overview 会立即展开便于检查。原生模式使用 Pi 自身底栏，不提供这里的折叠入口。
+
+全屏模式下点击标题行展开/收起。普通终端模式或不支持鼠标的环境可执行 `/footer toggle`、`/footer expand` 或 `/footer collapse`。点击与这些命令不会改写布局文件。
 
 ## 行与单元格
 
