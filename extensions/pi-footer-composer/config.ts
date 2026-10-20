@@ -1,170 +1,178 @@
-import { cleanText } from "./wrapping.ts";
-import { visibleWidth } from "./layout.ts";
-import { BUILTIN_FIELDS, defaultFooterConfig, type FooterConfig, type StyleConfig, type ViewConfig } from "./settings.ts";
-export { DEFAULT_FOOTER_CONFIG, defaultFooterConfig } from "./settings.ts";
-export type { FooterConfig, FooterMode } from "./settings.ts";
-
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-
-export interface FooterConfigStore { load(): FooterConfig; save(config: FooterConfig): void; }
-
+import { visibleWidth } from "./layout.ts";
+import { cleanText } from "./wrapping.ts";
+import { defaultFooterConfig, type FooterConfig } from "./settings.ts";
+export { defaultFooterConfig } from "./settings.ts";
+export type { FooterConfig, FooterMode } from "./settings.ts";
+export interface FooterConfigStore { load(): FooterConfig; save(config: FooterConfig): void }
 function agentDirectory(): string {
   const configured = process.env.PI_CODING_AGENT_DIR?.trim() || "~/.pi/agent";
-  if (configured === "~") return homedir();
-  if (configured.startsWith("~/")) return join(homedir(), configured.slice(2));
-  return resolve(configured);
+  return configured === "~" ? homedir() : configured.startsWith("~/") ? join(homedir(), configured.slice(2)) : resolve(configured);
 }
-
 export function footerConfigPath(agentDir = agentDirectory()): string {
   return join(agentDir, "extensions-data", "pi-footer-composer", "config.json");
 }
-
-function object(value: unknown, path: string): Record<string, unknown> {
+function object(value: unknown, path: string): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} 必须是 JSON 对象`);
-  return value as Record<string, unknown>;
+  return value as Record<string, any>;
 }
 function keys(value: Record<string, unknown>, allowed: string[], path: string): void {
   for (const key of Object.keys(value)) if (!allowed.includes(key)) throw new Error(`${path}.${key}: 未知配置项`);
 }
 function text(value: unknown, path: string): asserts value is string {
-  if (typeof value !== "string" || cleanText(value).replace(/\n/g, "") !== value.trim() || value.includes("\n")) {
-    throw new Error(`${path} 必须是无终端控制符的单行文本`);
-  }
+  if (typeof value !== "string" || !value || value !== cleanText(value) || value.includes("\n")) throw new Error(`${path} 必须是无控制符、无首尾空格的非空单行文本`);
 }
-function exactText(value: unknown, path: string): asserts value is string {
-  text(value, path);
-  if (value !== value.trim()) throw new Error(`${path} 首尾不能包含空格`);
-}
-function choice(value: unknown, values: readonly unknown[], path: string): void {
-  if (!values.includes(value)) throw new Error(`${path} 必须是 ${values.join("、")}`);
-}
-function number(value: unknown, min: number, max: number, path: string, integer = true): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
-    throw new Error(`${path} 必须在 ${min}–${max} 之间${integer ? "且为整数" : ""}`);
-  }
-}
-export function validSource(source: unknown): source is string {
-  return typeof source === "string" && ((BUILTIN_FIELDS as readonly string[]).includes(source) || source === "remaining");
-}
-function applyStyle(target: StyleConfig, value: unknown, path: string): void {
-  const style = object(value, path); keys(style, Object.keys(target), path);
-  for (const [key, value] of Object.entries(style)) {
-    const itemPath = `${path}.${key}`;
-    if (key === "textColor" || key === "borderColor") choice(value, ["muted", "dim", "text"], itemPath);
-    else if (key === "borders") choice(value, ["all", "outer", "none"], itemPath);
-    else if (key === "overflow") choice(value, ["wrap", "ellipsis"], itemPath);
-    else if (key === "labelDivider") { if (typeof value !== "boolean") throw new Error(`${itemPath} 必须是布尔值`); }
-    else if (key === "leftRatio") number(value, 0.2, 0.8, itemPath, false);
-    else if (key === "narrowWidth") number(value, 20, 300, itemPath);
-    else if (key === "maxCellLines") number(value, 0, 100, itemPath);
-    else number(value, 0, 16, itemPath);
-  }
-  Object.assign(target, style);
-}
-function view(value: unknown, path: string, fallback: ViewConfig, baseStyle: StyleConfig): ViewConfig {
-  const obj = object(value, path); keys(obj, ["renderer", "showLabels", "style", "rows"], path);
-  const result = structuredClone(fallback);
-  if (obj.renderer !== undefined) { choice(obj.renderer, ["table", "bands"], `${path}.renderer`); result.renderer = obj.renderer as ViewConfig["renderer"]; }
-  if (obj.showLabels !== undefined) {
-    if (typeof obj.showLabels !== "boolean") throw new Error(`${path}.showLabels 必须是布尔值`);
-    result.showLabels = obj.showLabels;
-  }
-  if (obj.style !== undefined) {
-    const merged = { ...baseStyle, ...result.style };
-    applyStyle(merged, obj.style, `${path}.style`);
-    result.style = Object.fromEntries(Object.keys(object(obj.style, `${path}.style`)).map(key => [key, merged[key as keyof StyleConfig]])) as Partial<StyleConfig>;
-  }
-  if (obj.rows === undefined) return result;
-  if (!Array.isArray(obj.rows)) throw new Error(`${path}.rows 必须是行数组`);
-  obj.rows.forEach((row, i) => {
-    const rowPath = `${path}.rows[${i}]`;
-    if (!Array.isArray(row) || row.length < 1 || row.length > 2) throw new Error(`${rowPath} 必须包含 1 或 2 个单元格`);
-    row.forEach((cell, j) => {
-      if (cell === null) return;
-      const cellPath = `${rowPath}[${j}]`;
-      const c = object(cell, cellPath); keys(c, ["label", "fields", "hidden"], cellPath);
-      exactText(c.label, `${cellPath}.label`);
-      if (!c.label) throw new Error(`${cellPath}.label 不能为空`);
-      if (visibleWidth(c.label) > 16) throw new Error(`${cellPath}.label 最多占 16 列`);
-      if (c.hidden !== undefined && typeof c.hidden !== "boolean") throw new Error(`${cellPath}.hidden 必须是布尔值`);
-      if (!Array.isArray(c.fields)) throw new Error(`${cellPath}.fields 必须是字段数组`);
-      c.fields.forEach((field, k) => {
-        const fieldPath = `${cellPath}.fields[${k}]`;
-        if (typeof field === "string") {
-          if (!validSource(field)) throw new Error(`${fieldPath}: 未知字段 ${field}`);
-        } else {
-          const f = object(field, fieldPath); keys(f, ["source", "status", "prefix", "suffix", "empty"], fieldPath);
-          const hasSource = Object.hasOwn(f, "source");
-          const hasStatus = Object.hasOwn(f, "status");
-          if (hasSource === hasStatus) throw new Error(`${fieldPath} 必须且只能配置 source 或 status`);
-          if (hasSource && !validSource(f.source)) throw new Error(`${fieldPath}.source: 未知字段 ${String(f.source)}`);
-          if (hasStatus) {
-            exactText(f.status, `${fieldPath}.status`);
-            if (!f.status) throw new Error(`${fieldPath}.status 不能为空`);
-          }
-          for (const part of ["prefix", "suffix", "empty"]) if (f[part] !== undefined) text(f[part], `${fieldPath}.${part}`);
-        }
-      });
-    });
-  });
-  result.rows = structuredClone(obj.rows) as ViewConfig["rows"];
-  return result;
+function choice(value: unknown, allowed: unknown[], path: string): void {
+  if (!allowed.includes(value)) throw new Error(`${path} 必须是 ${allowed.join("、")}`);
 }
 export function resolveFooterConfig(value: unknown): FooterConfig {
-  const obj = object(value, "config");
-  keys(obj, ["$schema", "mode", "collapsed", "style", "views"], "config");
-  const result = defaultFooterConfig();
-  if (obj.$schema !== undefined) { exactText(obj.$schema, "$schema"); result.$schema = obj.$schema; }
-  if (obj.mode !== undefined) { choice(obj.mode, ["compact", "overview", "native"], "mode"); result.mode = obj.mode as FooterConfig["mode"]; }
-  if (obj.collapsed !== undefined) {
-    if (typeof obj.collapsed !== "boolean") throw new Error("collapsed 必须是布尔值");
-    result.collapsed = obj.collapsed;
+  const obj = object(value, "config"), result = defaultFooterConfig();
+  keys(obj, ["$schema", "version", "mode", "icons", "style", "more"], "config");
+  if (obj.$schema !== undefined) { text(obj.$schema, "$schema"); result.$schema = obj.$schema; }
+  if (obj.version !== undefined) choice(obj.version, [5], "version");
+  if (obj.mode !== undefined) { choice(obj.mode, ["custom", "native"], "mode"); result.mode = obj.mode; }
+  if (obj.icons !== undefined) { choice(obj.icons, ["unicode", "ascii"], "icons"); result.icons = obj.icons; }
+  if (obj.style !== undefined) {
+    const style = object(obj.style, "style"); keys(style, Object.keys(result.style), "style");
+    for (const [key, value] of Object.entries(style)) {
+      if (key === "textColor" || key === "borderColor") choice(value, ["muted", "dim", "text"], `style.${key}`);
+      else {
+        const [min, max] = key === "gap" ? [1, 8] : [28, 100];
+        if (!Number.isInteger(value) || (value as number) < min || (value as number) > max) throw new Error(`style.${key} 必须是 ${min}–${max} 的整数`);
+      }
+    }
+    Object.assign(result.style, style);
   }
-  if (obj.style !== undefined) applyStyle(result.style, obj.style, "style");
-  if (obj.views !== undefined) {
-    const views = object(obj.views, "views"); keys(views, ["compact", "overview"], "views");
-    for (const mode of ["compact", "overview"] as const) if (views[mode] !== undefined) result.views[mode] = view(views[mode], `views.${mode}`, result.views[mode], result.style);
+  if (obj.more !== undefined) {
+    const more = object(obj.more, "more"); keys(more, ["sections", "includeUnmapped"], "more");
+    if (more.includeUnmapped !== undefined) {
+      if (typeof more.includeUnmapped !== "boolean") throw new Error("more.includeUnmapped 必须是布尔值");
+      result.more.includeUnmapped = more.includeUnmapped;
+    }
+    if (more.sections !== undefined) {
+      if (!Array.isArray(more.sections)) throw new Error("more.sections 必须是数组");
+      const seen = new Set<string>();
+      result.more.sections = more.sections.map((value: unknown, i: number) => {
+        const section = object(value, `more.sections[${i}]`); keys(section, ["label", "status", "hidden"], `more.sections[${i}]`);
+        text(section.label, `more.sections[${i}].label`); text(section.status, `more.sections[${i}].status`);
+        if (section.hidden !== undefined && typeof section.hidden !== "boolean") throw new Error(`more.sections[${i}].hidden 必须是布尔值`);
+        if (seen.has(section.status)) throw new Error(`重复 status: ${section.status}`);
+        seen.add(section.status);
+        return { ...section } as FooterConfig["more"]["sections"][number];
+      });
+    }
   }
   return result;
 }
-function parseConfig(raw: string, path: string): FooterConfig {
-  let value: unknown;
-  try { value = JSON.parse(raw); } catch { throw new Error(`配置不是有效 JSON：${path}`); }
-  return resolveFooterConfig(value);
+function validateLegacy(obj: Record<string, any>): void {
+  const bool = (value: unknown, path: string) => { if (value !== undefined && typeof value !== "boolean") throw new Error(`${path} 必须是布尔值`); };
+  const style = (value: unknown) => {
+    if (value === undefined) return;
+    const item = object(value, "旧配置.style");
+    const ranges: Record<string, number[]> = { labelWidth: [0, 16], columnGap: [0, 16], fieldGap: [0, 16], leftRatio: [0.2, 0.8], narrowWidth: [20, 300], maxCellLines: [0, 100] };
+    keys(item, ["textColor", "borderColor", "borders", "labelDivider", "overflow", ...Object.keys(ranges)], "旧配置.style");
+    for (const [key, value] of Object.entries(item)) {
+      if (key === "textColor" || key === "borderColor") choice(value, ["muted", "dim", "text"], key);
+      else if (key === "borders") choice(value, ["all", "outer", "none"], key);
+      else if (key === "overflow") choice(value, ["wrap", "ellipsis"], key);
+      else if (key === "labelDivider") bool(value, key);
+      else if (typeof value !== "number" || !Number.isFinite(value) || value < ranges[key][0] || value > ranges[key][1] || key !== "leftRatio" && !Number.isInteger(value)) throw new Error(`旧配置.style.${key} 无效`);
+    }
+  };
+  bool(obj.collapsed, "旧配置.collapsed"); style(obj.style);
+  if (obj.$schema !== undefined) text(obj.$schema, "$schema");
+  if (obj.views === undefined) return;
+  const views = object(obj.views, "旧配置.views"); keys(views, ["compact", "overview"], "旧配置.views");
+  const sources = ["project", "cwd", "branch", "session", "model", "provider", "thinking", "context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost", "remaining"];
+  for (const value of Object.values(views)) {
+    const view = object(value, "旧配置.view"); keys(view, ["renderer", "showLabels", "style", "rows"], "旧配置.view");
+    if (view.renderer !== undefined) choice(view.renderer, ["table", "bands"], "旧配置.renderer");
+    bool(view.showLabels, "旧配置.showLabels"); style(view.style);
+    if (view.rows === undefined) continue;
+    if (!Array.isArray(view.rows)) throw new Error("旧配置.rows 必须是数组");
+    for (const row of view.rows) {
+      if (!Array.isArray(row) || row.length < 1 || row.length > 2) throw new Error("旧配置.row 必须包含 1 或 2 个单元格");
+      for (const value of row) {
+        if (value === null) continue;
+        const cell = object(value, "旧配置.cell"); keys(cell, ["label", "fields", "hidden"], "旧配置.cell");
+        text(cell.label, "旧配置.label"); if (visibleWidth(cell.label) > 16) throw new Error("旧配置.label 最多占 16 列");
+        bool(cell.hidden, "旧配置.hidden");
+        if (!Array.isArray(cell.fields)) throw new Error("旧配置.fields 必须是数组");
+        for (const value of cell.fields) {
+          if (typeof value === "string") { choice(value, sources, "旧配置.source"); continue; }
+          const field = object(value, "旧配置.field"); keys(field, ["source", "status", "prefix", "suffix", "empty"], "旧配置.field");
+          if (Object.hasOwn(field, "source") === Object.hasOwn(field, "status")) throw new Error("旧配置.field 必须且只能有 source 或 status");
+          if (Object.hasOwn(field, "source")) choice(field.source, sources, "旧配置.source"); else text(field.status, "旧配置.status");
+          for (const part of ["prefix", "suffix", "empty"]) if (field[part] !== undefined && (typeof field[part] !== "string" || field[part].includes("\n") || cleanText(field[part]) !== field[part].trim())) throw new Error(`旧配置.${part} 文本无效`);
+        }
+      }
+    }
+  }
 }
-
-export function createFooterConfigStore(
-  path = footerConfigPath(),
-): FooterConfigStore {
+/** 只迁移精确 status 选择器；不解析发布者文本，不猜测 key 的含义。 */
+export function migrateLegacyConfig(value: unknown): FooterConfig {
+  const obj = object(value, "旧配置");
+  keys(obj, ["$schema", "mode", "collapsed", "style", "views"], "旧配置");
+  if (obj.mode !== undefined) choice(obj.mode, ["compact", "overview", "native"], "旧配置.mode");
+  validateLegacy(obj);
+  const next = defaultFooterConfig();
+  if (obj.style?.textColor) next.style.textColor = obj.style.textColor;
+  if (obj.style?.borderColor) next.style.borderColor = obj.style.borderColor;
+  next.mode = obj.mode === "native" ? "native" : "custom";
+  const views = obj.views === undefined ? {} : object(obj.views, "旧配置.views");
+  const view = views[obj.mode === "overview" ? "overview" : "compact"] ?? views.compact ?? views.overview;
+  if (view !== undefined) {
+    const rows = object(view, "旧配置.view").rows ?? [];
+    if (!Array.isArray(rows)) throw new Error("旧配置.rows 必须是数组");
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!Array.isArray(row)) throw new Error("旧配置.row 必须是数组");
+      for (const cell of row) {
+        if (cell === null) continue;
+        const item = object(cell, "旧配置.cell"); text(item.label, "旧配置.label");
+        if (!Array.isArray(item.fields)) throw new Error("旧配置.fields 必须是数组");
+        for (const field of item.fields) {
+          if (!item.hidden && !["项目", "策略", "速度"].includes(item.label) && (field === "remaining" || field?.source === "remaining")) next.more.includeUnmapped = true;
+          if (typeof field !== "object" || !field || !Object.hasOwn(field, "status")) continue;
+          text(field.status, "旧配置.status");
+          if (seen.has(field.status)) continue;
+          seen.add(field.status);
+          next.more.sections.push({ label: item.label, status: field.status,
+            ...((item.hidden || ["项目", "策略", "速度"].includes(item.label)) ? { hidden: true } : {}) });
+        }
+      }
+    }
+  }
+  return resolveFooterConfig(next);
+}
+export function createFooterConfigStore(path = footerConfigPath()): FooterConfigStore {
   return {
-    load(): FooterConfig {
-      if (!existsSync(path)) { const defaults = defaultFooterConfig(); this.save(defaults); return defaults; }
-      return parseConfig(readFileSync(path, "utf8"), path);
+    load() {
+      if (!existsSync(path)) { const result = defaultFooterConfig(); this.save(result); return result; }
+      const raw = readFileSync(path, "utf8");
+      let value: any;
+      try { value = JSON.parse(raw); } catch { throw new Error(`配置不是有效 JSON：${path}`); }
+      if (value && value.version === undefined && (value.views !== undefined || value.collapsed !== undefined || ["compact", "overview"].includes(value.mode))) {
+        const next = migrateLegacyConfig(value);
+        const backup = join(dirname(dirname(path)), ".backups", "pi-footer-composer", `config-v4-${randomUUID()}.json`);
+        mkdirSync(dirname(backup), { recursive: true, mode: 0o700 });
+        writeFileSync(backup, raw, { mode: 0o600, flag: "wx" });
+        this.save(next);
+        return next;
+      }
+      return resolveFooterConfig(value);
     },
-    save(config: FooterConfig): void {
-      const valid = resolveFooterConfig(config);
-      const directory = dirname(path);
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
+    save(config) {
+      const next = resolveFooterConfig(config);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       const temporary = `${path}.${randomUUID()}.tmp`;
       try {
-        writeFileSync(temporary, `${JSON.stringify(valid, null, 2)}\n`, {
-          encoding: "utf8",
-          mode: 0o600,
-        });
+        writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
         renameSync(temporary, path);
-      } finally {
-        rmSync(temporary, { force: true });
-      }
+      } finally { rmSync(temporary, { force: true }); }
     },
   };
 }

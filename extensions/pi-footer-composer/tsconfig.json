@@ -9,7 +9,8 @@
     "allowImportingTsExtensions": true,
     "noEmit": true,
     "moduleResolution": "Bundler",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "module": "ESNext"
   },
   "include": [
     "../../extensions/_shared/**/*.d.ts",

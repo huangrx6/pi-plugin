@@ -1,96 +1,89 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/huangrx6/pi-plugin/pi-footer-composer/config.schema.json",
-  "title": "pi-footer-composer configuration",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Pi Footer Composer v5",
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "$schema": { "type": "string", "minLength": 1 },
-    "mode": { "enum": ["compact", "overview", "native"] },
-    "collapsed": { "type": "boolean", "default": true },
-    "style": { "$ref": "#/$defs/style" },
-    "views": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "compact": { "$ref": "#/$defs/view" },
-        "overview": { "$ref": "#/$defs/view" }
-      }
-    }
-  },
-  "$defs": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "version": {
+      "const": 5
+    },
+    "mode": {
+      "enum": [
+        "custom",
+        "native"
+      ]
+    },
+    "icons": {
+      "enum": [
+        "unicode",
+        "ascii"
+      ]
+    },
     "style": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "textColor": { "enum": ["muted", "dim", "text"] },
-        "borderColor": { "enum": ["muted", "dim", "text"] },
-        "borders": { "enum": ["all", "outer", "none"] },
-        "labelDivider": { "type": "boolean" },
-        "labelWidth": { "type": "integer", "minimum": 0, "maximum": 16 },
-        "columnGap": { "type": "integer", "minimum": 0, "maximum": 16 },
-        "fieldGap": { "type": "integer", "minimum": 0, "maximum": 16 },
-        "leftRatio": { "type": "number", "minimum": 0.2, "maximum": 0.8 },
-        "narrowWidth": { "type": "integer", "minimum": 20, "maximum": 300 },
-        "overflow": { "enum": ["wrap", "ellipsis"] },
-        "maxCellLines": { "type": "integer", "minimum": 0, "maximum": 100 }
+        "textColor": {
+          "enum": [
+            "muted",
+            "dim",
+            "text"
+          ]
+        },
+        "borderColor": {
+          "enum": [
+            "muted",
+            "dim",
+            "text"
+          ]
+        },
+        "gap": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "panelWidth": {
+          "type": "integer",
+          "minimum": 28,
+          "maximum": 100
+        }
       }
     },
-    "source": {
-      "type": "string",
-      "enum": ["project", "cwd", "branch", "session", "model", "provider", "thinking", "context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost", "remaining"]
-    },
-    "field": {
-      "oneOf": [
-        { "$ref": "#/$defs/source" },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["source"],
-          "properties": {
-            "source": { "$ref": "#/$defs/source" },
-            "prefix": { "type": "string" },
-            "suffix": { "type": "string" },
-            "empty": { "type": "string" }
-          }
+    "more": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "includeUnmapped": {
+          "type": "boolean"
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["status"],
-          "properties": {
-            "status": { "type": "string", "minLength": 1 },
-            "prefix": { "type": "string" },
-            "suffix": { "type": "string" },
-            "empty": { "type": "string" }
+        "sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "status"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "hidden": {
+                "type": "boolean"
+              }
+            }
           }
         }
-      ]
-    },
-    "cell": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["label", "fields"],
-      "properties": {
-        "label": { "type": "string", "minLength": 1 },
-        "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
-        "hidden": { "type": "boolean" }
-      }
-    },
-    "row": {
-      "type": "array",
-      "minItems": 1,
-      "maxItems": 2,
-      "items": { "oneOf": [{ "$ref": "#/$defs/cell" }, { "type": "null" }] }
-    },
-    "view": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "renderer": { "enum": ["table", "bands"] },
-        "showLabels": { "type": "boolean" },
-        "style": { "$ref": "#/$defs/style" },
-        "rows": { "type": "array", "items": { "$ref": "#/$defs/row" } }
       }
     }
   }

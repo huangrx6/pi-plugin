@@ -3,7 +3,7 @@
  *
  * Covers the exported string-layout primitives of layout.ts:
  * Covers terminal-control sanitization, ANSI-aware display width and
- * grapheme measurement used by the table renderer.
+ * grapheme measurement used by the summary and popovers.
  */
 
 import assert from "node:assert/strict";

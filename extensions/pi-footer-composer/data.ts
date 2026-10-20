@@ -1,64 +1,55 @@
-import { basename } from "node:path";
+import { METRIC_TYPE, parseMetric } from "./metrics.ts";
+import { emptySnapshot, type DataContext, type Entry, type Message, type Metric, type Snapshot } from "./types.ts";
 import { cleanText } from "./wrapping.ts";
-
-export type Model = { id?: string; provider?: string; reasoning?: boolean; contextWindow?: number } | null;
-type Usage = { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } };
-type Entry = { type?: string; message?: { role?: string; usage?: Usage }; usage?: Usage };
-export type DataContext = {
-  sessionManager: { getEntries(): readonly Entry[]; getCwd(): string; getSessionName(): string | null };
-  getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
-};
-export type Snapshot = {
-  fields: Record<string, string>;
-  statuses: { key: string; text: string }[];
-  contextPercent?: number | null;
-};
-function tokens(count: number): string {
-  if (count < 1000) return String(count);
-  if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
-  return `${count < 10_000_000 ? (count / 1_000_000).toFixed(1) : Math.round(count / 1_000_000)}M`;
+export type { DataContext, Model, Snapshot } from "./types.ts";
+const positive = (value: unknown): number => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+export function addMetric(snapshot: Snapshot, sample: Metric): void {
+  const m = snapshot.metrics;
+  if (sample.kind === "tool") { m.tools++; m.toolMs += sample.ms; return; }
+  m.calls++;
+  if (sample.failed) { m.failed++; return; }
+  m.llmMs += sample.ms;
+  if (sample.ttft !== null) { m.ttftMs += sample.ttft; m.ttftCount++; }
+  // 分子分母严格配对，缺少供应商 output 时不将这次耗时混入 TPS。
+  if (sample.output !== null && sample.ms > 0) { m.rateTokens += sample.output; m.rateMs += sample.ms; }
 }
-function cwdText(cwd: string): string {
-  const home = process.env.HOME || process.env.USERPROFILE;
-  if (!home) return cwd;
-  return cwd === home ? "~" : cwd.startsWith(`${home}/`) ? `~${cwd.slice(home.length)}` : cwd;
+export function addMessage(snapshot: Snapshot, message?: Message): void {
+  if (message?.role === "user") snapshot.rounds++;
+  if (message?.role === "assistant") snapshot.steps++;
+  if (message && ["assistant", "toolResult"].includes(message.role ?? "")) addUsage(snapshot, message.usage);
 }
-export function collectSnapshot(ctx: DataContext, model: Model, thinking: string | undefined, branch: string | null, statuses: ReadonlyMap<string, string>): Snapshot {
-  const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-  let hit: number | undefined;
-  for (const entry of ctx.sessionManager.getEntries()) {
-    const message = entry.type === "message" && ["assistant", "toolResult"].includes(entry.message?.role || "") ? entry.message : undefined;
-    const usage = message?.usage || (["branch_summary", "compaction"].includes(entry.type || "") ? entry.usage : undefined);
-    if (!usage) continue;
-    for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) total[key] += usage[key] || 0;
-    total.cost += usage.cost?.total || 0;
-    if (message?.role === "assistant") {
-      const prompt = (usage.input || 0) + (usage.cacheRead || 0) + (usage.cacheWrite || 0);
-      hit = prompt ? (usage.cacheRead || 0) / prompt * 100 : undefined;
+function addUsage(snapshot: Snapshot, usage: Message["usage"]): void {
+  if (!usage) return;
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) snapshot.usage[key] += positive(usage[key]);
+  snapshot.usage.cost += positive(usage.cost?.total);
+}
+export function snapshotFromEntries(entries: Iterable<Entry>): Snapshot {
+  const snapshot = emptySnapshot();
+  for (const entry of entries) {
+    if (entry.type === "message") addMessage(snapshot, entry.message);
+    else if (["compaction", "branch_summary", "usage"].includes(entry.type ?? "")) addUsage(snapshot, entry.usage);
+    else if (entry.type === "custom" && entry.customType === METRIC_TYPE) {
+      const sample = parseMetric(entry.data); if (sample) addMetric(snapshot, sample);
     }
   }
-  const context = ctx.getContextUsage?.();
-  const percent = context?.percent;
-  const window = context?.contextWindow ?? model?.contextWindow ?? 0;
-  const fields: Record<string, string> = {
-    project: basename(ctx.sessionManager.getCwd()) || "/", cwd: cwdText(ctx.sessionManager.getCwd()),
-    branch: branch || "", session: ctx.sessionManager.getSessionName() || "",
-    model: model?.id || "未选择模型", provider: model?.provider || "", thinking: model?.reasoning ? thinking || "off" : "",
-    context: `${typeof percent === "number" && Number.isFinite(percent) ? percent.toFixed(1) + "%" : "?"} / ${window > 0 ? tokens(window) : "?"}`,
-    cacheHit: (total.cacheRead || total.cacheWrite) && hit !== undefined ? `${hit.toFixed(1)}%` : "",
-    cost: total.cost ? `$${total.cost.toFixed(3)}` : "",
-  };
-  // 字段值只给裸值：描述、单位和顺序由视图配置的 prefix/suffix 决定。
-  for (const key of ["input", "output", "cacheRead", "cacheWrite"] as const) {
-    fields[key] = total[key] ? tokens(total[key]) : "";
-  }
-  return {
-    fields: Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, cleanText(value)])),
-    contextPercent: percent,
-    statuses: [...statuses].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([key, text]) => ({
-      key,
-      text: cleanText(text).split("\n").map(line => line.trim().replace(/^(?:[⚡🔌⚙◎]\uFE0F?\s*)+/u, "")).filter(Boolean).join("\n"),
-    })).filter(status => status.text),
-  };
+  return snapshot;
 }
+/** 在宿主事件边界更新；render 和等待 ticker 不遍历历史/投影。 */
+export function refreshContext(snapshot: Snapshot, ctx: DataContext): void {
+  snapshot.model = cleanText(ctx.model?.id ?? "未选择模型").replace(/\n/g, " ");
+  snapshot.provider = cleanText(ctx.model?.provider ?? "").replace(/\n/g, " ");
+  snapshot.thinking = cleanText(ctx.thinkingLevel ?? "").replace(/\n/g, " ");
+  const value = ctx.getContextUsage?.();
+  const capacity = positive(value?.contextWindow ?? ctx.model?.contextWindow);
+  const tokens = value?.tokens;
+  // 已知 tokens 时从同一分母计算百分比，避免舍入或异步字段互相矛盾。
+  const known = typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0;
+  snapshot.context = capacity > 0 ? { tokens: known ? tokens : null, contextWindow: capacity,
+    percent: known ? tokens / capacity * 100 : null } : null;
+}
+export function usageTotal(s: Snapshot): number { const u = s.usage; return u.input + u.output + u.cacheRead + u.cacheWrite; }
+export function cacheHit(s: Snapshot): number | null {
+  const u = s.usage, input = u.input + u.cacheRead + u.cacheWrite;
+  return input > 0 ? u.cacheRead / input * 100 : null;
+}
+export function outputRate(s: Snapshot): number | null { return s.metrics.rateMs > 0 ? s.metrics.rateTokens / s.metrics.rateMs * 1000 : null; }

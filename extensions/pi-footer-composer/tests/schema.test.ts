@@ -1,27 +1,15 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import test from "node:test";
-import Ajv2020 from "ajv/dist/2020.js";
-import { resolveFooterConfig } from "../config.ts";
-
-const root = process.cwd();
-const schema = JSON.parse(readFileSync(join(root, "schema/config.schema.json"), "utf8"));
-const example = JSON.parse(readFileSync(join(root, "examples/config.json"), "utf8"));
-
-test("published JSON Schema compiles and validates the complete example", () => {
-  const validate = new Ajv2020({ strict: true }).compile(schema);
-  assert.equal(validate(example), true, JSON.stringify(validate.errors));
-  const config = resolveFooterConfig(example);
-  assert.equal(config.views.compact.rows.length, 2);
-  assert.equal(config.views.overview.renderer, "bands");
-  assert.equal(config.collapsed, true);
-});
-
-test("published JSON Schema rejects unknown sources and settings", () => {
-  const validate = new Ajv2020({ strict: true }).compile(schema);
-  assert.equal(validate({ collapsed: false }), true);
-  assert.equal(validate({ collapsed: "yes" }), false);
-  assert.equal(validate({ style: { magicGap: 4 } }), false);
-  assert.equal(validate({ views: { compact: { rows: [[{ label: "X", fields: ["unknown"] }]] } } }), false);
+import { readFileSync } from "node:fs";
+import Ajv from "ajv";
+import { defaultFooterConfig, resolveFooterConfig } from "../config.ts";
+test("schema, defaults and shipped example agree", () => {
+  const schema = JSON.parse(readFileSync(new URL("../schema/config.schema.json", import.meta.url), "utf8"));
+  const validate = new (Ajv as any)({ allErrors: true }).compile(schema);
+  const example = JSON.parse(readFileSync(new URL("../examples/config.json", import.meta.url), "utf8"));
+  for (const value of [defaultFooterConfig(), example, {}]) {
+    assert.equal(validate(value), true, JSON.stringify(validate.errors));
+    assert.deepEqual(resolveFooterConfig(value), defaultFooterConfig());
+  }
+  for (const value of [{ version: 4 }, { views: {} }, { more: { sections: [{ label: "label" }] } }, { style: { panelWidth: 101 } }]) assert.equal(validate(value), false);
 });

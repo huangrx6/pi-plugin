@@ -1,82 +1,60 @@
-<!-- markdownlint-disable MD033 MD041 -->
-<h1 align="center">pi-footer-composer</h1>
+# pi-footer-composer
 
-<p align="center">用一份经过校验的 <code>config.json</code> 编排 Pi 终端底栏。</p>
-
-<p align="center">
-  <img alt="Node.js 20+" src="https://img.shields.io/badge/node-%E2%89%A520-555?style=flat-square" />
-  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-555?style=flat-square" />
-</p>
-
-默认只占一行，显示展开入口、项目、模型和上下文摘要。点击标题行展开详情，再点收起；展开后的行序、字段、外部状态、样式和溢出方式仍由配置决定。紧凑视图使用对齐表格，概览视图使用没有竖线和单元格框的信息带。
+一行摘要，按项点开详情。会话、Token 和上下文各有独立卡片，外部状态放在末尾的更多入口。
 
 ```text
-▸ 详情（点击展开） · project · model · ctx: 25.6% / 1.0M
+◴ 1 轮 77 步 · 249 tok/s   ▱ 7.3M tok · 缓存命中 99%   ◔ 16%   ···
 ```
 
-点击需要支持组件鼠标事件的 Pi 全屏模式与终端。普通终端模式显示 `/footer toggle` 提示，可用命令展开和收起。详情区域的选择、滚轮与带修饰键的点击不会触发折叠。
+点击摘要段打开对应浮层；再次点击、按 Esc 或点击卡片的 `[x]` 关闭。同一时间只打开一张卡片，输入文字会自动收起，长内容可以在卡片内用滚轮查看。浮层不占用对话布局、不抢编辑器键盘焦点。
 
-## 快速开始
+鼠标点击需要支持组件鼠标事件的 Pi 全屏模式。全屏宿主会优先处理鼠标输入，卡片外的点击不会自动关闭卡片。普通终端可使用下面的命令；缺少浮层接口时回退到宿主详情对话框。
+
+## 安装与使用
 
 ```bash
 pi install "$PWD"
 ```
 
-执行 `/reload`。首次启动会生成完整配置：
+执行 `/reload`。首次启动生成配置：
 
 ```text
 <agent-dir>/extensions-data/pi-footer-composer/config.json
 ```
 
-`<agent-dir>` 跟随 `PI_CODING_AGENT_DIR`，默认是 `~/.pi/agent`。
-
-## 使用
+`<agent-dir>` 跟随 `PI_CODING_AGENT_DIR`，默认 `~/.pi/agent`。
 
 | 命令 | 行为 |
 | --- | --- |
-| `/footer` | 打开单层视图选择器，并提供“重新加载配置” |
-| `/footer toggle` | 展开或收起详情 |
-| `/footer expand` / `collapse` | 明确展开 / 收起 |
-| `/footer compact` | 展开 `views.compact`，保存视图选择 |
-| `/footer overview` | 展开 `views.overview` 信息带，保存视图选择 |
-| `/footer native` | 恢复 Pi 原生底栏，自动保存 |
-| `/footer reload` | 校验并应用刚编辑的 `config.json` |
+| `/footer` | 打开详情、模式与配置菜单 |
+| `/footer stats` | 会话用时、TTFT、TPS |
+| `/footer tokens` | 精确 Token 数、缓存命中率、费用 |
+| `/footer context` | 上下文用量、容量和剩余量 |
+| `/footer more` | 模型信息与配置的外部状态 |
+| `/footer close` | 关闭当前浮层 |
+| `/footer custom` / `native` | 切换自定义 / 原生底栏并保存 |
+| `/footer reload` | 校验并应用配置，失败时保留当前显示 |
 
-修改配置后执行 `/footer reload` 即可，不必重启 Pi。校验失败时保留当前显示并指出具体配置路径；切换模式前会重新读取文件，避免覆盖外部编辑。
+旧 `compact` / `overview` 命令均映射到 `custom`，`toggle` / `expand` 打开或切换会话统计卡片，`collapse` 关闭。会话启动和配置重载时默认关闭浮层，点击不写配置。
 
-`collapsed` 默认为 `true`，旧配置缺少此项也会默认收起。点击与折叠命令只影响本次会话，不写入配置；要始终展开，可设置 `"collapsed": false`。重新加载配置或启动会话时按该配置初始化。
+## 数据含义
 
-## 布局模型
+- **轮 / 步**：当前分支的用户消息数 / assistant 消息数；失败调用也计为一步。
+- **TPS**：成功调用的供应商输出 Token 总和 ÷ 同一批调用从请求到结束的总时长，含等待与推理。未上报输出量的调用不参与速率，不按文本长度估算。
+- **TTFT**：请求到首个非空文本、思考或工具参数增量的平均时长。失败、取消和没有内容增量的调用不参与平均。
+- **模型 / 工具用时**：成功模型调用的端到端时长之和 / 各次工具派发到结束的时长之和。并行工具耗时可重叠。
+- **Token**：当前分支累计未缓存输入、缓存读取、缓存写入和输出，含摘要及额外用量；缓存命中率为缓存读取 ÷ 全部输入的加权比例。
+- **上下文**：宿主提供的当前用量与容量；尚未结算时显示 `--`。没有可靠来源的细分类别不绘制占比。
 
-每个视图包含渲染器、标签开关、可选样式覆盖和有序 `rows`：
+摘要数值取整或缩写，详情保留精确 Token 数和一位百分比。用量累计与上下文占用是不同指标。计时记录随宿主会话保存；旧会话缺少计时时显示 `--` 和覆盖范围，不反推历史速度。
 
-```json
-{
-  "renderer": "table",
-  "showLabels": true,
-  "rows": [[
-    { "label": "项目", "fields": ["project", "branch"] },
-    { "label": "模型", "fields": ["model", "provider", "thinking"] }
-  ]]
-}
-```
+## 配置与显示
 
-- `renderer` 可选 `table` 或 `bands`；`showLabels` 控制是否显示格内标签。
-- 两个单元格表示左、右两块；用 `null` 保留空的一侧。
-- 一个单元格占满整行。
-- 调换数组项即可交换左右，调换 `rows` 即可调整上下顺序。
-- `fields` 决定格内内容及顺序；`{ "status": "原始 key" }` 可精确引用任意公开状态。
-- 空行自动隐藏；长内容按配置折行或省略。
+只保留一套摘要和浮层布局。窄终端逐级缩短摘要，极窄时保留更多入口，可通过命令打开任一卡片。颜色沿用当前主题；设置 `icons: "ascii"` 可将图标和边框换为 ASCII。终端采用字符边框与主题背景，不能提供网页的圆角像素和阴影。
 
-Footer 直接读取 Pi 当前公开的 `key → value` 状态集合，不要求第三方发布者遵循 key 前缀或分类协议。`remaining` 会显示所有尚未显式配置的状态；把某个 key 配到指定单元格后，它会自动从 `remaining` 移出。
+状态通过任意精确 key 接入，不要求发布者命名规范，也不解析其文本为错误数量或额度。项目与策略暂不进入界面，源码保留恢复位置；隐藏状态不会从未映射项中再次出现。
 
-完整可复制配置见 [examples/config.json](examples/config.json)，字段、样式和状态选择器说明见 [CONFIG.md](CONFIG.md)，机器校验规则见 [schema/config.schema.json](schema/config.schema.json)。
-
-## 显示边界
-
-默认用主题的 `muted` 灰色显示标签与内容，`dim` 显示边框；不保留上游终端颜色。两列在窄终端下自动变为单列。`table` 提供严格对齐和行间分隔；`bands` 只保留横向节奏，更适合低噪声概览。使用 `wrap` 时保留项目名、Token 数量和诊断详情；使用 `ellipsis` 或设置 `maxCellLines` 可以限制高度。
-
-扩展只读取 Pi 的公开会话、上下文和状态集合。未被当前视图选择的状态不会进入对话内容，也不会被删除；切换到包含它的视图后仍可显示。
+升级时自动备份旧配置并迁移，说明见 [配置参考](CONFIG.md)。其他资料：[示例](examples/config.json)、[Schema](schema/config.schema.json)、[设计](DESIGN.md)、[更新记录](CHANGELOG.md)。
 
 ## 开发
 
@@ -85,5 +63,3 @@ npm ci
 npm run check
 npm test
 ```
-
-[配置参考](CONFIG.md) · [设计说明](DESIGN.md) · [更新记录](CHANGELOG.md) · [MIT 许可证](LICENSE)

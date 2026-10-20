@@ -1,85 +1,88 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import footerExtension from "../index.ts";
-import { resolveFooterConfig } from "../config.ts";
+import { createFooter, type MouseEvent } from "../component.ts";
+import { defaultFooterConfig } from "../config.ts";
+import { emptySnapshot, type Entry } from "../types.ts";
 import { visibleWidth } from "../layout.ts";
-
-test("configured views render through Pi; reload is atomic and switching preserves external edits", async () => {
-  const handlers = new Map<string, Function>();
-  let command: Function = () => {};
-  const footerCalls: any[] = [], notices: string[] = [], saved: any[] = [];
-  let failedLoad = false;
-  let disk = resolveFooterConfig({ mode: "overview", collapsed: false });
-  disk.views.compact.rows = [
-    [{ label: "项目", fields: ["project", "branch"] }, { label: "模型", fields: ["model", "provider", "thinking"] }],
-    [{ label: "资源", fields: ["context", "cacheHit", "input", "output", "cacheRead", "cost"] }, { label: "额度", fields: [{ status: "pi-quota-status" }] }],
-    [{ label: "策略", fields: [{ status: "pi-policy-engine" }] }, { label: "诊断", fields: [{ status: "diagnostics" }] }],
-    [{ label: "状态", fields: [{ status: "pi-mode-switcher" }] }, { label: "集成", fields: [{ status: "external" }] }],
-  ];
-  footerExtension({
-    on: (name: string, handler: Function) => handlers.set(name, handler),
-    registerCommand: (_name: string, definition: { handler: Function }) => { command = definition.handler; },
-  } as never, { configStore: {
-    load: () => { if (failedLoad) throw new Error("views.compact.rows[0]: 无效"); return structuredClone(disk); },
-    save: config => { disk = structuredClone(config); saved.push(config); },
-  } });
-  const statuses = new Map([
-    ["pi-mode-switcher", "审批 完全访问权限"], ["pi-policy-engine", "policy:auto ↑922 ↓69"],
-    ["diagnostics", "LSP 3 errors · 12 warnings\nmain.ts · api.ts"], ["external", "MCP ready"],
-    ["context:summary", "Context 12%"], ["context:paused", "Context 12% · 暂停"],
-    ["pi-quota-status", "GLM 5h: 37%"], ["usage:custom", "额外用量 42"],
-  ]);
-  const ctx = {
-    model: { id: "model\x1b]9;bad\x07", provider: "provider", reasoning: true, contextWindow: 128000 },
-    thinkingLevel: "high",
-    sessionManager: {
-      getEntries: () => [{ type: "message", message: { role: "assistant", usage: { input: 4000000, output: 147000, cacheRead: 58000000 } } }],
-      getCwd: () => "/tmp/project", getSessionName: () => "session",
+import { METRIC_TYPE } from "../metrics.ts";
+const theme = { fg: (_c: string, text: string) => text, bg: (_c: string, text: string) => text };
+function fakeTui() {
+  const overlays: any[] = [], listeners = new Set<Function>();
+  const tui = {
+    mode: "fullscreen", terminal: { columns: 120, rows: 24 }, requests: 0,
+    requestRender() { this.requests++; },
+    showOverlay(card: any, options: any) {
+      const item = { card, options, hidden: false }; overlays.push(item);
+      return { hide() { item.hidden = true; }, getBounds: () => ({ row: options.row, col: options.col, width: options.width, height: options.maxHeight }) };
     },
-    getContextUsage: () => ({ tokens: 1000, contextWindow: 128000, percent: 12 }),
-    ui: { setFooter: (factory: any) => footerCalls.push(factory), notify: (text: string) => notices.push(text), select: async () => undefined },
+    addInputListener(listener: Function) { listeners.add(listener); return () => listeners.delete(listener); },
   };
-  const component = () => footerCalls.at(-1)({ requestRender() {} }, { fg: (_color: string, text: string) => text }, {
-    getGitBranch: () => "main", getExtensionStatuses: () => statuses, onBranchChange: () => () => {},
-  });
-  await handlers.get("session_start")!({}, ctx);
-  const overview = component().render(200).join("\n");
-  for (const text of ["project", "provider", "high", "4.0M", "58M", "93.5%", "policy:auto ↑922 ↓69", "额外用量 42"]) assert.ok(overview.includes(text), text);
-  assert.equal(overview.match(/Context 12%/g)?.length, 1);
-  assert.doesNotMatch(overview, /bad|\x1b|│/);
-  await command("compact", ctx);
-  const compactComponent = component();
-  const compact = compactComponent.render(200).join("\n");
-  assert.match(compact, /项目 │ project +main.*模型 │ model/);
-  assert.match(compact, /策略 │ policy:auto ↑922 ↓69.*诊断 │ LSP/);
-  assert.equal(compact.match(/policy:auto/g)?.length, 1);
-  assert.match(compact, /main.ts · api.ts/);
-  assert.match(compact, /资源 │ 12\.0% \/ 128k +93\.5% +4\.0M +147k +58M/);
-  assert.doesNotMatch(compact, /额外用量|\/tmp\/project/);
-  for (const width of [1, 30, 60, 72, 100, 200]) assert.ok(compactComponent.render(width).every((line: string) => visibleWidth(line) <= width));
+  return { tui, overlays, listeners, input: (raw: string) => [...listeners].map(listener => listener(raw)) };
+}
+const mouse = (x: number, type = "click", extra = {}): MouseEvent => ({ type, button: "left", x, y: 0, screenX: x, screenY: 23, ...extra });
 
-  disk.views.compact.rows = [[{ label: "自定", fields: ["model", { status: "diagnostics" }] }]];
-  disk.style.borders = "none";
-  await command("reload", ctx);
-  assert.match(component().render(120).join("\n"), /自定 │ model/);
-  assert.doesNotMatch(component().render(120).join("\n"), /[┬┴┼]/);
-  const count = footerCalls.length, saves = saved.length;
-  failedLoad = true;
-  await command("reload", ctx); await command("overview", ctx);
-  assert.equal(footerCalls.length, count); assert.equal(saved.length, saves);
-  assert.match(notices.at(-1)!, /保留当前显示.*rows\[0\]/);
-  failedLoad = false;
-  disk.style.columnGap = 7;
-  await command("native", ctx);
-  assert.equal(footerCalls.at(-1), undefined);
-  assert.equal(saved.at(-1).style.columnGap, 7);
-  assert.deepEqual(saved.at(-1).views.compact.rows, disk.views.compact.rows);
-  const noticeCount = notices.length;
-  await command("", ctx); assert.equal(notices.length, noticeCount);
-  disk.mode = "compact"; await command("reload", ctx);
-  const live = component();
-  await handlers.get("model_select")!({ model: { id: "new-model" } }, ctx);
-  assert.match(live.render(120).join("\n"), /new-model/);
-  await handlers.get("session_shutdown")!({}, ctx);
-  assert.deepEqual(live.render(120), []);
+test("independent popovers switch, toggle, close with Esc, scroll, resize, and release listeners", () => {
+  const f = fakeTui(), config = defaultFooterConfig();
+  config.more.sections = [{ label: "诊断", status: "diagnostics" }];
+  const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map([["diagnostics", "error line\n".repeat(100)]]) }, config, emptySnapshot, () => assert.fail("unexpected fallback"));
+  const line = footer.render(120)[0], tokensX = visibleWidth(line.slice(0, line.indexOf("▱"))), contextX = visibleWidth(line.slice(0, line.indexOf("◔")));
+  assert.deepEqual(footer.handleMouse(mouse(0, "press")), { handled: true, render: false }); assert.equal(f.overlays.length, 0);
+  footer.handleMouse(mouse(0)); assert.equal(f.overlays.length, 1);
+  assert.equal(f.overlays[0].options.nonCapturing, true);
+  assert.match(f.overlays[0].card.render(54).join("\n"), /会话统计/);
+  footer.handleMouse(mouse(tokensX)); assert.equal(f.overlays[0].hidden, true);
+  assert.match(f.overlays[1].card.render(54).join("\n"), /Token 用量/);
+  assert.equal(f.listeners.size, 1);
+  footer.handleMouse(mouse(tokensX)); assert.equal(f.listeners.size, 0);
+  footer.handleMouse(mouse(contextX)); f.input("\x1b"); assert.equal(f.listeners.size, 0);
+  footer.open("more"); assert.deepEqual(f.input("\x1b"), [{ consume: true }]); assert.equal(f.listeners.size, 0);
+  footer.open("more"); let card = f.overlays.at(-1); const before = card.card.render(54).join("\n");
+  card.card.handleMouse(mouse(0, "wheel", { wheelDelta: 1 })); assert.notEqual(card.card.render(54).join("\n"), before);
+  f.tui.terminal.columns = 32; f.tui.terminal.rows = 12; footer.render(32);
+  assert.ok(card.options.col + card.options.width <= 32); assert.ok(card.options.row + card.options.maxHeight <= 11);
+  assert.deepEqual(f.input("a"), [undefined]); assert.equal(f.listeners.size, 0);
+  for (const extra of [{ ctrl: true }, { button: "right" }, { clickCount: 2 }]) assert.equal(footer.handleMouse(mouse(0, "click", extra)), undefined);
+  footer.open("more"); footer.dispose(); assert.equal(f.listeners.size, 0); assert.equal(f.overlays.at(-1).hidden, true); assert.deepEqual(footer.render(80), []);
+});
+
+test("host event smoke: branch-local data, persisted timing, cached render, model updates and atomic reload", async () => {
+  const handlers = new Map<string, Function>(); let command: Function = () => {};
+  const f = fakeTui(), entries: Entry[] = [], notices: string[] = [], components: any[] = [];
+  let now = 0, reads = 0, contextReads = 0, fail = false, saves = 0;
+  let disk = defaultFooterConfig();
+  footerExtension({ on: (name: string, handler: Function) => handlers.set(name, handler), registerCommand: (_: string, def: any) => command = def.handler,
+    appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }) } as never,
+  { now: () => now, configStore: { load: () => { if (fail) throw new Error("bad config"); return structuredClone(disk); }, save: c => { disk = structuredClone(c); saves++; } } });
+  const ctx = { hasUI: true, mode: "tui", model: { id: "model", contextWindow: 1000 },
+    sessionManager: { getBranch() { reads++; return entries; }, getEntries() { assert.fail("must not scan other branches"); } },
+    getContextUsage() { contextReads++; return { tokens: 100, contextWindow: 1000, percent: 10 }; },
+    ui: { setFooter(factory: any) { if (factory) components.push(factory(f.tui, theme, { getExtensionStatuses: () => new Map() })); else components.push(null); },
+      notify: (text: string) => notices.push(text), select: async () => undefined } };
+  const emit = async (name: string, event = {}) => handlers.get(name)!(event, ctx);
+  await emit("session_start"); let live = components.at(-1);
+  for (let i = 0; i < 100; i++) live.render(120); assert.equal(reads, 1); assert.equal(contextReads, 1);
+  const messageEnd = async (message: any) => { await emit("message_end", { message }); entries.push({ type: "message", message }); };
+  await emit("agent_start"); await messageEnd({ role: "user" });
+  await emit("before_provider_request"); now = 200; await emit("message_update", { assistantMessageEvent: { type: "thinking_delta", delta: "think" } });
+  now = 1000; await messageEnd({ role: "assistant", usage: { input: 100, cacheRead: 900, output: 249 } });
+  await emit("turn_end"); await emit("agent_end");
+  assert.match(live.render(120).join("\n"), /1 轮 1 步 · 249 tok\/s/);
+  assert.equal(entries.filter(entry => entry.customType === METRIC_TYPE).length, 1);
+  await command("stats", ctx); assert.match(f.overlays.at(-1).card.render(54).join("\n"), /0\.2 秒/);
+  await command("close", ctx); assert.equal(f.listeners.size, 0);
+  fail = true; const count = components.length; await command("reload", ctx); await command("native", ctx);
+  assert.equal(components.length, count); assert.equal(saves, 0); assert.match(notices.at(-1)!, /保留当前显示/);
+  fail = false; disk.style.gap = 7; await command("native", ctx); assert.equal(components.at(-1), null); assert.equal(disk.style.gap, 7);
+  await command("custom", ctx); live = components.at(-1);
+  entries.length = 0; await emit("session_tree"); assert.match(live.render(120).join("\n"), /0 轮 0 步/); assert.doesNotMatch(live.render(120).join("\n"), /249/);
+  await emit("model_select", { model: { id: "new model" } }); await command("more", ctx);
+  assert.match(f.overlays.at(-1).card.render(54).join("\n"), /new model/);
+  await emit("session_shutdown"); assert.deepEqual(live.render(120), []); assert.equal(f.listeners.size, 0);
+});
+test("regular mode keeps command access without mouse, and older overlay APIs use dialog fallback", () => {
+  let called = "";
+  const footer = createFooter({ mode: "regular", requestRender() {} }, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), emptySnapshot, title => called = title);
+  footer.render(80); assert.equal(footer.handleMouse(mouse(0)), undefined);
+  footer.open("tokens"); assert.equal(called, "Token 用量"); footer.dispose();
 });

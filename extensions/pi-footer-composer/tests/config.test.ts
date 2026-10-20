@@ -1,40 +1,45 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import test from "node:test";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
-import { createFooterConfigStore, defaultFooterConfig, footerConfigPath, resolveFooterConfig } from "../config.ts";
+import { createFooterConfigStore, defaultFooterConfig, footerConfigPath, migrateLegacyConfig, resolveFooterConfig } from "../config.ts";
 
-test("missing file materializes editable defaults and changes round-trip", () => {
-  const root = mkdtempSync(join(tmpdir(), "pi-footer-config-"));
+test("strict config rejects typos, ambiguous keys and unsafe text", () => {
+  assert.deepEqual(resolveFooterConfig({}), defaultFooterConfig());
+  for (const value of [{ version: 6 }, { collapsed: true }, { style: { panelWidth: 1 } }, { style: { gap: NaN } }, { more: { sections: [{ label: "X", status: "\x1b[31mfoo" }] } }, { more: { sections: [{ label: "A", status: "a" }, { label: "B", status: "a" }] } }]) assert.throws(() => resolveFooterConfig(value));
+});
+test("legacy selectors migrate once with byte-for-byte backup, hidden policy and generic status groups", () => {
+  const dir = mkdtempSync(join(tmpdir(), "footer-config-"));
   try {
-    const path = footerConfigPath(root), store = createFooterConfigStore(path);
-    assert.deepEqual(store.load(), defaultFooterConfig());
-    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), defaultFooterConfig());
-    const config = resolveFooterConfig({ mode: "overview", style: { leftRatio: 0.6 }, views: { compact: { rows: [[null, { label: "项目", fields: ["project"] }]] } } });
-    store.save(config); assert.deepEqual(store.load(), config);
-    assert.equal(config.views.overview.rows.length, 2);
-    assert.equal(config.views.overview.renderer, "bands");
-    assert.equal(defaultFooterConfig().style.leftRatio, 0.5);
-    writeFileSync(path, "{"); assert.throws(() => store.load(), /JSON/);
-  } finally { rmSync(root, { recursive: true, force: true }); }
+    const path = footerConfigPath(dir), store = createFooterConfigStore(path); store.load();
+    const legacy = { mode: "compact", views: { compact: { rows: [[{ label: "状态", fields: [{ status: "access" }, "remaining"] }, { label: "策略", fields: [{ status: "policy" }] }]] } } };
+    const raw = JSON.stringify(legacy); writeFileSync(path, raw);
+    const migrated = store.load(); assert.equal(migrated.version, 5);
+    assert.deepEqual(migrated.more.sections, [{ label: "状态", status: "access" }, { label: "策略", status: "policy", hidden: true }]);
+    const backupDir = join(dir, "extensions-data", ".backups", "pi-footer-composer");
+    assert.equal(readFileSync(join(backupDir, readdirSync(backupDir)[0]), "utf8"), raw);
+    assert.deepEqual(store.load(), migrated); assert.equal(readdirSync(backupDir).length, 1);
+    const broken = '{"views":{"compact":{"rows":false}}}'; writeFileSync(path, broken);
+    assert.throws(() => store.load()); assert.equal(readFileSync(path, "utf8"), broken);
+    assert.equal(readdirSync(backupDir).length, 1);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test("legacy native mode and inactive view selection are preserved", () => {
+  assert.equal(migrateLegacyConfig({ mode: "native" }).mode, "native");
+  const c = migrateLegacyConfig({ mode: "overview", views: { compact: { rows: [] }, overview: { rows: [[{ label: "额度", fields: [{ status: "quota" }] }]] } } });
+  assert.equal(c.more.sections[0].status, "quota");
+});
+test("invalid fields anywhere in a legacy config are rejected before migration", () => {
+  for (const value of [
+    { collapsed: "yes" }, { style: { columnGap: -1 } },
+    { views: { compact: { rows: [[{ label: "X", fields: [{ source: "model", status: "both" }] }]] } } },
+    { mode: "overview", views: { overview: { rows: [] }, compact: { rows: [[{ label: "X", fields: ["typo"] }]] } } },
+  ]) assert.throws(() => migrateLegacyConfig(value));
+  assert.equal(migrateLegacyConfig({ views: { compact: { renderer: "table" } } }).version, 5);
 });
 
-test("invalid nested settings fail with their path; obsolete placement configuration is not interpreted", () => {
-  for (const [value, error] of [
-    [{ mode: "wide" }, /mode/], [{ collapsed: "yes" }, /collapsed/], [{ statusCells: {} }, /statusCells/], [{ style: { gap: 4 } }, /style.gap/],
-    [{ style: { leftRatio: 1 } }, /style.leftRatio/], [{ style: { fieldGap: -1 } }, /style.fieldGap/],
-    [{ style: { maxCellLines: 1.5 } }, /style.maxCellLines/], [{ style: { labelDivider: "yes" } }, /style.labelDivider/],
-    [{ statusRoutes: {} }, /statusRoutes/], [{ views: { full: {} } }, /views.full/],
-    [{ views: { compact: { rows: [[], []] } } }, /rows\[0\]/],
-    [{ views: { compact: { rows: [[{ label: "项目", fields: ["unknown"] }]] } } }, /fields\[0\]/],
-    [{ views: { overview: { renderer: "cards" } } }, /renderer/],
-    [{ views: { overview: { showLabels: "yes" } } }, /showLabels/],
-    [{ views: { overview: { style: { borders: "sometimes" } } } }, /borders/],
-    [{ views: { overview: { rows: [[{ label: "X\nY", fields: [] }]] } } }, /label/],
-    [{ views: { overview: { rows: [[{ label: "X", fields: [{ source: "model", prefix: "\x1b[31m" }] }]] } } }, /prefix/],
-    [{ views: { overview: { rows: [[{ label: "X", fields: [{ status: "" }] }]] } } }, /status/],
-    [{ views: { overview: { rows: [[{ label: "X", fields: [{ source: "model", status: "external" }] }]] } } }, /source 或 status/],
-  ] as const) assert.throws(() => resolveFooterConfig(value), error);
-  assert.deepEqual(resolveFooterConfig({ views: { compact: { rows: [] } } }).views.compact.rows, []);
+test("a hidden legacy remaining slot stays hidden", () => {
+  const c = migrateLegacyConfig({ views: { compact: { rows: [[{ label: "其他", fields: ["remaining"], hidden: true }]] } } });
+  assert.equal(c.more.includeUnmapped, false);
 });

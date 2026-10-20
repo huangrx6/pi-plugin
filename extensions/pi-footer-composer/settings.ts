@@ -1,54 +1,21 @@
-export type FooterMode = "compact" | "overview" | "native";
-export const BUILTIN_FIELDS = ["project", "cwd", "branch", "session", "model", "provider", "thinking", "context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost"] as const;
-export type Field =
-  | string
-  | { source: string; prefix?: string; suffix?: string; empty?: string }
-  | { status: string; prefix?: string; suffix?: string; empty?: string };
-export type CellConfig = { label: string; fields: Field[]; hidden?: boolean };
-export type ViewConfig = {
-  renderer: "table" | "bands";
-  showLabels: boolean;
-  style?: Partial<StyleConfig>;
-  rows: (CellConfig | null)[][];
-};
-export type StyleConfig = {
-  textColor: "muted" | "dim" | "text";
-  borderColor: "muted" | "dim" | "text";
-  borders: "all" | "outer" | "none";
-  labelDivider: boolean;
-  labelWidth: number;
-  columnGap: number;
-  fieldGap: number;
-  leftRatio: number;
-  narrowWidth: number;
-  overflow: "wrap" | "ellipsis";
-  maxCellLines: number;
-};
+export type PanelId = "stats" | "tokens" | "context" | "more";
+export type FooterMode = "custom" | "native";
+export type Color = "muted" | "dim" | "text";
 export type FooterConfig = {
   $schema?: string;
+  version: 5;
   mode: FooterMode;
-  /** 每次会话启动时收起详情；点击只改变本次会话的展开状态。 */
-  collapsed: boolean;
-  style: StyleConfig;
-  views: { compact: ViewConfig; overview: ViewConfig };
+  icons: "unicode" | "ascii";
+  style: { textColor: Color; borderColor: Color; gap: number; panelWidth: number };
+  more: { sections: { label: string; status: string; hidden?: boolean }[]; includeUnmapped: boolean };
 };
-export const DEFAULT_FOOTER_CONFIG: FooterConfig = {
-  mode: "compact",
-  collapsed: true,
-  style: {
-    textColor: "muted", borderColor: "dim", borders: "all", labelDivider: true,
-    labelWidth: 4, columnGap: 3, fieldGap: 3, leftRatio: 0.5, narrowWidth: 72,
-    overflow: "wrap", maxCellLines: 0,
-  },
-  views: {
-    compact: { renderer: "table", showLabels: true, rows: [
-      [{ label: "项目", fields: ["project", "branch"] }, { label: "模型", fields: ["model", "provider", "thinking"] }],
-      [{ label: "资源", fields: ["context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost"] }, { label: "状态", fields: ["remaining"] }],
-    ] },
-    overview: { renderer: "bands", showLabels: true, style: { borders: "outer", labelDivider: false }, rows: [
-      [{ label: "项目", fields: ["project", "branch"] }, { label: "模型", fields: ["model", "provider", "thinking"] }],
-      [{ label: "资源", fields: ["context", "cacheHit", "input", "output", "cacheRead", "cacheWrite", "cost"] }, { label: "状态", fields: ["remaining"] }],
-    ] },
-  },
-};
-export function defaultFooterConfig(): FooterConfig { return structuredClone(DEFAULT_FOOTER_CONFIG); }
+export function defaultFooterConfig(): FooterConfig {
+  return {
+    version: 5, mode: "custom", icons: "unicode",
+    style: { textColor: "muted", borderColor: "dim", gap: 3, panelWidth: 54 },
+    more: { sections: [], includeUnmapped: false },
+  };
+}
+// 暂停展示项目和策略。未来恢复时仍通过显式配置接入，不增加专用运行时依赖：
+// project: { label: "项目", source: "cwd" }
+// policy: { label: "策略", status: "<用户配置的精确 key>", hidden: true }
