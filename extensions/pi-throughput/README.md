@@ -7,6 +7,7 @@
 - **等待计时**：请求已发出、首 token 未到时显示 `ttft: waiting 3.2s` 并持续刷新，能直接看到“已经等了多久”。
 - **空闲占位**：会话开始或清空后显示 `rate: -- ttft: --`，状态格始终有内容。
 - **调用样本**：每次模型调用一条记录（模型、token、TTFT、时长、是否中断），不进入 LLM 上下文，恢复会话后还能统计。
+- **会话统计**：`/throughput stats` 给出模型用时、首 token 平均与输出速度（Σtoken ÷ Σ时长），并附单次调用的 p50 / p95 分布。
 
 状态文本按 `标签: 值` 排列，标签用短的英文缩写（与底栏其他单元格同一风格），元素之间单空格。
 
@@ -31,7 +32,7 @@ pi --extension ./index.ts
 | 命令 | 行为 |
 | --- | --- |
 | `/throughput` | 打开设置面板（非交互模式打印当前设置与会话统计） |
-| `/throughput stats` | 会话内调用统计：次数、平均 / p95 速率与 TTFT，按模型分组 |
+| `/throughput stats` | 会话内调用统计：模型用时、首 token 平均、输出速度与 p50/p95，按模型分组 |
 | `/throughput on` / `off` | 状态显示总开关（关闭只影响显示，样本照常记录） |
 | `/throughput display full\|tps\|ttft` | 状态里显示哪些指标 |
 | `/throughput measurement stream\|e2e` | 速率分母口径 |
@@ -52,6 +53,7 @@ before_provider_request ──► 首个内容增量 ──► …流式… ─�
 - **时长单位**：1s 以下用毫秒；1–10s 一位小数；10–60s 取整秒；超过 60s 换成 `1m35s`，超过 1h 换成 `1h5m`。等待计时和终值同一套规则，不会一直堆秒数。
 - **measurement=stream（默认）**：token ÷（首个增量 → 结束），回答“开始吐字后有多快”。
 - **measurement=e2e**：token ÷（请求发出 → 结束），回答“整体等了多久”。
+- **会话统计的输出速度是 Σtoken ÷ Σ时长**，不是“每次调用 TPS 取平均”：长短调用的权重不同，两种算法在同一份真实会话（81 次调用）上相差 25%（197 vs 248 t/s）。首 token 平均同理，是 ΣTTFT ÷ 有首 token 的调用数。模型用时是 Σ（请求发出 → 消息结束）。
 - 一轮里的工具循环会发起多次模型请求，每次请求都重新锚定，指标不跨调用漂移。
 
 ## 状态发布约定
@@ -94,9 +96,9 @@ rate: -- ttft: --  →  ttft: waiting 3.2s  →  ttft: 3.2s  →  rate: 42.1 t/s
 
 ## 数据来源与已知边界
 
-- **token 数**：优先用 provider 上报的 `usage.output`。Anthropic / Google 等流式上报累计值，实时数字精确；OpenAI chat-completions 只在最后一个 chunk 给 usage，此时流中用字符数 ÷ 4 估算，`message_end` 一到就以精确值覆盖。
+- **token 数**：优先用 provider 上报的 `usage.output`。Anthropic / Google 等流式上报累计值，实时数字精确；OpenAI chat-completions 只在最后一个 chunk 给 usage，此时流中按字符类型估算（CJK 1 字 1 token，其余 3.5 字符 1 token），`message_end` 一到就以精确值覆盖。旧的“一律 4 字符 1 token”对中文与工具参数低估约 28%（16188 条真实 assistant 消息统计出的中位误差），流中 rate 因此偏低。
 - `usage.output` **已包含推理 token**，不会重复计入；但这也意味着思考耗时长的模型速率会偏低。
-- provider 把 token 成批 flush 时，窗口不足的流中读数没有意义，因此低于 `minWindowMs` 先只显示首 token 延迟；结束后的终值是精确平均，不受该限制。
+- provider 把 token 成批 flush 时，窗口不足的流中读数没有意义，因此低于 `minWindowMs` 先只显示首 token 延迟；结束后的终值用的是精确 token 数与完整窗口，不受该限制。
 - 用户中断（Esc）或 provider 报错时保留已测到的部分指标，样本标记为中断。
 - 样本只记录模型名、token 数、时长与中断标记，**不记录任何回复内容或工具参数**。
 - 状态文本经过控制字符清洗与显示宽度截断；provider / 模型名异常不会污染底栏。

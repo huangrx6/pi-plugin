@@ -45,10 +45,20 @@ function sample(overrides: Partial<ThroughputSample> = {}): ThroughputSample {
   };
 }
 
-test("tokenCount prefers provider usage and falls back to chars/4", () => {
+test("tokenCount prefers provider usage and falls back to a type-aware estimate", () => {
   assert.deepEqual(tokenCount({ usage: { output: 42 } }), { tokens: 42, estimated: false });
   const estimate = tokenCount({ content: [{ type: "text", text: "12345678" }] });
-  assert.deepEqual(estimate, { tokens: 2, estimated: true });
+  assert.deepEqual(estimate, { tokens: 3, estimated: true });
+});
+
+test("tokenCount estimates CJK as one token per character", () => {
+  // 旧口径「字符 ÷ 4」把 8 个汉字算成 2 token，流中 rate 因此系统性偏低。
+  assert.deepEqual(tokenCount({ content: [{ type: "text", text: "入口入口入口入口" }] }), {
+    tokens: 8,
+    estimated: true,
+  });
+  const mixed = tokenCount({ content: [{ type: "text", text: "入口abcd" }] });
+  assert.equal(mixed.tokens, 2 + Math.ceil(4 / 3.5));
 });
 
 test("tokenCount treats zero and missing usage as estimated", () => {

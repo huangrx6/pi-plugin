@@ -86,12 +86,30 @@ test("summarize groups by model and orders by call count", () => {
   assert.equal(summary.byModel[0]?.model, "deepseek-v4.1-flash");
   assert.equal(summary.byModel[0]?.calls, 2);
   assert.equal(summary.byModel[0]?.avgTps, 200);
+  assert.equal(summary.byModel[0]?.tps, 200);
+  assert.equal(summary.byModel[0]?.modelMs, 4800);
   assert.equal(summary.byModel[0]?.p95TtftMs, 400);
+});
+
+test("summarize reports the session rate as Σtoken ÷ Σ时长, not the mean of per-call rates", () => {
+  const summary = summarize(
+    [
+      // 短调用：10 token / 100ms = 100 t/s
+      sample({ tokens: 10, streamMs: 100, e2eMs: 500 }),
+      // 长调用：1000 token / 1000ms = 1000 t/s
+      sample({ tokens: 1000, streamMs: 1000, e2eMs: 2000 }),
+    ],
+    "stream",
+  );
+  assert.equal(summary.overall.avgTps, 550);
+  assert.equal(summary.overall.tps, (1010 / 1100) * 1000);
+  assert.equal(summary.overall.modelMs, 2500);
 });
 
 test("summarize reports null metrics when a call has no usable denominator", () => {
   const summary = summarize([sample({ streamMs: null })], "stream");
   assert.equal(summary.overall.avgTps, null);
+  assert.equal(summary.overall.tps, null);
   assert.equal(summary.overall.avgTtftMs, 400);
 });
 
@@ -102,5 +120,8 @@ test("formatSummary distinguishes empty history from real aggregates", () => {
   assert.match(filled, /调用 1 次/);
   assert.match(filled, /端到端/);
   assert.match(filled, /deepseek-v4\.1-flash/);
+  assert.match(filled, /模型用时/);
+  assert.match(filled, /首 token 平均/);
+  assert.match(filled, /输出速度 41\.7 t\/s/);
   assert.match(filled, /⚡/);
 });

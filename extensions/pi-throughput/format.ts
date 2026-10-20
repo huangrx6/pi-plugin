@@ -4,7 +4,7 @@
  * 不 import pi 任何东西，也不写终端颜色：状态文本以纯文本发布，
  * 配色由绘制底栏的一方决定。
  */
-import { CONTENT_CHARS_PER_TOKEN, MAX_STATUS_WIDTH } from "./constants.ts";
+import { CJK_TOKENS_PER_CHAR, MAX_STATUS_WIDTH, OTHER_CHARS_PER_TOKEN } from "./constants.ts";
 import type {
   AssistantMessageLike,
   LiveState,
@@ -19,30 +19,62 @@ export interface TokenCount {
   estimated: boolean;
 }
 
-/** 累加正文 / 思考 / 工具参数的字符数（估算分母）。 */
-export function contentChars(message: AssistantMessageLike | undefined): number {
-  let chars = 0;
+export interface TokenCount {
+  tokens: number;
+  estimated: boolean;
+}
+
+/** 正文字符量：CJK 与其余字符分开累计，估算时分母不同。 */
+export interface ContentSize {
+  cjk: number;
+  other: number;
+}
+
+const CJK_PATTERN =
+  /[\u1100-\u11ff\u2e80-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+
+function addSize(size: ContentSize, text: string | undefined): void {
+  if (!text) return;
+  for (const char of text) {
+    if (CJK_PATTERN.test(char)) size.cjk += 1;
+    else size.other += 1;
+  }
+}
+
+/** 正文 / 思考 / 工具参数按字符类型分别计数（估算分母）。 */
+export function contentSize(message: AssistantMessageLike | undefined): ContentSize {
+  const size: ContentSize = { cjk: 0, other: 0 };
   for (const block of message?.content ?? []) {
-    if (block.type === "text") chars += block.text?.length ?? 0;
-    else if (block.type === "thinking") chars += block.thinking?.length ?? 0;
+    if (block.type === "text") addSize(size, block.text);
+    else if (block.type === "thinking") addSize(size, block.thinking);
     else if (block.type === "toolCall" && block.arguments !== undefined) {
       try {
-        chars += JSON.stringify(block.arguments)?.length ?? 0;
+        addSize(size, JSON.stringify(block.arguments));
       } catch {
         /* 循环引用等异常值不参与估算 */
       }
     }
   }
-  return chars;
+  return size;
 }
 
-/** 输出 token：provider usage 优先，缺失时按字符数估算。 */
+/** 正文字符总数（CJK + 其余），保留给只关心量级的调用方。 */
+export function contentChars(message: AssistantMessageLike | undefined): number {
+  const size = contentSize(message);
+  return size.cjk + size.other;
+}
+
+/** 输出 token：provider usage 优先，缺失时按字符类型估算。 */
 export function tokenCount(message: AssistantMessageLike | undefined): TokenCount {
   const reported = message?.usage?.output;
   if (typeof reported === "number" && Number.isFinite(reported) && reported > 0) {
     return { tokens: Math.round(reported), estimated: false };
   }
-  return { tokens: Math.ceil(contentChars(message) / CONTENT_CHARS_PER_TOKEN), estimated: true };
+  const size = contentSize(message);
+  return {
+    tokens: Math.ceil(size.cjk * CJK_TOKENS_PER_CHAR + size.other / OTHER_CHARS_PER_TOKEN),
+    estimated: true,
+  };
 }
 
 /** TPS：100 以下保留一位小数，100 及以上取整（底栏不抖动）。 */

@@ -1,7 +1,7 @@
 {
   "name": "pi-throughput",
-  "version": "0.6.0",
-  "description": "Independent Pi status for live output throughput and time to first token, with per-call samples in the session.",
+  "version": "0.7.0",
+  "description": "Independent Pi status for live output throughput, time to first token, and session-level aggregates.",
   "license": "MIT",
   "type": "module",
   "engines": {

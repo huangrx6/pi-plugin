@@ -29,8 +29,17 @@ export const DEFAULT_THROTTLE_MS = 250;
  */
 export const DEFAULT_MIN_WINDOW_MS = 500;
 
-/** 无 provider usage 时的字符 → token 估算比例（保守近似）。 */
-export const CONTENT_CHARS_PER_TOKEN = 4;
+/** 无 provider usage 时的字符 → token 估算。
+ *
+ * CJK 基本是 1 字 1 token，拉丁/代码约 3.5 字符 1 token。
+ * 旧值「一律 4 字符 1 token」系统性低估：16188 条真实 assistant 消息里
+ * 字符 ÷ token 的中位数为 2.88、均值 2.73，按 4 估算的 token 数中位误差约 28%，
+ * 流中的 rate 因此偏低，直到 `message_end` 拿到 usage 才跳变。
+ * 低估只影响流中显示；终值仍以 provider usage 为准。
+ */
+export const CJK_TOKENS_PER_CHAR = 1;
+
+export const OTHER_CHARS_PER_TOKEN = 3.5;
 
 /** 状态文本宽度上限（终端列）。 */
 export const MAX_STATUS_WIDTH = 72;
