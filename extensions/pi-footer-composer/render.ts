@@ -7,6 +7,7 @@ type Rgb = { kind: "rgb"; r: number; g: number; b: number };
 export type Theme = {
   fg(color: string, text: string): string;
   bold?(text: string): string;
+  getThinkingBorderColor?(level: string): (text: string) => string;
   appearance?: "dark" | "light";
   style?(text: string, options: { bg?: Rgb; fg?: Rgb }): string;
 };
@@ -110,7 +111,7 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
   }
   if (id === "tokens") {
     const total = exact(usageTotal(s));
-    const headerTotal = visibleWidth("Token 用量") + visibleWidth(total) + 2 <= width - 3;
+    const headerTotal = visibleWidth("Token 用量") + visibleWidth(total) + 2 <= width - 5;
     if (!headerTotal) add("累计", total);
     add("缓存命中", percent(cacheHit(s)));
     add("未缓存输入", exact(s.usage.input));
@@ -154,7 +155,7 @@ export const PANEL_HEADER_ROW = 2;
 export const PANEL_CHROME_HEIGHT = 7;
 export const PANEL_MIN_HEIGHT = PANEL_CHROME_HEIGHT + 1;
 export const panelInnerWidth = (width: number) => Math.max(1, width - 2 - 2 * PANEL_PADDING);
-export const panelCloseColumn = (width: number) => width - 2 - PANEL_PADDING;
+export const panelCloseColumn = (width: number) => width - 3 - PANEL_PADDING;
 export function panelLines(id: PanelId, s: Snapshot, config: FooterConfig, statuses: ReadonlyMap<string, string>, width: number, height: number, offset: number, theme: Theme): { lines: string[]; maxOffset: number } {
   if (width < 12 || height < PANEL_MIN_HEIGHT) return { lines: [], maxOffset: 0 };
   const inner = panelInnerWidth(width), content = panelContent(id, s, config, statuses, inner);
@@ -172,14 +173,17 @@ export function panelLines(id: PanelId, s: Snapshot, config: FooterConfig, statu
   const paint = (part: Span) => part.tone === "rule" ? borderPaint(part.text) : theme.fg(part.tone === "value" ? "text" : part.tone === "note" ? "dim" : config.style.textColor, part.text);
   const body = (row: PanelRow) => surface(borderPaint(side) + " ".repeat(PANEL_PADDING) + row.map(paint).join("") + " ".repeat(Math.max(0, inner - visibleWidth(rowText(row))) + PANEL_PADDING) + borderPaint(side));
   const border = (left: string, right: string) => surface(borderPaint(left + horizontal.repeat(width - 2) + right));
-  const close = ascii ? "x" : "×", headerWidth = inner - 3;
+  const headerWidth = Math.max(0, inner - 5);
   let title = fit(content.title, headerWidth);
   if (content.total) {
     if (visibleWidth(title) + visibleWidth(content.total) + 2 <= headerWidth) title += " ".repeat(headerWidth - visibleWidth(title) - visibleWidth(content.total)) + content.total;
     else title = fit(content.total, headerWidth);
   }
-  const titleRow = [span(theme.bold ? theme.bold(title) : title, "value"),
-    span(" ".repeat(Math.max(0, headerWidth - visibleWidth(title))) + "  ", "label"), span(close, "note")];
+  const titleRow = inner < 5 ? [span(fit(content.title, inner), "value")] : [
+    span(theme.bold ? theme.bold(title) : title, "value"),
+    span(" ".repeat(Math.max(0, headerWidth - visibleWidth(title))) + "   ", "label"),
+    span(theme.bold ? theme.bold("X") : "X", "value"), span(" ", "label"),
+  ];
   const lines = [border(ascii ? "+" : "╭", ascii ? "+" : "╮"), body([]), body(titleRow), body([span(horizontal.repeat(inner), "rule")]), body([]), ...content.rows.slice(start, start + bodyHeight).map(body)];
   if (overflow) lines.push(body([span(fit(bodyHeight ? `${start + 1}–${Math.min(content.rows.length, start + bodyHeight)}/${content.rows.length} · 滚轮查看更多` : "终端高度不足", inner), "note")]));
   lines.push(body([]), border(ascii ? "+" : "╰", ascii ? "+" : "╯"));

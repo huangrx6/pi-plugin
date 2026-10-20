@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { panelContent, panelLines, panelText, summary } from "../render.ts";
+import { PANEL_HEADER_ROW, panelCloseColumn, panelContent, panelLines, panelText, summary } from "../render.ts";
 import { defaultFooterConfig } from "../config.ts";
 import { emptySnapshot } from "../types.ts";
 import { visibleWidth } from "../layout.ts";
@@ -107,4 +107,14 @@ test("comfortable spacing stays bounded at every supported card height", () => {
   const index = lines.findIndex(line => line.includes("模型用时"));
   assert.match(lines[index + 1], /^│ +│$/); assert.match(lines[index + 2], /工具用时/);
   assert.match(lines[1], /^│ +│$/); assert.match(lines.at(-2)!, /^│ +│$/);
+});
+
+test("close glyph shares title weight, baseline and center of its three-cell button", () => {
+  const bolded: string[] = [];
+  const t = { ...theme, bold: (text: string) => { bolded.push(text); return text; } };
+  const rows = panelLines("stats", emptySnapshot(), defaultFooterConfig(), new Map(), 60, 30, 0, t).lines;
+  const header = rows[PANEL_HEADER_ROW];
+  assert.match(header, /会话统计.* X /); assert.ok(bolded.includes("会话统计")); assert.ok(bolded.includes("X"));
+  assert.equal(visibleWidth(header.slice(0, header.indexOf("X"))), panelCloseColumn(60));
+  assert.equal(rows.filter(row => row.includes("X")).length, 1);
 });

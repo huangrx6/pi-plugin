@@ -20,7 +20,7 @@ function fakeTui() {
   };
   return { tui, overlays, listeners, input: (raw: string) => [...listeners].map(listener => listener(raw)) };
 }
-const mouse = (x: number, type = "click", extra = {}): MouseEvent => ({ type, button: "left", x, y: 1, screenX: x, screenY: 22, ...extra });
+const mouse = (x: number, type = "click", extra = {}): MouseEvent => ({ type, button: "left", x, y: 1, screenX: x, screenY: 23, ...extra });
 
 test("independent popovers switch, toggle, close with Esc, scroll, resize, and release listeners", () => {
   const f = fakeTui(), config = defaultFooterConfig();
@@ -40,7 +40,7 @@ test("independent popovers switch, toggle, close with Esc, scroll, resize, and r
   footer.open("more"); let card = f.overlays.at(-1); const before = card.card.render(54).join("\n");
   card.card.handleMouse(mouse(0, "wheel", { wheelDelta: 1 })); assert.notEqual(card.card.render(54).join("\n"), before);
   f.tui.terminal.columns = 32; f.tui.terminal.rows = 16; footer.render(32);
-  assert.ok(card.options.col + card.options.width <= 32); assert.ok(card.options.row + card.options.maxHeight <= 12);
+  assert.ok(card.options.col + card.options.width <= 32); assert.ok(card.options.row + card.options.maxHeight <= 14);
   assert.deepEqual(f.input("a"), [undefined]); assert.equal(f.listeners.size, 0);
   for (const extra of [{ ctrl: true }, { button: "right" }, { clickCount: 2 }]) assert.equal(footer.handleMouse(mouse(0, "click", extra)), undefined);
   footer.open("more"); footer.dispose(); assert.equal(f.listeners.size, 0); assert.equal(f.overlays.at(-1).hidden, true); assert.deepEqual(footer.render(80), []);
@@ -86,29 +86,42 @@ test("regular mode keeps command access without mouse, and older overlay APIs us
   footer.render(80); assert.equal(footer.handleMouse(mouse(2)), undefined);
   footer.open("tokens"); assert.equal(called, "Token 用量"); footer.dispose();
 });
-test("footer margins and overlay separation preserve native hit coordinates", () => {
+test("footer divider is full-width, text is flush left, and close target is centered", () => {
   const f = fakeTui();
   const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), emptySnapshot, () => assert.fail("fallback"));
   const lines = footer.render(120);
-  assert.equal(lines.length, 3); assert.equal(lines[0], ""); assert.equal(lines[2], ""); assert.match(lines[1], /^  ◴/);
-  assert.equal(footer.handleMouse(mouse(2, "click", { y: 0 })), undefined);
-  assert.equal(footer.handleMouse(mouse(2, "click", { y: 2 })), undefined);
-  assert.equal(footer.handleMouse(mouse(0)), undefined);
-  footer.handleMouse(mouse(2));
-  const card = f.overlays.at(-1);
+  assert.equal(lines.length, 2); assert.equal(lines[0], "─".repeat(120)); assert.match(lines[1], /^◴/);
+  assert.equal(footer.handleMouse(mouse(0, "click", { y: 0 })), undefined);
+  assert.equal(footer.handleMouse(mouse(0, "click", { y: 2 })), undefined);
+  assert.equal(footer.handleMouse(mouse(-1)), undefined);
+  footer.handleMouse(mouse(0));
+  const card = f.overlays.at(-1), close = card.options.width - 6;
   assert.ok(card.options.col >= 2); assert.ok(card.options.col + card.options.width <= 118);
-  assert.ok(card.options.row + card.options.maxHeight <= 20);
-  assert.equal(card.card.handleMouse(mouse(card.options.width - 5, "press", { y: 1 })), undefined);
-  card.card.handleMouse(mouse(card.options.width - 5, "press", { y: 2 }));
-  card.card.handleMouse(mouse(card.options.width - 5, "click", { y: 2 }));
+  assert.ok(card.options.row + card.options.maxHeight <= 22);
+  assert.equal(card.card.handleMouse(mouse(close, "press", { y: 0 })), undefined);
+  for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) {
+    assert.equal(card.card.handleMouse(mouse(close + dx, "press", { y: 2 + dy }))?.handled, true);
+  }
+  card.card.handleMouse(mouse(close, "click", { y: 2 }));
   assert.equal(card.hidden, true); assert.equal(f.listeners.size, 0);
   footer.dispose();
 });
 test("very short terminals use the dialog instead of overlapping the footer margins", () => {
-  const f = fakeTui(); f.tui.terminal.rows = 12;
+  const f = fakeTui(); f.tui.terminal.rows = 10;
   let fallback = "";
   const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), emptySnapshot, title => fallback = title);
   footer.render(80); footer.open("stats");
   assert.equal(fallback, "会话统计"); assert.equal(f.overlays.length, 0); assert.equal(f.listeners.size, 0);
+  footer.dispose();
+});
+
+test("footer divider follows the input border theme without adding empty rows", () => {
+  const f = fakeTui(), s = emptySnapshot(); s.thinking = "high";
+  let selected = "";
+  const t = { ...theme, getThinkingBorderColor: (level: string) => { selected = level; return (text: string) => `input:${text}`; } };
+  const footer = createFooter(f.tui, t, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), () => s, () => {});
+  const rows = footer.render(20);
+  assert.equal(selected, "high"); assert.equal(rows[0], `input:${"─".repeat(20)}`);
+  assert.equal(rows.length, 2); assert.ok(rows.every(Boolean));
   footer.dispose();
 });

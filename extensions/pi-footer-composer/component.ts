@@ -13,11 +13,11 @@ export type Tui = {
   addInputListener?(listener: (data: string) => { consume: boolean } | undefined): () => void;
 };
 export type FooterData = { getExtensionStatuses(): ReadonlyMap<string, string>; onBranchChange?(callback: () => void): () => void };
-const PANEL_MARGIN = 2, PANEL_GAP = 1;
+const PANEL_MARGIN = 2, PANEL_GAP = 0;
 const plainClick = (e: MouseEvent) => e.button === "left" && !e.shift && !e.alt && !e.ctrl && (e.clickCount ?? 1) === 1;
 export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: FooterConfig, snapshot: () => Snapshot, fallback: (title: string, text: string) => void) {
   let active: PanelId | null = null, hits: Hit[] = [], disposed = false, scroll = 0, maxOffset = 0;
-  let columns = tui.terminal?.columns ?? 80, bottomInset = 0, summaryRow = 1, footerHeight = 3;
+  let columns = tui.terminal?.columns ?? 80, bottomInset = 0, summaryRow = 1, footerHeight = 2;
   let overlay: ReturnType<NonNullable<Tui["showOverlay"]>> | undefined, unlisten: (() => void) | undefined;
   const hasRoom = (w: number, h: number) => w >= 18 + 2 * PANEL_MARGIN && h - footerHeight - PANEL_GAP - 1 >= PANEL_MIN_HEIGHT + 1;
   const options: OverlayOptions = { row: 0, col: 0, width: config.style.panelWidth, maxHeight: 14, nonCapturing: true, margin: 0, visible: hasRoom };
@@ -49,7 +49,7 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     handleMouse(event) {
       if (event.type === "wheel") { scrollBy((event.wheelDelta ?? 0) > 0 ? 3 : -3); return { handled: true }; }
       if (!plainClick(event)) return undefined;
-      if (event.y === PANEL_HEADER_ROW && Math.abs(event.x - panelCloseColumn(options.width)) <= 1) {
+      if (Math.abs(event.y - PANEL_HEADER_ROW) <= 1 && Math.abs(event.x - panelCloseColumn(options.width)) <= 1) {
         if (event.type === "click") close();
         if (event.type === "press" || event.type === "click") return { handled: true, render: event.type === "click" };
       }
@@ -80,13 +80,16 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
       if (disposed || width <= 0) return [];
       columns = width;
       summaryRow = (tui.terminal?.rows ?? 24) >= 8 ? 1 : 0;
-      footerHeight = 1 + 2 * summaryRow;
-      const inset = Math.min(2, Math.floor((width - 1) / 2));
-      const result = summary(snapshot(), config, width - 2 * inset, active, theme);
-      hits = result.hits.map(hit => ({ ...hit, x: hit.x + inset }));
+      footerHeight = 1 + summaryRow;
+      const result = summary(snapshot(), config, width, active, theme);
+      hits = result.hits;
       if (active) place();
-      const line = " ".repeat(inset) + result.line;
-      return summaryRow ? ["", line, ""] : [line];
+      if (!summaryRow) return [result.line];
+      const rule = (config.icons === "ascii" ? "-" : "─").repeat(width);
+      const divider = theme.getThinkingBorderColor
+        ? theme.getThinkingBorderColor(snapshot().thinking || "off")(rule)
+        : theme.fg("border", rule);
+      return [divider, result.line];
     },
     invalidate() {},
     handleMouse(event: MouseEvent): MouseResult {
