@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PANEL_HEADER_ROW, panelCloseColumn, panelContent, panelLines, panelText, summary } from "../render.ts";
+import { PANEL_HEADER_ROW, PANEL_PADDING, panelCloseButton, panelContent, panelLines, panelText, summary } from "../render.ts";
 import { defaultFooterConfig } from "../config.ts";
 import { emptySnapshot } from "../types.ts";
 import { visibleWidth } from "../layout.ts";
@@ -109,12 +109,23 @@ test("comfortable spacing stays bounded at every supported card height", () => {
   assert.match(lines[1], /^│ +│$/); assert.match(lines.at(-2)!, /^│ +│$/);
 });
 
-test("close glyph shares title weight, baseline and center of its three-cell button", () => {
+test("square close glyph shares title weight and the right edge of values on every card", () => {
   const bolded: string[] = [];
   const t = { ...theme, bold: (text: string) => { bolded.push(text); return text; } };
-  const rows = panelLines("stats", emptySnapshot(), defaultFooterConfig(), new Map(), 60, 30, 0, t).lines;
-  const header = rows[PANEL_HEADER_ROW];
-  assert.match(header, /会话统计.* X /); assert.ok(bolded.includes("会话统计")); assert.ok(bolded.includes("X"));
-  assert.equal(visibleWidth(header.slice(0, header.indexOf("X"))), panelCloseColumn(60));
-  assert.equal(rows.filter(row => row.includes("X")).length, 1);
+  for (const icons of ["unicode", "ascii"] as const) for (const width of [32, 54, 60, 80]) {
+    const c = defaultFooterConfig(); c.icons = icons;
+    const button = panelCloseButton(width, icons);
+    assert.equal(button.glyph, icons === "ascii" ? "X" : "Ｘ");
+    assert.equal(button.width, icons === "ascii" ? 1 : 2);
+    for (const id of ["stats", "tokens", "context", "more"] as const) {
+      const rows = panelLines(id, emptySnapshot(), c, new Map(), width, 30, 0, t).lines;
+      const header = rows[PANEL_HEADER_ROW], right = width - 1 - PANEL_PADDING;
+      assert.equal(visibleWidth(header.slice(0, header.indexOf(button.glyph))), button.column);
+      assert.equal(button.column + button.width, right);
+      assert.equal(visibleWidth(header.replace(/[ |│]+$/, "")), right);
+      for (const line of rows.filter(line => /模型用时|未缓存输入|提供方/.test(line))) assert.equal(visibleWidth(line.replace(/[ |│]+$/, "")), right);
+      assert.equal(rows.filter(row => row.includes(button.glyph)).length, 1);
+    }
+  }
+  assert.ok(bolded.includes("会话统计")); assert.ok(bolded.includes("Ｘ"));
 });

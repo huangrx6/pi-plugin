@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import footerExtension from "../index.ts";
 import { createFooter, type MouseEvent } from "../component.ts";
 import { defaultFooterConfig } from "../config.ts";
 import { emptySnapshot, type Entry } from "../types.ts";
 import { visibleWidth } from "../layout.ts";
 import { METRIC_TYPE } from "../metrics.ts";
+import { panelCloseButton } from "../render.ts";
 const theme = { fg: (_c: string, text: string) => text, bg: (_c: string, text: string) => text };
 function fakeTui() {
   const overlays: any[] = [], listeners = new Set<Function>();
@@ -95,16 +97,49 @@ test("footer divider is full-width, text is flush left, and close target is cent
   assert.equal(footer.handleMouse(mouse(0, "click", { y: 2 })), undefined);
   assert.equal(footer.handleMouse(mouse(-1)), undefined);
   footer.handleMouse(mouse(0));
-  const card = f.overlays.at(-1), close = card.options.width - 6;
+  const card = f.overlays.at(-1), button = panelCloseButton(card.options.width, "unicode"), close = button.column;
   assert.ok(card.options.col >= 2); assert.ok(card.options.col + card.options.width <= 118);
   assert.ok(card.options.row + card.options.maxHeight <= 22);
   assert.equal(card.card.handleMouse(mouse(close, "press", { y: 0 })), undefined);
-  for (const dx of [-1, 0, 1]) for (const dy of [-1, 0, 1]) {
+  for (const dx of [-1, 0, 1, 2]) for (const dy of [-1, 0, 1]) {
     assert.equal(card.card.handleMouse(mouse(close + dx, "press", { y: 2 + dy }))?.handled, true);
   }
   card.card.handleMouse(mouse(close, "click", { y: 2 }));
   assert.equal(card.hidden, true); assert.equal(f.listeners.size, 0);
   footer.dispose();
+});
+
+test("outside presses and terminal blur dismiss without consuming host input or breaking footer toggles", () => {
+  const f = fakeTui(), input = Object.assign(new EventEmitter(), { isTTY: true });
+  const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), emptySnapshot, () => assert.fail("fallback"), input);
+  const observed: string[] = [];
+  // The host gets the same data first; switching can happen during an emission.
+  input.on("data", raw => { observed.push(raw); if (raw === "switch") footer.open("tokens"); });
+  const baseListeners = input.listenerCount("data");
+  footer.render(120); footer.open("stats");
+  let card = f.overlays.at(-1);
+  input.emit("data", `\x1b[<0;${card.options.col + 2};${card.options.row + 2}M`);
+  assert.equal(card.hidden, false); // Inside, including padding, stays open.
+  input.emit("data", "\x1b[<0;1;24M");
+  assert.equal(card.hidden, false); // Footer press leaves click/toggle to the host.
+  input.emit("data", "switch"); assert.equal(card.hidden, true);
+  card = f.overlays.at(-1); assert.equal(card.hidden, false);
+  assert.equal(input.listenerCount("data"), baseListeners + 1);
+  input.emit("data", "\x1b[<0;1;1M");
+  assert.equal(card.hidden, true); assert.equal(input.listenerCount("data"), baseListeners);
+  assert.equal(observed.at(-1), "\x1b[<0;1;1M");
+  footer.open("more"); card = f.overlays.at(-1);
+  input.emit("data", "\x1b[I"); assert.equal(card.hidden, false);
+  input.emit("data", "\x1b[O"); assert.equal(card.hidden, true);
+  for (const raw of ["\x1b", "\x1b[27u", "\x1b[27;1u", "\x1b[27;1:1u", "\x1b[27;1;27~"]) {
+    footer.open("stats"); card = f.overlays.at(-1);
+    assert.deepEqual(f.input(raw), [{ consume: true }]); assert.equal(card.hidden, true);
+  }
+  footer.open("stats"); card = f.overlays.at(-1);
+  assert.deepEqual(f.input("\x1b[27;1:3u"), [undefined]); assert.equal(card.hidden, false);
+  assert.deepEqual(f.input("\x1b[97u"), [undefined]); assert.equal(card.hidden, true);
+  footer.open("stats"); footer.dispose();
+  assert.equal(input.listenerCount("data"), baseListeners); assert.equal(f.listeners.size, 0);
 });
 test("very short terminals use the dialog instead of overlapping the footer margins", () => {
   const f = fakeTui(); f.tui.terminal.rows = 10;
