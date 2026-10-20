@@ -11,6 +11,7 @@ import { loadConfig, saveConfig } from "./config.ts";
 import { buildStatusText, isTicking } from "./format.ts";
 import { EMPTY_TOTALS, addCall, addTool, totalsFromEntries, type SessionTotals } from "./session.ts";
 import { formatSummary, parseSamples, summarize } from "./stats.ts";
+import { createToolClock } from "./toolclock.ts";
 import { createTracker } from "./tracker.ts";
 import type {
   AssistantMessageEventLike,
@@ -51,6 +52,7 @@ function onOff(value: boolean): string {
 export default function (pi: ExtensionAPI): void {
   let config: ThroughputConfig = loadConfig();
   const tracker = createTracker();
+  const toolClock = createToolClock();
   let totals: SessionTotals = EMPTY_TOTALS;
   let lastPaintAt = Number.NEGATIVE_INFINITY;
   let animation: ReturnType<typeof setInterval> | undefined;
@@ -222,6 +224,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     config = loadConfig();
     tracker.reset();
+    toolClock.reset();
     reseed(ctx as StatusCtx);
     publish(ctx as StatusCtx, true);
   });
@@ -263,10 +266,23 @@ export default function (pi: ExtensionAPI): void {
     publish(ctx as StatusCtx, true);
   });
 
-  // 工具用时进会话统计：用宿主给的 durationMs（单调时钟测得），不自己计时。
+  // 工具用时按「派发 → 结果落地」计时：这一段覆盖权限确认与真正执行，
+  // 与宿主会话统计的 tool/call → tool/result 同口径。宿主的 durationMs
+  // 只含 execute()，工具没跑时还缺省，因此只在没记到派发时兜底。
+  pi.on("tool_execution_start", (event) => {
+    const callId = (event as { toolCallId?: unknown } | undefined)?.toolCallId;
+    if (typeof callId !== "string" || callId.length === 0) return;
+    toolClock.start(callId);
+  });
+
   pi.on("tool_execution_end", (event, ctx) => {
-    const durationMs = (event as { durationMs?: unknown } | undefined)?.durationMs;
-    if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs < 0) return;
+    const payload = event as { toolCallId?: unknown; durationMs?: unknown } | undefined;
+    const callId = typeof payload?.toolCallId === "string" ? payload.toolCallId : "";
+    const measured = callId.length > 0 ? toolClock.end(callId) : null;
+    const reported = payload?.durationMs;
+    const durationMs =
+      measured ?? (typeof reported === "number" && Number.isFinite(reported) && reported >= 0 ? reported : null);
+    if (durationMs === null) return;
     totals = addTool(totals, durationMs);
     if (config.history) {
       try {
@@ -287,6 +303,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("session_shutdown", (_event, ctx) => {
     tracker.reset();
+    toolClock.reset();
     stopTicker();
     try {
       (ctx as StatusCtx).ui.setStatus(STATUS_KEY, undefined);

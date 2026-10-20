@@ -91,6 +91,29 @@ test("summarize groups by model and orders by call count", () => {
   assert.equal(summary.byModel[0]?.p95TtftMs, 400);
 });
 
+test("summarize keeps cancelled calls and estimates out of the session figures", () => {
+  const summary = summarize(
+    [
+      sample({ tokens: 100, streamMs: 1000 }),
+      sample({ tokens: 900, streamMs: 9000, e2eMs: 9000, aborted: true }),
+      sample({ tokens: 50, streamMs: 500, estimated: true }),
+    ],
+    "stream",
+  );
+  assert.equal(summary.overall.calls, 3);
+  assert.equal(summary.overall.aborted, 1);
+  // token 总数也只认 provider 上报值；估算的 1 次单独计数。
+  assert.equal(summary.overall.tokens, 1000);
+  assert.equal(summary.overall.estimated, 1);
+  // Σ/Σ 只来自第一条：100 token / 1000ms；单次分布与之同源。
+  assert.equal(summary.overall.tps, 100);
+  assert.equal(summary.overall.p50Tps, 100);
+  assert.equal(summary.overall.p95Tps, 100);
+  // 中断的调用不计模型用时与首 token。
+  assert.equal(summary.overall.modelMs, 4800);
+  assert.equal(summary.overall.avgTtftMs, 400);
+});
+
 test("summarize reports the session rate as Σtoken ÷ Σ时长, not the mean of per-call rates", () => {
   const summary = summarize(
     [

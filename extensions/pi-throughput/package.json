@@ -1,6 +1,6 @@
 {
   "name": "pi-throughput",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Independent Pi status with session-level model time, tool time, time to first token, and output throughput.",
   "license": "MIT",
   "type": "module",
@@ -33,6 +33,7 @@
     "constants.ts",
     "format.ts",
     "session.ts",
+    "toolclock.ts",
     "stats.ts",
     "tracker.ts",
     "types.ts",

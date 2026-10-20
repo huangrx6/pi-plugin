@@ -1,18 +1,22 @@
 /**
- * 会话级累计器 —— 纯函数，与宿主会话统计（sessionStats projection）同口径。
+ * 会话级累计器 —— 纯函数，与宿主会话统计（sessionStats 投影）同口径。
  *
  * 四个常驻指标都从完整调用记录折叠而来，不随单次调用重置：
  *
  *   llmMs    Σ(请求发出 → 消息结束)                 "模型用时"
- *   toolMs   Σ 工具执行时长                         "工具调用用时"
+ *   toolMs   Σ(工具派发 → 结果落地)                 "工具调用用时"
  *   ttftMs   首 token 延迟之和 / 有首 token 的调用数  "首 token 平均"
  *   tps      Σtoken ÷ Σ(首 token → 结束)             "输出速度"
  *
  * 和「每次调用的数值」不是一回事：长短调用混在一起时，
  * 按调用次数平均会把长调用压成和短调用同权。
+ *
+ * 两条口径来自宿主 sessionStats：中断 / 报错的调用没有组装出完整消息，
+ * 只计次数、不计任何墙钟时间；速率只认 provider 上报的 token，
+ * 字符估算是流中显示用的近似，不进入 Σ/Σ。
  */
 import { SAMPLE_TYPE, TOOL_SAMPLE_TYPE } from "./constants.ts";
-import type { BranchEntryLike, LiveState, Measurement, ThroughputSample, ToolSample } from "./types.ts";
+import type { BranchEntryLike, Measurement, ThroughputSample, ToolSample } from "./types.ts";
 
 export interface SessionTotals {
   /** 已结束并计入统计的调用数。 */
@@ -63,16 +67,23 @@ export function addCall(totals: SessionTotals, sample: ThroughputSample): Sessio
   const streamMs = positive(sample.streamMs);
   const ttftMs = sample.ttftMs !== null && Number.isFinite(sample.ttftMs) && sample.ttftMs >= 0 ? sample.ttftMs : null;
   if (tokens === null && e2eMs === null) return totals;
+  const calls = totals.calls + 1;
+  // 中断 / 报错没有组装出完整消息：只计次数，不计时间与半截输出。
+  if (sample.aborted) return { ...totals, calls };
+  // 速率只认 provider 上报的 token；估算值只用于流中显示。
+  const counted = sample.estimated === false && tokens !== null;
+  const stream = counted && streamMs !== null ? { tokens, ms: streamMs } : null;
+  const e2e = counted && e2eMs !== null ? { tokens, ms: e2eMs } : null;
   return {
-    calls: totals.calls + 1,
+    calls,
     llmMs: totals.llmMs + (e2eMs ?? 0),
     toolMs: totals.toolMs,
     ttftMs: totals.ttftMs + (ttftMs ?? 0),
     ttftSteps: totals.ttftSteps + (ttftMs === null ? 0 : 1),
-    streamTokens: totals.streamTokens + (tokens !== null && streamMs !== null ? tokens : 0),
-    streamMs: totals.streamMs + (tokens !== null && streamMs !== null ? streamMs : 0),
-    e2eTokens: totals.e2eTokens + (tokens !== null && e2eMs !== null ? tokens : 0),
-    e2eMs: totals.e2eMs + (tokens !== null && e2eMs !== null ? e2eMs : 0),
+    streamTokens: totals.streamTokens + (stream?.tokens ?? 0),
+    streamMs: totals.streamMs + (stream?.ms ?? 0),
+    e2eTokens: totals.e2eTokens + (e2e?.tokens ?? 0),
+    e2eMs: totals.e2eMs + (e2e?.ms ?? 0),
   };
 }
 
@@ -81,34 +92,6 @@ export function addTool(totals: SessionTotals, durationMs: unknown): SessionTota
   const value = positive(durationMs);
   if (value === null) return totals;
   return { ...totals, toolMs: totals.toolMs + value };
-}
-
-/** 把在飞调用叠加到累计值上：模型用时随等待增长，速率窗口够了才计入 token。 */
-export function overlayLive(
-  totals: SessionTotals,
-  live: LiveState,
-  measurement: Measurement,
-  now: number,
-  minWindowMs: number,
-): SessionTotals {
-  if (live.startedAt === null || live.phase === "idle" || live.phase === "done") return totals;
-  const end = live.endedAt ?? now;
-  const inFlight = Math.max(0, end - live.startedAt);
-  const next: SessionTotals = { ...totals, llmMs: totals.llmMs + inFlight };
-  if (live.firstDeltaAt === null || live.tokens <= 0) return next;
-  const decodeMs = Math.max(0, end - live.firstDeltaAt);
-  if (decodeMs < minWindowMs) return next;
-  return measurement === "stream"
-    ? {
-        ...next,
-        streamTokens: next.streamTokens + live.tokens,
-        streamMs: next.streamMs + decodeMs,
-      }
-    : {
-        ...next,
-        e2eTokens: next.e2eTokens + live.tokens,
-        e2eMs: next.e2eMs + Math.max(1, inFlight),
-      };
 }
 
 /** 累计值 → 展示指标（平均、Σ/Σ 速率）。 */
@@ -154,10 +137,4 @@ export function totalsFromEntries(entries: Iterable<unknown>): SessionTotals {
   return totals;
 }
 
-/** 当前调用的速率是否已有可用的分母（决定要不要显示它在飞贡献）。 */
-export function liveRateReady(live: LiveState, measurement: Measurement, now: number, minWindowMs: number): boolean {
-  if (live.tokens <= 0 || live.firstDeltaAt === null || live.startedAt === null) return false;
-  const end = live.endedAt ?? now;
-  const spanMs = measurement === "stream" ? end - live.firstDeltaAt : end - live.startedAt;
-  return spanMs >= minWindowMs;
-}
+/** 当前调用的速率是否已有可用的分母。 */

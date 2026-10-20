@@ -6,7 +6,6 @@ import {
   addCall,
   addTool,
   deriveMetrics,
-  overlayLive,
   totalsFromEntries,
 } from "../session.ts";
 import type { LiveState, ThroughputSample } from "../types.ts";
@@ -63,6 +62,26 @@ test("a call with neither tokens nor measured time does not inflate counts", () 
   assert.deepEqual(addCall(EMPTY_TOTALS, sample({ tokens: 0, e2eMs: 0 })), EMPTY_TOTALS);
 });
 
+test("a cleaned-up call is counted but adds no wall time or decode window", () => {
+  const totals = addCall(EMPTY_TOTALS, sample({ aborted: true }));
+  assert.equal(totals.calls, 1);
+  assert.equal(totals.llmMs, 0);
+  assert.equal(totals.ttftSteps, 0);
+  assert.equal(totals.streamTokens, 0);
+  assert.equal(deriveMetrics(totals, "stream").tps, null);
+});
+
+test("estimated tokens never enter the session rate", () => {
+  const totals = addCall(EMPTY_TOTALS, sample({ estimated: true }));
+  // 模型用时与首 token 跟用量无关，照常计入。
+  assert.equal(totals.llmMs, 2400);
+  assert.equal(totals.ttftSteps, 1);
+  // Σ/Σ 只用 provider 上报的 token，估算值留在流中显示。
+  assert.equal(totals.streamTokens, 0);
+  assert.equal(totals.streamMs, 0);
+  assert.equal(deriveMetrics(totals, "stream").tps, null);
+});
+
 test("addTool only accepts usable durations", () => {
   assert.equal(addTool(EMPTY_TOTALS, 1500).toolMs, 1500);
   assert.equal(addTool(EMPTY_TOTALS, 0).toolMs, 0);
@@ -71,29 +90,10 @@ test("addTool only accepts usable durations", () => {
   assert.equal(addTool(EMPTY_TOTALS, "1200").toolMs, 0);
 });
 
-test("overlayLive adds model time at once but gates the decode window", () => {
-  const totals = addCall(EMPTY_TOTALS, sample());
-  const streaming = live({ tokens: 20, firstDeltaAt: 400 });
-  const early = overlayLive(totals, streaming, "stream", 600, 500);
-  assert.equal(early.llmMs, 3000);
-  assert.equal(early.streamTokens, 100);
-  const steady = overlayLive(totals, streaming, "stream", 1500, 500);
-  assert.equal(steady.streamTokens, 120);
-  assert.equal(steady.streamMs, 3100);
-});
-
-test("overlayLive ignores finished and idle calls", () => {
-  const totals = addCall(EMPTY_TOTALS, sample());
-  assert.deepEqual(overlayLive(totals, live({ phase: "done" }), "stream", 9000, 500), totals);
-  assert.deepEqual(overlayLive(totals, live({ phase: "idle", startedAt: null }), "stream", 9000, 500), totals);
-});
-
 test("the e2e denominator counts from the request anchor", () => {
   const totals = addCall(EMPTY_TOTALS, sample());
   assert.equal(deriveMetrics(totals, "e2e").tps, (100 / 2400) * 1000);
-  const overlay = overlayLive(totals, live({ tokens: 50, firstDeltaAt: 400 }), "e2e", 2000, 500);
-  assert.equal(overlay.e2eTokens, 150);
-  assert.equal(overlay.e2eMs, 4400);
+  assert.equal(deriveMetrics(totals, "stream").tps, (100 / 2000) * 1000);
 });
 
 test("deriveMetrics reports -- placeholders until data exists", () => {

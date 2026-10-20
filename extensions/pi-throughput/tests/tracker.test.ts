@@ -58,6 +58,23 @@ test("a second start re-anchors instead of carrying the previous call", () => {
   assert.equal(sample.e2eMs, 700);
 });
 
+test("an empty delta chunk does not anchor the first token", () => {
+  const { tracker, set } = clocked();
+  tracker.start({});
+  set(120);
+  // provider 先发一个空帧开流：不能把它当首 token，否则 TTFT 会被算成 0。
+  tracker.update({ type: "text_delta", delta: "", partial: { usage: { output: 0 } } });
+  assert.equal(tracker.snapshot().firstDeltaAt, null);
+  assert.equal(tracker.snapshot().phase, "waiting");
+  set(900);
+  tracker.update({ type: "text_delta", delta: "hi", partial: { content: [{ type: "text", text: "hi" }] } });
+  assert.equal(tracker.snapshot().firstDeltaAt, 900);
+  set(1200);
+  const sample = tracker.finish({ role: "assistant", usage: { output: 5 }, stopReason: "stop" });
+  assert.ok(sample);
+  assert.equal(sample.ttftMs, 900);
+});
+
 test("non-delta events do not move the anchors", () => {
   const { tracker, set } = clocked();
   tracker.start({});

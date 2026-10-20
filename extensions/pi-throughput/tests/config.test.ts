@@ -35,10 +35,11 @@ test("normalizeConfig coerces invalid values back to defaults", () => {
   assert.deepEqual(normalizeConfig(null), DEFAULTS);
   assert.deepEqual(normalizeConfig("nope"), DEFAULTS);
   assert.deepEqual(normalizeConfig({ display: "everything", measurement: "average" }), DEFAULTS);
-  const clamped = normalizeConfig({ minWindowMs: 5, throttleMs: -20, unknown: true });
-  assert.equal(clamped.minWindowMs, 100);
+  const clamped = normalizeConfig({ throttleMs: -20, minWindowMs: 5, unknown: true });
   assert.equal(clamped.throttleMs, 0);
   assert.equal("unknown" in clamped, false);
+  // minWindowMs 已随在飞叠加下线：旧文件里的数值静默丢弃。
+  assert.equal("minWindowMs" in clamped, false);
   const kept = normalizeConfig({
     enabled: false,
     display: "ttft",
@@ -54,7 +55,6 @@ test("normalizeConfig coerces invalid values back to defaults", () => {
     display: "ttft",
     measurement: "e2e",
     history: false,
-    minWindowMs: 1201,
     throttleMs: 4000,
   });
   assert.equal("retainFinal" in kept, false);

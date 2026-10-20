@@ -5,7 +5,7 @@
  * 配色由绘制底栏的一方决定。
  */
 import { CJK_TOKENS_PER_CHAR, MAX_STATUS_WIDTH, OTHER_CHARS_PER_TOKEN } from "./constants.ts";
-import { deriveMetrics, overlayLive, type SessionTotals } from "./session.ts";
+import { deriveMetrics, type SessionTotals } from "./session.ts";
 import type {
   AssistantMessageLike,
   LiveState,
@@ -88,11 +88,12 @@ export function formatTps(tps: number): string {
  * 时长：60s 以内按秒（<10s 一位小数），超过后换成 分/时。
  *
  * 底栏宽度有限，长等待不能一直堆秒数（`65.00s`），
- * `1m5s` 才是一眼能读的量。
+ * `1m5s` 才是一眼能读的量。亚毫秒读数取整到 `1ms`：
+ * `0ms` 看起来像没测到，而它只是刚发出请求。
  */
 export function formatLatency(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "--";
-  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 1000) return `${Math.max(1, Math.round(ms))}ms`;
   if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
   if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
   if (ms < 3_600_000) {
@@ -142,10 +143,7 @@ export function buildStatusText(
   config: ThroughputConfig,
   now: number,
 ): string {
-  const metrics = deriveMetrics(
-    overlayLive(totals, live, config.measurement, now, config.minWindowMs),
-    config.measurement,
-  );
+  const metrics = deriveMetrics(totals, config.measurement);
   const parts: string[] = [];
   if (config.display === "full") {
     parts.push(`llm: ${metrics.llmMs === null ? "--" : formatLatency(metrics.llmMs)}`);

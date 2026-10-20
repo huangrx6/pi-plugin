@@ -21,7 +21,6 @@ export interface ThroughputConfig {
   measurement: Measurement;
   /** 是否把每次调用样本与工具用时写入会话。 */
   history: boolean;
-  minWindowMs: number;
   throttleMs: number;
 }
 
@@ -88,6 +87,8 @@ export interface AssistantMessageLike {
 
 export interface AssistantMessageEventLike {
   type?: string;
+  /** 增量文本；空字符串表示 provider 只推进了协议帧（不算首 token）。 */
+  delta?: string;
   partial?: AssistantMessageLike;
 }
 

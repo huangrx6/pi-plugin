@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { DEFAULT_MIN_WINDOW_MS, DEFAULT_THROTTLE_MS, PACKAGE_NAME } from "./constants.ts";
+import { DEFAULT_THROTTLE_MS, PACKAGE_NAME } from "./constants.ts";
 import type { DisplayMode, Measurement, ThroughputConfig } from "./types.ts";
 
 export const DEFAULTS: ThroughputConfig = {
@@ -15,7 +15,6 @@ export const DEFAULTS: ThroughputConfig = {
   display: "full",
   measurement: "stream",
   history: true,
-  minWindowMs: DEFAULT_MIN_WINDOW_MS,
   throttleMs: DEFAULT_THROTTLE_MS,
 };
 
@@ -52,7 +51,6 @@ export function normalizeConfig(raw: unknown): ThroughputConfig {
     display: enumValue<DisplayMode>(source.display, ["full", "tps", "ttft"], DEFAULTS.display),
     measurement: enumValue<Measurement>(source.measurement, ["stream", "e2e"], DEFAULTS.measurement),
     history: booleanValue(source.history, DEFAULTS.history),
-    minWindowMs: clampNumber(source.minWindowMs, DEFAULTS.minWindowMs, 100, 30_000),
     throttleMs: clampNumber(source.throttleMs, DEFAULTS.throttleMs, 0, 5_000),
   };
 }

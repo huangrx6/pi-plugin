@@ -72,13 +72,16 @@ export function createTracker(now: () => number = () => performance.now()): Trac
       const at = now();
       // finish() 之后的迟到增量不重开测量：那是取消路径上的残留事件。
       if (state.phase === "done" || state.phase === "idle") return;
-      if (state.firstDeltaAt === null) {
-        state = { ...state, firstDeltaAt: at };
-      }
       const count = tokenCount(event.partial);
+      // 首 token 只认非空增量（与宿主 sessionStats 一致）：provider 有时先发
+      // 一个空 delta 开流，把它当首 token 会把 TTFT 算成接近 0。
+      const delta = event.delta;
+      const carriesContent = typeof delta === "string" ? delta.length > 0 : count.tokens > 0;
+      if (!carriesContent) return;
       state = {
         ...state,
         phase: "streaming",
+        firstDeltaAt: state.firstDeltaAt ?? at,
         tokens: count.tokens,
         estimated: count.estimated,
       };

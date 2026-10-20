@@ -166,6 +166,45 @@ test("tool time is recorded and joins the persistent line", async (t) => {
   assert.equal(entries.length, 1);
 });
 
+test("tool time runs from dispatch to result, not the host's execute-only duration", async (t) => {
+  withAgentDir(t);
+  const { pi, emit } = createFakePi();
+  extension(pi as unknown as ExtensionAPI);
+  const { ctx, statuses } = createCtx();
+
+  await emit("session_start", {}, ctx);
+  await emit("tool_execution_start", { type: "tool_execution_start", toolCallId: "c9", toolName: "bash" }, ctx);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  // 宿主只报 execute() 的 1ms；会话口径要的是派发到结果的整段墙钟。
+  await emit(
+    "tool_execution_end",
+    { type: "tool_execution_end", toolCallId: "c9", toolName: "bash", durationMs: 1, isError: false },
+    ctx,
+  );
+  const text = statuses.at(-1)?.text ?? "";
+  const measured = Number(/tools: (\d+)ms/.exec(text)?.[1]);
+  assert.ok(measured >= 20, text);
+});
+
+test("a cancelled call is recorded but does not spend model time", async (t) => {
+  withAgentDir(t);
+  const { pi, emit, entries } = createFakePi();
+  extension(pi as unknown as ExtensionAPI);
+  const { ctx, statuses } = createCtx();
+
+  await emit("session_start", {}, ctx);
+  await emit("before_provider_request", {}, ctx);
+  await emit("message_update", delta(5), ctx);
+  await emit(
+    "message_end",
+    { type: "message_end", message: { role: "assistant", usage: { output: 5 }, stopReason: "aborted" } },
+    ctx,
+  );
+  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · rate: --");
+  assert.equal(entries.length, 1);
+  assert.equal((entries[0]?.data as ThroughputSample).aborted, true);
+});
+
 test("display can be switched off without losing sample history", async (t) => {
   withAgentDir(t);
   const { pi, emit, run, entries } = createFakePi();

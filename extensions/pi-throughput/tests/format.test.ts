@@ -11,7 +11,7 @@ import {
   tokenCount,
   waitingMs,
 } from "../format.ts";
-import { EMPTY_TOTALS, addCall, addTool, overlayLive } from "../session.ts";
+import { EMPTY_TOTALS, addCall, addTool } from "../session.ts";
 import { displayWidth, sanitizeTerminalText, truncateToWidth } from "../ui.ts";
 import { DEFAULTS } from "../config.ts";
 import type { LiveState, ThroughputSample } from "../types.ts";
@@ -95,6 +95,9 @@ test("number formatting keeps the status bar stable", () => {
   assert.equal(formatLatency(120_000), "2m");
   assert.equal(formatLatency(3_900_000), "1h5m");
   assert.equal(formatLatency(-1), "--");
+  // 亚毫秒读数不能显示成 `0ms`（看起来像没测到）。
+  assert.equal(formatLatency(0.4), "1ms");
+  assert.equal(formatLatency(0), "1ms");
   assert.equal(formatTokens(999), "999");
   assert.equal(formatTokens(12_345), "12.3k");
 });
@@ -138,29 +141,24 @@ test("tool time joins the same line as its own persistent metric", () => {
 test("the waiting suffix is appended without hiding the persistent metrics", () => {
   const totals = addCall(EMPTY_TOTALS, sample());
   const waiting = buildStatusText(totals, live({ phase: "waiting", startedAt: 1000 }), DEFAULTS, 4200);
-  // 在飞调用也已计入模型用时：2.4s（已完成） + 3.2s（本次等待）
-  assert.equal(waiting, "llm: 5.6s · tools: -- · ttft: 400ms · rate: 50.0 t/s · wait 3.2s");
+  // 在飞调用不提前计入任何一项（宿主口径按消息落地结算）。
+  assert.equal(waiting, "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s · wait 3.2s");
   assert.equal(waitingMs(live({ phase: "waiting", startedAt: 1000 }), 4200), 3200);
   assert.equal(waitingMs(live({ firstDeltaAt: 500, startedAt: 1000 }), 4200), null);
 });
 
-test("an in-flight call moves model time and, once the window is usable, the rate", () => {
+test("an in-flight call moves nothing but the wait timer", () => {
   const totals = addCall(EMPTY_TOTALS, sample());
   const streaming = live({ tokens: 20, startedAt: 0, firstDeltaAt: 400 });
-  // 窗口不足 minWindowMs 时只叠模型用时，不把噪声算进速率。
-  const early = buildStatusText(totals, streaming, DEFAULTS, 600);
-  assert.equal(early, "llm: 3.0s · tools: -- · ttft: 400ms · rate: 50.0 t/s");
-  // 120 token ÷（2000ms + 1100ms 在飞窗口）
-  const steady = buildStatusText(totals, streaming, DEFAULTS, 1500);
-  assert.equal(steady, "llm: 3.9s · tools: -- · ttft: 400ms · rate: 38.7 t/s");
-  const overlay = overlayLive(totals, streaming, "stream", 1500, DEFAULTS.minWindowMs);
-  assert.equal(overlay.streamTokens, 120);
-  assert.equal(overlay.streamMs, 3100);
+  const expected = "llm: 2.4s · tools: -- · ttft: 400ms · rate: 50.0 t/s";
+  assert.equal(buildStatusText(totals, streaming, DEFAULTS, 600), expected);
+  assert.equal(buildStatusText(totals, streaming, DEFAULTS, 1500), expected);
+  assert.equal(buildStatusText(totals, live({ phase: "idle" }), DEFAULTS, 9_999), expected);
 });
 
 test("the wait timer converts units instead of counting seconds forever", () => {
   const long = buildStatusText(EMPTY_TOTALS, live({ phase: "waiting", startedAt: 0 }), DEFAULTS, 95_000);
-  assert.equal(long, "llm: 1m35s · tools: -- · ttft: -- · rate: -- · wait 1m35s");
+  assert.equal(long, "llm: -- · tools: -- · ttft: -- · rate: -- · wait 1m35s");
   assert.equal(isTicking(live({ phase: "waiting", startedAt: 0 }), 95_000), true);
 });
 

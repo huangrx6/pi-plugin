@@ -13,6 +13,8 @@ export interface MetricBucket {
   calls: number;
   aborted: number;
   tokens: number;
+  /** 未上报 usage 的调用数：不进 token 总数，也不进 Σ/Σ 速率。 */
+  estimated: number;
   /** 会话口径输出速度：Σtoken ÷ Σ时长（与宿主会话统计同口径）。 */
   tps: number | null;
   /** 模型用时：Σ（请求发出 → 消息结束）。 */
@@ -101,14 +103,24 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
   const rates: number[] = [];
   // 速率的会话口径是 Σtoken ÷ Σ时长：先把分子分母各自累起来，
   // 不是「每次调用的 TPS 取平均」（长调用和短调用的权重不同，两者能差 10% 以上）。
+  // 与宿主 sessionStats 对齐：中断的调用不计时间，估算 token 不进 Σ/Σ；
+  // 单次调用分布（p50 / p95）与 Σ/Σ 同源，否则会把估算值和半截流读出的
+  // 天文数字混进来。
   let spanTokens = 0;
   let spanMs = 0;
   let modelMs = 0;
+  let tokens = 0;
+  let estimated = 0;
   const ttft: number[] = [];
   for (const sample of samples) {
     const rate = sampleTps(sample, measurement);
     const span = measurement === "stream" ? sample.streamMs : sample.e2eMs;
-    if (rate !== null && span !== null && span > 0) {
+    const usable = !sample.aborted && sample.estimated === false;
+    // token 总数同样只认 provider 上报值；估算次数单独记账，不在图里冒充用量。
+    if (sample.estimated) estimated += 1;
+    else tokens += sample.tokens;
+    if (sample.aborted) continue;
+    if (usable && rate !== null && span !== null && span > 0) {
       rates.push(rate);
       spanTokens += sample.tokens;
       spanMs += span;
@@ -119,7 +131,8 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
   return {
     calls: samples.length,
     aborted: samples.filter((sample) => sample.aborted).length,
-    tokens: samples.reduce((sum, sample) => sum + sample.tokens, 0),
+    tokens,
+    estimated,
     tps: spanMs > 0 ? (spanTokens / spanMs) * 1000 : null,
     modelMs: modelMs > 0 ? modelMs : null,
     avgTps: average(rates),
@@ -167,7 +180,7 @@ function percentileSuffix(bucketLike: MetricBucket): string {
   if (bucketLike.p50Tps === null && bucketLike.p95Tps === null) return "";
   const p50 = bucketLike.p50Tps === null ? "--" : formatTps(bucketLike.p50Tps);
   const p95 = bucketLike.p95Tps === null ? "--" : formatTps(bucketLike.p95Tps);
-  return `（p50 ${p50} · p95 ${p95} t/s）`;
+  return `（单次调用 p50 ${p50} · p95 ${p95} t/s）`;
 }
 
 /** 人读汇总；样本为空时给出明确文案而不是空表。 */
@@ -187,6 +200,9 @@ export function formatSummary(summary: ThroughputSummary): string {
     `首 token 平均 ${ttft} · 输出速度 ${tps}${percentileSuffix(overall)}`,
     `口径：${name}；输出速度 = Σtoken ÷ Σ时长`,
   ];
+  if (overall.estimated > 0) {
+    lines.push(`· ${overall.estimated} 次调用未上报 usage：不计入 token 与输出速度`);
+  }
   for (const model of summary.byModel) {
     lines.push(
       `· ${model.model || "未知模型"}：${model.calls} 次 ${metricLine(model)}`,
