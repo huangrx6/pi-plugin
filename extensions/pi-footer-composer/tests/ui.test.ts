@@ -11,16 +11,24 @@ import { panelCloseButton } from "../render.ts";
 const theme = { fg: (_c: string, text: string) => text, bg: (_c: string, text: string) => text };
 function fakeTui() {
   const overlays: any[] = [], listeners = new Set<Function>();
+  let focused: any = null;
   const tui = {
-    mode: "fullscreen", terminal: { columns: 120, rows: 24 }, requests: 0,
-    requestRender() { this.requests++; },
+    mode: "fullscreen", terminal: { columns: 120, rows: 24 }, requests: 0, forced: 0,
+    requestRender(force?: boolean) { this.requests++; if (force) this.forced++; },
+    setFocus(component: any) { focused = component; },
     showOverlay(card: any, options: any) {
+      const previous = focused;
+      if (!options.nonCapturing) focused = card;
       const item = { card, options, hidden: false }; overlays.push(item);
-      return { hide() { item.hidden = true; }, getBounds: () => ({ row: options.row, col: options.col, width: options.width, height: options.maxHeight }) };
+      return { hide() { item.hidden = true; if (focused === card) focused = previous; }, getBounds: () => ({ row: options.row, col: options.col, width: options.width, height: options.maxHeight }) };
     },
     addInputListener(listener: Function) { listeners.add(listener); return () => listeners.delete(listener); },
   };
-  return { tui, overlays, listeners, input: (raw: string) => [...listeners].map(listener => listener(raw)) };
+  return { tui, overlays, listeners, input: (raw: string) => {
+    const results = [];
+    for (const listener of listeners) { const result = listener(raw); results.push(result); if (result?.consume) return results; }
+    focused?.handleInput?.(raw); return results;
+  } };
 }
 const mouse = (x: number, type = "click", extra = {}): MouseEvent => ({ type, button: "left", x, y: 1, screenX: x, screenY: 23, ...extra });
 
@@ -31,14 +39,14 @@ test("independent popovers switch, toggle, close with Esc, scroll, resize, and r
   const line = footer.render(120)[1], tokensX = visibleWidth(line.slice(0, line.indexOf("▱"))), contextX = visibleWidth(line.slice(0, line.indexOf("◔")));
   assert.deepEqual(footer.handleMouse(mouse(2, "press")), { handled: true, render: false }); assert.equal(f.overlays.length, 0);
   footer.handleMouse(mouse(2)); assert.equal(f.overlays.length, 1);
-  assert.equal(f.overlays[0].options.nonCapturing, true);
+  assert.equal(f.overlays[0].options.nonCapturing, false);
   assert.match(f.overlays[0].card.render(54).join("\n"), /会话统计/);
   footer.handleMouse(mouse(tokensX)); assert.equal(f.overlays[0].hidden, true);
   assert.match(f.overlays[1].card.render(54).join("\n"), /Token 用量/);
   assert.equal(f.listeners.size, 1);
   footer.handleMouse(mouse(tokensX)); assert.equal(f.listeners.size, 0);
   footer.handleMouse(mouse(contextX)); f.input("\x1b"); assert.equal(f.listeners.size, 0);
-  footer.open("more"); assert.deepEqual(f.input("\x1b"), [{ consume: true }]); assert.equal(f.listeners.size, 0);
+  footer.open("more"); assert.deepEqual(f.input("\x1b"), [undefined]); assert.equal(f.listeners.size, 0);
   footer.open("more"); let card = f.overlays.at(-1); const before = card.card.render(54).join("\n");
   card.card.handleMouse(mouse(0, "wheel", { wheelDelta: 1 })); assert.notEqual(card.card.render(54).join("\n"), before);
   f.tui.terminal.columns = 32; f.tui.terminal.rows = 16; footer.render(32);
@@ -133,7 +141,7 @@ test("outside presses and terminal blur dismiss without consuming host input or 
   input.emit("data", "\x1b[O"); assert.equal(card.hidden, true);
   for (const raw of ["\x1b", "\x1b[27u", "\x1b[27;1u", "\x1b[27;1:1u", "\x1b[27;1;27~"]) {
     footer.open("stats"); card = f.overlays.at(-1);
-    assert.deepEqual(f.input(raw), [{ consume: true }]); assert.equal(card.hidden, true);
+    assert.deepEqual(f.input(raw), [undefined]); assert.equal(card.hidden, true);
   }
   footer.open("stats"); card = f.overlays.at(-1);
   assert.deepEqual(f.input("\x1b[27;1:3u"), [undefined]); assert.equal(card.hidden, false);
@@ -181,5 +189,34 @@ test("growing and shrinking diagnostics preserve bounds and reset an out-of-rang
   f.tui.terminal.columns = 120; f.tui.terminal.rows = 24; footer.render(120);
   const short = card.card.render(card.options.width).join("\n");
   assert.match(short, /LSP Active: python/); assert.match(short, /模型/); assert.doesNotMatch(short, /滚轮查看更多|server-/);
+  footer.dispose();
+});
+
+test("popover lifecycle never forces a screen clear, and idle close is a no-op", () => {
+  const f = fakeTui();
+  const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), emptySnapshot, () => assert.fail("fallback"));
+  footer.render(120); const before = f.tui.requests;
+  footer.close(); assert.equal(f.tui.requests, before);
+  for (const id of ["stats", "tokens", "context", "more"] as const) { footer.open(id); footer.render(120); }
+  footer.close(); footer.dispose();
+  assert.equal(f.tui.forced, 0);
+  assert.ok(f.overlays.every(card => card.hidden));
+});
+
+test("focused popovers own Esc while streaming and restore normal editor keys after closing", () => {
+  const f = fakeTui(), s = emptySnapshot(); s.working = true;
+  let interrupts = 0; const typed: string[] = [];
+  f.tui.setFocus({ handleInput(raw: string) { if (raw === "\x1b") interrupts++; else typed.push(raw); } });
+  const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), () => s, () => assert.fail("fallback"));
+  footer.render(120);
+  for (const raw of ["\x1b", "\x1b[27u", "\x1b[27;1:1u", "\x1b[27;1;27~"]) {
+    footer.open("stats"); const card = f.overlays.at(-1);
+    f.input(raw); assert.equal(card.hidden, true); assert.equal(interrupts, 0); assert.equal(s.working, true);
+  }
+  footer.open("stats"); f.input("a");
+  assert.deepEqual(typed, ["a"]); assert.equal(f.overlays.at(-1).hidden, true);
+  f.input("\x1b"); assert.equal(interrupts, 1); // Normal interrupt works after the panel closes.
+  footer.open("stats"); footer.open("tokens"); f.input("\x1b");
+  assert.equal(interrupts, 1); f.input("b"); assert.deepEqual(typed, ["a", "b"]);
   footer.dispose();
 });

@@ -5,7 +5,7 @@ import type { Snapshot } from "./types.ts";
 export type MouseEvent = { type: string; button: string; x: number; y: number; screenX: number; screenY: number; shift?: boolean; alt?: boolean; ctrl?: boolean; clickCount?: number; wheelDelta?: number };
 type MouseResult = { handled: boolean; render?: boolean } | undefined;
 type OverlayOptions = { row: number; col: number; width: number; maxHeight: number; nonCapturing: boolean; margin: number; visible: (width: number, height: number) => boolean };
-type Component = { render(width: number): string[]; invalidate(): void; handleMouse?(event: MouseEvent): MouseResult };
+type Component = { render(width: number): string[]; invalidate(): void; handleInput?(data: string): void; handleMouse?(event: MouseEvent): MouseResult };
 export type Tui = {
   mode?: string;
   terminal?: { columns: number; rows: number };
@@ -22,13 +22,16 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
   let overlay: ReturnType<NonNullable<Tui["showOverlay"]>> | undefined, unlisten: (() => void) | undefined, unobserve: (() => void) | undefined;
   let generation = 0;
   const hasRoom = (w: number, h: number) => w >= 18 + 2 * PANEL_MARGIN && h - footerHeight - PANEL_GAP - 1 >= PANEL_MIN_HEIGHT + 1;
-  const options: OverlayOptions = { row: 0, col: 0, width: config.style.panelWidth, maxHeight: 14, nonCapturing: true, margin: 0, visible: hasRoom };
+  const options: OverlayOptions = { row: 0, col: 0, width: config.style.panelWidth, maxHeight: 14, nonCapturing: false, margin: 0, visible: hasRoom };
   const refresh = () => tui.requestRender();
   const close = () => {
+    const wasOpen = active !== null;
     generation++; active = null; scroll = 0; overlay?.hide(); overlay = undefined;
     unlisten?.(); unlisten = undefined;
     unobserve?.(); unobserve = undefined;
-    if (!disposed) tui.requestRender(true);
+    // Hiding an overlay already restores its area through the host's diff renderer.
+    // A forced redraw clears terminal graphics even when the card never covered them.
+    if (!disposed && wasOpen) refresh();
   };
   const place = () => {
     const w = tui.terminal?.columns ?? columns, h = tui.terminal?.rows ?? 24;
@@ -49,6 +52,10 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
       return result.lines;
     },
     invalidate() {},
+    handleInput(raw) {
+      // The focused card owns Esc. Never return it to the editor's interrupt action.
+      if (keyboardAction(raw) === "escape") close();
+    },
     handleMouse(event) {
       if (event.type === "wheel") { scrollBy((event.wheelDelta ?? 0) > 0 ? 3 : -3); return { handled: true }; }
       if (!plainClick(event)) return undefined;
@@ -83,7 +90,8 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     unlisten = tui.addInputListener(raw => {
       if (!active) return undefined;
       const action = keyboardAction(raw);
-      if (action === "escape") { close(); return { consume: true }; }
+      // Let Esc reach the card's focus handler; edit input closes the card first,
+      // so the host naturally dispatches that same key to the restored editor.
       if (action === "edit") close();
       return undefined;
     });
