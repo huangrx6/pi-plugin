@@ -160,3 +160,26 @@ test("footer divider follows the input border theme without adding empty rows", 
   assert.equal(rows.length, 2); assert.ok(rows.every(Boolean));
   footer.dispose();
 });
+
+test("growing and shrinking diagnostics preserve bounds and reset an out-of-range scroll position", () => {
+  const f = fakeTui(), config = defaultFooterConfig();
+  config.more.sections = [{ label: "诊断", status: "diagnostics" }];
+  const statuses = new Map([["diagnostics", "LSP Active: python"]]);
+  const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => statuses }, config, emptySnapshot, () => assert.fail("fallback"));
+  footer.render(120); footer.open("more");
+  const card = f.overlays.at(-1);
+  statuses.set("diagnostics", "LSP Active: " + Array.from({ length: 200 }, (_, i) => `server-${i}`).join(", "));
+  footer.render(120); card.card.render(card.options.width);
+  for (let i = 0; i < 100; i++) card.card.handleMouse(mouse(0, "wheel", { wheelDelta: 1 }));
+  assert.match(card.card.render(card.options.width).join("\n"), /模型/);
+  f.tui.terminal.columns = 32; f.tui.terminal.rows = 16; footer.render(32);
+  const narrow = card.card.render(card.options.width);
+  assert.ok(card.options.col + card.options.width <= 30);
+  assert.ok(card.options.row >= 1 && card.options.row + narrow.length <= 14);
+  assert.ok(narrow.every((line: string) => visibleWidth(line) === card.options.width));
+  statuses.set("diagnostics", "LSP Active: python");
+  f.tui.terminal.columns = 120; f.tui.terminal.rows = 24; footer.render(120);
+  const short = card.card.render(card.options.width).join("\n");
+  assert.match(short, /LSP Active: python/); assert.match(short, /模型/); assert.doesNotMatch(short, /滚轮查看更多|server-/);
+  footer.dispose();
+});

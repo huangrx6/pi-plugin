@@ -4,6 +4,7 @@ import { PANEL_HEADER_ROW, PANEL_PADDING, panelCloseButton, panelContent, panelL
 import { defaultFooterConfig } from "../config.ts";
 import { emptySnapshot } from "../types.ts";
 import { visibleWidth } from "../layout.ts";
+import { wrapWords } from "../wrapping.ts";
 const plain = (...args: Parameters<typeof panelContent>) => panelText(panelContent(...args));
 const theme = { fg: (_color: string, text: string) => text };
 test("summary and all cards stay within terminal widths, including CJK and long external content", () => {
@@ -95,6 +96,56 @@ test("multiline values keep one right edge with the label beside the first line"
   assert.equal(rows.length, 3); assert.match(rows[0], /^额度 +OC/);
   for (const row of rows) assert.equal(visibleWidth(row), 52);
 });
+test("a diagnostic paragraph has one label and compact continuations on a stable left edge", () => {
+  const c = defaultFooterConfig(); c.more.sections = [{ label: "诊断", status: "diagnostics" }];
+  const value = "LSP Active: python, marksman, typos, ast-grep, opengrep";
+  const rows = panelContent("more", emptySnapshot(), c, new Map([["diagnostics", value]]), 52).rows;
+  const end = rows.findIndex(row => !row.length), paragraph = rows.slice(0, end);
+  assert.equal(paragraph.length, 2);
+  assert.equal(paragraph.flat().filter(part => part.text === "诊断").length, 1);
+  assert.equal(paragraph.map(row => row.find(part => part.tone === "value")!.text).join(" "), value);
+  for (const row of paragraph) {
+    const index = row.findIndex(part => part.tone === "value");
+    assert.equal(visibleWidth(row.slice(0, index).map(part => part.text).join("")), 7);
+    assert.equal(visibleWidth(row.map(part => part.text).join("")), 52);
+  }
+  assert.deepEqual(rows[end], []); // Field spacing stays separate from paragraph wrapping.
+});
+test("comma lists wrap at item boundaries and mixed long text retains every grapheme", () => {
+  const names = ["python", "marksman", "typos", "ast-grep", "opengrep"];
+  const compact = names.join(",");
+  const lines = wrapWords(compact, 18);
+  assert.equal(lines.join(""), compact);
+  for (const name of names) assert.ok(lines.some(line => line.includes(name)), name);
+  const c = defaultFooterConfig(); c.more.sections = [{ label: "诊断", status: "diagnostics" }];
+  const value = `LSP Active: ${compact}；中文诊断、🚀分析器，${"unbroken".repeat(40)}`;
+  for (const width of [12, 20, 36, 52, 92]) {
+    const rows = panelContent("more", emptySnapshot(), c, new Map([["diagnostics", value]]), width).rows;
+    const end = rows.findIndex(row => row.some(part => part.tone === "rule"));
+    const values = rows.slice(0, end).flat().filter(part => part.tone === "value").map(part => part.text);
+    assert.equal(values.join("").replace(/\s/gu, ""), value.replace(/\s/gu, ""));
+    assert.ok(values.every(text => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(text)));
+    for (const row of rows) assert.ok(visibleWidth(row.map(part => part.text).join("")) <= width);
+  }
+});
+test("large diagnostic lists remain scrollable inside fixed card bounds with the tail reachable", () => {
+  const c = defaultFooterConfig(); c.more.sections = [{ label: "诊断", status: "diagnostics" }];
+  const s = emptySnapshot(); s.model = "end-model"; s.provider = "end-provider";
+  const value = "LSP Active: " + Array.from({ length: 200 }, (_, i) => `server-${i}`).join(", ");
+  const statuses = new Map([["diagnostics", value]]);
+  for (const width of [28, 40, 60, 100]) for (const height of [10, 16, 24]) {
+    const first = panelLines("more", s, c, statuses, width, height, 0, theme);
+    const last = panelLines("more", s, c, statuses, width, height, Number.MAX_SAFE_INTEGER, theme);
+    assert.ok(first.maxOffset > 0);
+    for (const card of [first, last]) {
+      assert.equal(card.lines.length, height);
+      assert.match(card.lines[PANEL_HEADER_ROW], /更多.*ｘ/);
+      assert.ok(card.lines.every(line => visibleWidth(line) === width));
+      assert.match(card.lines.join("\n"), /滚轮查看更多|…/);
+    }
+    assert.match(last.lines.join("\n"), /end-provider/);
+  }
+});
 test("comfortable spacing stays bounded at every supported card height", () => {
   const s = emptySnapshot(), c = defaultFooterConfig();
   for (let height = 1; height <= 32; height++) {
@@ -115,7 +166,7 @@ test("square close glyph shares title weight and the right edge of values on eve
   for (const icons of ["unicode", "ascii"] as const) for (const width of [32, 54, 60, 80]) {
     const c = defaultFooterConfig(); c.icons = icons;
     const button = panelCloseButton(width, icons);
-    assert.equal(button.glyph, icons === "ascii" ? "X" : "Ｘ");
+    assert.equal(button.glyph, icons === "ascii" ? "x" : "ｘ");
     assert.equal(button.width, icons === "ascii" ? 1 : 2);
     for (const id of ["stats", "tokens", "context", "more"] as const) {
       const rows = panelLines(id, emptySnapshot(), c, new Map(), width, 30, 0, t).lines;
@@ -127,5 +178,5 @@ test("square close glyph shares title weight and the right edge of values on eve
       assert.equal(rows.filter(row => row.includes(button.glyph)).length, 1);
     }
   }
-  assert.ok(bolded.includes("会话统计")); assert.ok(bolded.includes("Ｘ"));
+  assert.ok(bolded.includes("会话统计")); assert.ok(bolded.includes("ｘ"));
 });

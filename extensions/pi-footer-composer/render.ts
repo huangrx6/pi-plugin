@@ -68,34 +68,35 @@ function pair(label: string, value: string, width: number): PanelRow[] {
   if (!safe.includes("\n") && labelWidth + visibleWidth(safe) + 3 <= width) {
     return [[span(label, "label"), span(" ".repeat(width - labelWidth - visibleWidth(safe)), "label"), span(safe, "value")]];
   }
-  // 所有续行沿同一右边界对齐；空间足够时，标签与第一行值共用一行。
+  // 短记录沿右边界对齐；长段落作为右侧文本块，续行沿同一左边界。
   const beside = width - labelWidth - 3 >= 12;
   const available = beside ? width - labelWidth - 3 : width;
-  const details = safe.split("\n").flatMap(line => {
+  const records = safe.split("\n").flatMap(line => {
     // 只识别文本的排版分隔，不解释额度/诊断等发布者的语义或数值。
     const parts = visibleWidth(line) > available ? line.split(/\s*[·|•]\s*|(?<=\))\s+|\s{2,}/u) : [line];
-    return parts.flatMap(part => wrapWords(part, available));
-  });
+    return parts;
+  }).filter(part => part.trim());
   const rows: PanelRow[] = beside ? [] : wrapWords(label, width).map(text => [span(text, "label")]);
-  details.forEach((text, index) => {
-    const left = beside && index === 0 ? label : "";
-    rows.push([span(left, "label"), span(" ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(text))), "label"), span(text, "value")]);
+  records.forEach((record, index) => {
+    const lines = wrapWords(record, available), flowing = lines.length > 1;
+    if (index) rows.push([]);
+    lines.forEach((text, line) => {
+      const left = beside && index === 0 && line === 0 ? label : "";
+      const blockWidth = flowing ? available : visibleWidth(text);
+      rows.push([span(left, "label"), span(" ".repeat(Math.max(0, width - visibleWidth(left) - blockWidth)), "label"), span(text, "value"), span(" ".repeat(Math.max(0, blockWidth - visibleWidth(text))), "label")]);
+    });
   });
   return rows;
 }
-function spacedRows(rows: PanelRow[]): PanelRow[] {
-  const spaced: PanelRow[] = [];
-  for (const row of rows) {
-    if (spaced.length && spaced.at(-1)!.length && row.length) spaced.push([]);
-    if (row.length || spaced.at(-1)?.length) spaced.push(row);
-  }
-  while (spaced.length && !spaced.at(-1)!.length) spaced.pop();
-  return spaced;
-}
 export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, statuses: ReadonlyMap<string, string>, width: number): Panel {
   const rows: PanelRow[] = [];
-  const add = (label: string, value: string) => rows.push(...pair(label, value, width));
-  const note = (text: string) => rows.push(...wrapWords(text, width).map(line => [span(line, "note")]));
+  const group = (next: PanelRow[]) => {
+    if (!next.length) return;
+    if (rows.length) rows.push([]);
+    rows.push(...next);
+  };
+  const add = (label: string, value: string) => group(pair(label, value, width));
+  const note = (text: string) => group(wrapWords(text, width).map(line => [span(line, "note")]));
   const exact = (n: number) => `${Math.round(n).toLocaleString("en-US")} tok`, m = s.metrics;
   if (id === "stats") {
     add("模型用时", m.calls > m.failed ? duration(m.llmMs) : "—");
@@ -103,11 +104,10 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
     add("首 Token 平均", m.ttftCount ? duration(m.ttftMs / m.ttftCount) : "—");
     add("输出速度", outputRate(s) === null ? "—" : `${Math.round(outputRate(s)!)} tok/s`);
     if (m.calls < s.steps || m.failed) {
-      rows.push([]);
       if (m.calls < s.steps) note(`计时覆盖 ${m.calls}/${s.steps} 步`);
       if (m.failed) note(`已排除 ${m.failed} 次失败或取消`);
     }
-    return { title: "会话统计", rows: spacedRows(rows) };
+    return { title: "会话统计", rows };
   }
   if (id === "tokens") {
     const total = exact(usageTotal(s));
@@ -119,19 +119,19 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
     if (s.usage.cacheWrite) add("缓存写入", exact(s.usage.cacheWrite));
     add("输出", exact(s.usage.output));
     if (s.usage.cost) add("费用", `$${s.usage.cost.toFixed(4)}`);
-    return { title: "Token 用量", ...(headerTotal ? { total } : {}), rows: spacedRows(rows) };
+    return { title: "Token 用量", ...(headerTotal ? { total } : {}), rows };
   }
   if (id === "context") {
     const c = s.context;
     add("上下文已用", percent(c?.percent));
     if (c?.tokens !== null && c?.tokens !== undefined) {
       const filled = Math.round(Math.min(1, Math.max(0, c.tokens / c.contextWindow)) * width);
-      rows.push([span((config.icons === "ascii" ? "#" : "━").repeat(filled), "label"), span((config.icons === "ascii" ? "-" : "─").repeat(width - filled), "rule")], []);
+      group([[span((config.icons === "ascii" ? "#" : "━").repeat(filled), "label"), span((config.icons === "ascii" ? "-" : "─").repeat(width - filled), "rule")]]);
       add("已用", exact(c.tokens));
       add("剩余", exact(Math.max(0, c.contextWindow - c.tokens)));
     } else note("待结算 · 等待下一次响应");
     if (c) add("容量", exact(c.contextWindow));
-    return { title: "上下文", rows: spacedRows(rows) };
+    return { title: "上下文", rows };
   }
   const reserved = new Set(config.more.sections.map(section => section.status));
   for (const section of config.more.sections.filter(section => !section.hidden)) {
@@ -143,12 +143,12 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
     const other = [...statuses].filter(([key]) => !reserved.has(key)).map(([, text]) => cleanText(text)).filter(Boolean);
     if (other.length) add("其他", other.join("\n"));
   }
-  if (rows.length) rows.push([span((config.icons === "ascii" ? "-" : "─").repeat(width), "rule")]);
+  if (rows.length) group([[span((config.icons === "ascii" ? "-" : "─").repeat(width), "rule")]]);
   if (s.working) add("运行", "进行中");
   add("模型", s.model);
   const provider = [s.provider, s.thinking].filter(Boolean).join(" · ");
   if (provider) add("提供方", provider);
-  return { title: "更多", rows: spacedRows(rows) };
+  return { title: "更多", rows };
 }
 export const PANEL_PADDING = 3;
 export const PANEL_HEADER_ROW = 2;
@@ -156,8 +156,8 @@ export const PANEL_CHROME_HEIGHT = 7;
 export const PANEL_MIN_HEIGHT = PANEL_CHROME_HEIGHT + 1;
 export const panelInnerWidth = (width: number) => Math.max(1, width - 2 - 2 * PANEL_PADDING);
 export function panelCloseButton(width: number, icons: FooterConfig["icons"]) {
-  // Fullwidth X uses a square CJK glyph cell rather than a narrow Latin letter.
-  const glyph = icons === "ascii" ? "X" : "Ｘ", size = visibleWidth(glyph);
+  // Lowercase reduces the ink size while retaining the square cell and hit area.
+  const glyph = icons === "ascii" ? "x" : "ｘ", size = visibleWidth(glyph);
   return { glyph, width: size, column: width - 1 - PANEL_PADDING - size, row: PANEL_HEADER_ROW };
 }
 export function panelLines(id: PanelId, s: Snapshot, config: FooterConfig, statuses: ReadonlyMap<string, string>, width: number, height: number, offset: number, theme: Theme): { lines: string[]; maxOffset: number } {
