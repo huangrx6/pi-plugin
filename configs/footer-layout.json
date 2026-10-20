@@ -5,8 +5,8 @@
   "style": {
     "textColor": "muted",
     "borderColor": "dim",
-    "gap": 3,
-    "panelWidth": 54
+    "gap": 5,
+    "panelWidth": 60
   },
   "more": {
     "sections": [

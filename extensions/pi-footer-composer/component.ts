@@ -1,4 +1,4 @@
-import { panelCloseColumn, panelContent, panelInnerWidth, panelLines, panelText, summary, type Hit, type Theme } from "./render.ts";
+import { PANEL_CHROME_HEIGHT, PANEL_HEADER_ROW, PANEL_MIN_HEIGHT, panelCloseColumn, panelContent, panelInnerWidth, panelLines, panelText, summary, type Hit, type Theme } from "./render.ts";
 import type { FooterConfig, PanelId } from "./settings.ts";
 import type { Snapshot } from "./types.ts";
 export type MouseEvent = { type: string; button: string; x: number; y: number; screenX: number; screenY: number; shift?: boolean; alt?: boolean; ctrl?: boolean; clickCount?: number; wheelDelta?: number };
@@ -13,12 +13,14 @@ export type Tui = {
   addInputListener?(listener: (data: string) => { consume: boolean } | undefined): () => void;
 };
 export type FooterData = { getExtensionStatuses(): ReadonlyMap<string, string>; onBranchChange?(callback: () => void): () => void };
+const PANEL_MARGIN = 2, PANEL_GAP = 1;
 const plainClick = (e: MouseEvent) => e.button === "left" && !e.shift && !e.alt && !e.ctrl && (e.clickCount ?? 1) === 1;
 export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: FooterConfig, snapshot: () => Snapshot, fallback: (title: string, text: string) => void) {
   let active: PanelId | null = null, hits: Hit[] = [], disposed = false, scroll = 0, maxOffset = 0;
-  let columns = tui.terminal?.columns ?? 80, bottomDistance = 0;
+  let columns = tui.terminal?.columns ?? 80, bottomInset = 0, summaryRow = 1, footerHeight = 3;
   let overlay: ReturnType<NonNullable<Tui["showOverlay"]>> | undefined, unlisten: (() => void) | undefined;
-  const options: OverlayOptions = { row: 0, col: 0, width: 54, maxHeight: 12, nonCapturing: true, margin: 0, visible: (w, h) => w >= 18 && h >= 7 };
+  const hasRoom = (w: number, h: number) => w >= 18 + 2 * PANEL_MARGIN && h - footerHeight - PANEL_GAP - 1 >= PANEL_MIN_HEIGHT + 1;
+  const options: OverlayOptions = { row: 0, col: 0, width: config.style.panelWidth, maxHeight: 14, nonCapturing: true, margin: 0, visible: hasRoom };
   const refresh = () => tui.requestRender();
   const close = () => {
     active = null; scroll = 0; overlay?.hide(); overlay = undefined;
@@ -27,13 +29,13 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
   };
   const place = () => {
     const w = tui.terminal?.columns ?? columns, h = tui.terminal?.rows ?? 24;
-    const footerY = Math.max(0, h - 1 - bottomDistance);
-    options.width = Math.min(config.style.panelWidth, w);
+    const footerTop = Math.max(0, h - bottomInset - footerHeight);
+    options.width = Math.min(config.style.panelWidth, Math.max(1, w - 2 * PANEL_MARGIN));
     const inner = panelInnerWidth(options.width);
     const contentLength = active ? panelContent(active, snapshot(), config, data.getExtensionStatuses(), inner).rows.length : 0;
-    options.maxHeight = Math.min(Math.max(6, footerY), contentLength + 4);
-    options.row = Math.max(0, footerY - options.maxHeight);
-    options.col = Math.max(0, Math.min(hits.find(hit => hit.id === active)?.x ?? 0, w - options.width));
+    options.maxHeight = Math.min(Math.max(0, footerTop - PANEL_GAP - 1), contentLength + PANEL_CHROME_HEIGHT);
+    options.row = Math.max(1, footerTop - PANEL_GAP - options.maxHeight);
+    options.col = Math.max(PANEL_MARGIN, Math.min(hits.find(hit => hit.id === active)?.x ?? PANEL_MARGIN, w - PANEL_MARGIN - options.width));
   };
   const scrollBy = (delta: number) => { scroll = Math.min(maxOffset, Math.max(0, scroll + delta)); refresh(); };
   const card: Component = {
@@ -47,11 +49,10 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     handleMouse(event) {
       if (event.type === "wheel") { scrollBy((event.wheelDelta ?? 0) > 0 ? 3 : -3); return { handled: true }; }
       if (!plainClick(event)) return undefined;
-      if (event.y === 1 && Math.abs(event.x - panelCloseColumn(options.width)) <= 1) {
+      if (event.y === PANEL_HEADER_ROW && Math.abs(event.x - panelCloseColumn(options.width)) <= 1) {
         if (event.type === "click") close();
         if (event.type === "press" || event.type === "click") return { handled: true, render: event.type === "click" };
       }
-      // 文本区不认领按下事件，保留宿主的鼠标选中文本行为。
       return undefined;
     },
   };
@@ -59,7 +60,7 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     if (disposed) return;
     if (active === id) { close(); return; }
     close();
-    if (!tui.showOverlay || !tui.addInputListener || (tui.terminal?.columns ?? columns) < 18 || (tui.terminal?.rows ?? 24) < 7) {
+    if (!tui.showOverlay || !tui.addInputListener || !hasRoom(tui.terminal?.columns ?? columns, tui.terminal?.rows ?? 24)) {
       const content = panelContent(id, snapshot(), config, data.getExtensionStatuses(), 64);
       fallback(content.title, panelText(content)); return;
     }
@@ -68,7 +69,6 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     unlisten = tui.addInputListener(raw => {
       if (!active) return undefined;
       if (raw === "\x1b") { close(); return { consume: true }; }
-      // 普通键仍交给编辑器，浮层不抢焦点；编辑开始时自动收起。
       if (!raw.startsWith("\x1b[<") && !raw.startsWith("\x1b[")) close();
       return undefined;
     });
@@ -79,18 +79,24 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     render(width: number) {
       if (disposed || width <= 0) return [];
       columns = width;
-      const result = summary(snapshot(), config, width, active, theme); hits = result.hits;
+      summaryRow = (tui.terminal?.rows ?? 24) >= 8 ? 1 : 0;
+      footerHeight = 1 + 2 * summaryRow;
+      const inset = Math.min(2, Math.floor((width - 1) / 2));
+      const result = summary(snapshot(), config, width - 2 * inset, active, theme);
+      hits = result.hits.map(hit => ({ ...hit, x: hit.x + inset }));
       if (active) place();
-      return [result.line];
+      const line = " ".repeat(inset) + result.line;
+      return summaryRow ? ["", line, ""] : [line];
     },
     invalidate() {},
     handleMouse(event: MouseEvent): MouseResult {
-      if (disposed || tui.mode === "regular" || event.y !== 0 || !plainClick(event)) return undefined;
+      if (disposed || tui.mode === "regular" || event.y !== summaryRow || !plainClick(event)) return undefined;
       const hit = hits.find(hit => event.x >= hit.x && event.x < hit.x + hit.width);
       if (!hit) return undefined;
       if (event.type === "press") return { handled: true, render: false };
       if (event.type !== "click") return undefined;
-      bottomDistance = Math.max(0, (tui.terminal?.rows ?? 24) - 1 - event.screenY);
+      const screenBottom = event.screenY - event.y + footerHeight - 1;
+      bottomInset = Math.max(0, (tui.terminal?.rows ?? 24) - 1 - screenBottom);
       open(hit.id); return { handled: true, render: true };
     },
     open, close, refresh,

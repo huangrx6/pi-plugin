@@ -10,8 +10,8 @@
   "style": {
     "textColor": "muted",
     "borderColor": "dim",
-    "gap": 3,
-    "panelWidth": 54
+    "gap": 5,
+    "panelWidth": 60
   },
   "more": {
     "sections": [
@@ -34,12 +34,14 @@
 | `icons` | `unicode` | `unicode` 或 `ascii` |
 | `style.textColor` | `muted` | `muted`、`dim`、`text` |
 | `style.borderColor` | `dim` | 同上 |
-| `style.gap` | `3` | 段间空格，1–8 |
-| `style.panelWidth` | `54` | 卡片宽度，28–100 列；终端不足时自动缩小 |
+| `style.gap` | `5` | 段间空格，1–8 |
+| `style.panelWidth` | `60` | 卡片宽度，28–100 列；终端不足时自动缩小 |
 | `more.sections` | `[]` | 按序展示的 `{label,status,hidden?}` 数组 |
 | `more.includeUnmapped` | `false` | 是否在更多里追加未配置的状态 |
 
 `hidden: true` 隐藏该状态，并阻止它从未映射项中重复出现。配置只决定展示，不删除公开状态，也不影响发布者。上游的颜色与终端控制符被移除，多行文本保留并折行，长文本优先沿空白和分隔符换行；长内容可以滚动，不永久截断。显式开启 `includeUnmapped` 时，内容统一归入“其他”，不把原始 key 当作标题。
+
+面板默认宽 60 列，左右内边距为 3 列，顶部、底部及指标行之间留一行空白。所有数值续行与单行数值共用右边界。摘要上下各留一行、左右留 2 列，浮层与摘要之间额外留一行。
 
 面板默认使用适配深浅主题的中性灰背景，避免借用消息区域的强调色。标签与数值分开着色，选中入口只提亮文字；旧宿主缺少颜色样式接口时采用终端默认背景。
 

@@ -12,7 +12,7 @@ export type FooterConfig = {
 export function defaultFooterConfig(): FooterConfig {
   return {
     version: 5, mode: "custom", icons: "unicode",
-    style: { textColor: "muted", borderColor: "dim", gap: 3, panelWidth: 54 },
+    style: { textColor: "muted", borderColor: "dim", gap: 5, panelWidth: 60 },
     more: { sections: [], includeUnmapped: false },
   };
 }

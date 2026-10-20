@@ -51,7 +51,7 @@ test("cards separate label/value tones, keep total in the header and omit persis
   const s = emptySnapshot(); s.usage.input = 1000;
   const t = { fg: (color: string, text: string) => `[${color}]${text}[/${color}]` };
   const stats = panelLines("stats", s, defaultFooterConfig(), new Map(), 54, 24, 0, theme).lines;
-  assert.equal(stats.length, 8); assert.doesNotMatch(stats.join("\n"), /Esc|端到端|并行|\[x\]/);
+  assert.equal(stats.length, 14); assert.doesNotMatch(stats.join("\n"), /Esc|端到端|并行|\[x\]/);
   const tokens = panelLines("tokens", s, defaultFooterConfig(), new Map(), 54, 24, 0, t).lines.join("\n");
   assert.match(tokens, /Token 用量.*1,000 tok/);
   assert.match(tokens, /\[muted\]未缓存输入/); assert.match(tokens, /\[text\]1,000 tok/);
@@ -77,5 +77,34 @@ test("long status prose wraps at visual separators without splitting qualifier g
   const c = defaultFooterConfig(); c.more.sections = [{ label: "额度", status: "quota" }];
   const value = "OC 5h: 6% (49m) week: 4% (138h15m) month: 8% (451h52m)";
   const text = plain("more", emptySnapshot(), c, new Map([["quota", value]]), 48);
-  assert.match(text, /OC 5h: 6% \(49m\)\n  week: 4% \(138h15m\)\n  month: 8% \(451h52m\)/);
+  assert.match(text, /OC 5h: 6% \(49m\)\n +week: 4% \(138h15m\)\n +month: 8% \(451h52m\)/);
+});
+test("all four corner cells receive the same complete surface as the card body", () => {
+  const t = { ...theme, style: (text: string, options: any) => options.bg ? `<surface>${text}</surface>` : text };
+  for (const icons of ["unicode", "ascii"] as const) {
+    const c = defaultFooterConfig(); c.icons = icons;
+    const lines = panelLines("stats", emptySnapshot(), c, new Map(), 60, 24, 0, t).lines;
+    assert.ok(lines.length > 0);
+    for (const line of lines) assert.ok(line.startsWith("<surface>") && line.endsWith("</surface>"), line);
+  }
+});
+test("multiline values keep one right edge with the label beside the first line", () => {
+  const c = defaultFooterConfig(); c.more.sections = [{ label: "额度", status: "quota" }];
+  const text = plain("more", emptySnapshot(), c, new Map([["quota", "OC 5h: 6% (49m) week: 4% (138h15m) month: 8% (451h52m)"]]), 52);
+  const rows = text.split("\n").filter(line => /49m|138h15m|451h52m/.test(line));
+  assert.equal(rows.length, 3); assert.match(rows[0], /^额度 +OC/);
+  for (const row of rows) assert.equal(visibleWidth(row), 52);
+});
+test("comfortable spacing stays bounded at every supported card height", () => {
+  const s = emptySnapshot(), c = defaultFooterConfig();
+  for (let height = 1; height <= 32; height++) {
+    for (const id of ["stats", "tokens", "context", "more"] as const) {
+      const result = panelLines(id, s, c, new Map(), 60, height, 0, theme);
+      assert.ok(result.lines.length <= height, `${id}: ${height}`);
+    }
+  }
+  const lines = panelLines("stats", s, c, new Map(), 60, 30, 0, theme).lines;
+  const index = lines.findIndex(line => line.includes("模型用时"));
+  assert.match(lines[index + 1], /^│ +│$/); assert.match(lines[index + 2], /工具用时/);
+  assert.match(lines[1], /^│ +│$/); assert.match(lines.at(-2)!, /^│ +│$/);
 });

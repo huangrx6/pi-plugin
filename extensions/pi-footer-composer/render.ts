@@ -63,19 +63,33 @@ export function panelText(panel: Panel): string {
   return [panel.total ?? "", ...panel.rows.map(rowText)].filter(Boolean).join("\n");
 }
 function pair(label: string, value: string, width: number): PanelRow[] {
-  const safe = cleanText(value);
-  if (!safe.includes("\n") && visibleWidth(label) + visibleWidth(safe) + 3 <= width) {
-    return [[span(label, "label"), span(" ".repeat(width - visibleWidth(label) - visibleWidth(safe)), "label"), span(safe, "value")]];
+  const safe = cleanText(value), labelWidth = visibleWidth(label);
+  if (!safe.includes("\n") && labelWidth + visibleWidth(safe) + 3 <= width) {
+    return [[span(label, "label"), span(" ".repeat(width - labelWidth - visibleWidth(safe)), "label"), span(safe, "value")]];
   }
-  const inset = width > 6 ? "  " : "";
-  const available = Math.max(1, width - inset.length);
+  // 所有续行沿同一右边界对齐；空间足够时，标签与第一行值共用一行。
+  const beside = width - labelWidth - 3 >= 12;
+  const available = beside ? width - labelWidth - 3 : width;
   const details = safe.split("\n").flatMap(line => {
     // 只识别文本的排版分隔，不解释额度/诊断等发布者的语义或数值。
     const parts = visibleWidth(line) > available ? line.split(/\s*[·|•]\s*|(?<=\))\s+|\s{2,}/u) : [line];
     return parts.flatMap(part => wrapWords(part, available));
   });
-  return [...wrapWords(label, width).map(text => [span(text, "label")]),
-    ...details.map(text => [span(inset + text, "value")])];
+  const rows: PanelRow[] = beside ? [] : wrapWords(label, width).map(text => [span(text, "label")]);
+  details.forEach((text, index) => {
+    const left = beside && index === 0 ? label : "";
+    rows.push([span(left, "label"), span(" ".repeat(Math.max(0, width - visibleWidth(left) - visibleWidth(text))), "label"), span(text, "value")]);
+  });
+  return rows;
+}
+function spacedRows(rows: PanelRow[]): PanelRow[] {
+  const spaced: PanelRow[] = [];
+  for (const row of rows) {
+    if (spaced.length && spaced.at(-1)!.length && row.length) spaced.push([]);
+    if (row.length || spaced.at(-1)?.length) spaced.push(row);
+  }
+  while (spaced.length && !spaced.at(-1)!.length) spaced.pop();
+  return spaced;
 }
 export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, statuses: ReadonlyMap<string, string>, width: number): Panel {
   const rows: PanelRow[] = [];
@@ -92,7 +106,7 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
       if (m.calls < s.steps) note(`计时覆盖 ${m.calls}/${s.steps} 步`);
       if (m.failed) note(`已排除 ${m.failed} 次失败或取消`);
     }
-    return { title: "会话统计", rows };
+    return { title: "会话统计", rows: spacedRows(rows) };
   }
   if (id === "tokens") {
     const total = exact(usageTotal(s));
@@ -104,7 +118,7 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
     if (s.usage.cacheWrite) add("缓存写入", exact(s.usage.cacheWrite));
     add("输出", exact(s.usage.output));
     if (s.usage.cost) add("费用", `$${s.usage.cost.toFixed(4)}`);
-    return { title: "Token 用量", ...(headerTotal ? { total } : {}), rows };
+    return { title: "Token 用量", ...(headerTotal ? { total } : {}), rows: spacedRows(rows) };
   }
   if (id === "context") {
     const c = s.context;
@@ -116,7 +130,7 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
       add("剩余", exact(Math.max(0, c.contextWindow - c.tokens)));
     } else note("待结算 · 等待下一次响应");
     if (c) add("容量", exact(c.contextWindow));
-    return { title: "上下文", rows };
+    return { title: "上下文", rows: spacedRows(rows) };
   }
   const reserved = new Set(config.more.sections.map(section => section.status));
   for (const section of config.more.sections.filter(section => !section.hidden)) {
@@ -133,16 +147,19 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
   add("模型", s.model);
   const provider = [s.provider, s.thinking].filter(Boolean).join(" · ");
   if (provider) add("提供方", provider);
-  return { title: "更多", rows };
+  return { title: "更多", rows: spacedRows(rows) };
 }
-export const PANEL_PADDING = 2;
+export const PANEL_PADDING = 3;
+export const PANEL_HEADER_ROW = 2;
+export const PANEL_CHROME_HEIGHT = 7;
+export const PANEL_MIN_HEIGHT = PANEL_CHROME_HEIGHT + 1;
 export const panelInnerWidth = (width: number) => Math.max(1, width - 2 - 2 * PANEL_PADDING);
 export const panelCloseColumn = (width: number) => width - 2 - PANEL_PADDING;
 export function panelLines(id: PanelId, s: Snapshot, config: FooterConfig, statuses: ReadonlyMap<string, string>, width: number, height: number, offset: number, theme: Theme): { lines: string[]; maxOffset: number } {
-  if (width < 10 || height < 5) return { lines: [], maxOffset: 0 };
+  if (width < 12 || height < PANEL_MIN_HEIGHT) return { lines: [], maxOffset: 0 };
   const inner = panelInnerWidth(width), content = panelContent(id, s, config, statuses, inner);
-  const overflow = content.rows.length > height - 4;
-  const bodyHeight = Math.max(1, height - 4 - Number(overflow));
+  const overflow = content.rows.length > height - PANEL_CHROME_HEIGHT;
+  const bodyHeight = Math.max(0, height - PANEL_CHROME_HEIGHT - Number(overflow));
   const maxOffset = Math.max(0, content.rows.length - bodyHeight), start = Math.min(Math.max(0, offset), maxOffset);
   const ascii = config.icons === "ascii", horizontal = ascii ? "-" : "─", side = ascii ? "|" : "│";
   const light = theme.appearance === "light";
@@ -154,7 +171,7 @@ export function panelLines(id: PanelId, s: Snapshot, config: FooterConfig, statu
   const borderPaint = (text: string) => theme.style && config.style.borderColor === "dim" ? theme.style(text, { fg: edge }) : theme.fg(config.style.borderColor, text);
   const paint = (part: Span) => part.tone === "rule" ? borderPaint(part.text) : theme.fg(part.tone === "value" ? "text" : part.tone === "note" ? "dim" : config.style.textColor, part.text);
   const body = (row: PanelRow) => surface(borderPaint(side) + " ".repeat(PANEL_PADDING) + row.map(paint).join("") + " ".repeat(Math.max(0, inner - visibleWidth(rowText(row))) + PANEL_PADDING) + borderPaint(side));
-  const border = (left: string, right: string) => borderPaint(left) + surface(borderPaint(horizontal.repeat(width - 2))) + borderPaint(right);
+  const border = (left: string, right: string) => surface(borderPaint(left + horizontal.repeat(width - 2) + right));
   const close = ascii ? "x" : "×", headerWidth = inner - 3;
   let title = fit(content.title, headerWidth);
   if (content.total) {
@@ -163,8 +180,8 @@ export function panelLines(id: PanelId, s: Snapshot, config: FooterConfig, statu
   }
   const titleRow = [span(theme.bold ? theme.bold(title) : title, "value"),
     span(" ".repeat(Math.max(0, headerWidth - visibleWidth(title))) + "  ", "label"), span(close, "note")];
-  const lines = [border(ascii ? "+" : "╭", ascii ? "+" : "╮"), body(titleRow), body([span(horizontal.repeat(inner), "rule")]), ...content.rows.slice(start, start + bodyHeight).map(body)];
-  if (overflow) lines.push(body([span(fit(`${start + 1}–${Math.min(content.rows.length, start + bodyHeight)}/${content.rows.length} · 滚轮查看更多`, inner), "note")]));
-  lines.push(border(ascii ? "+" : "╰", ascii ? "+" : "╯"));
+  const lines = [border(ascii ? "+" : "╭", ascii ? "+" : "╮"), body([]), body(titleRow), body([span(horizontal.repeat(inner), "rule")]), body([]), ...content.rows.slice(start, start + bodyHeight).map(body)];
+  if (overflow) lines.push(body([span(fit(bodyHeight ? `${start + 1}–${Math.min(content.rows.length, start + bodyHeight)}/${content.rows.length} · 滚轮查看更多` : "终端高度不足", inner), "note")]));
+  lines.push(body([]), border(ascii ? "+" : "╰", ascii ? "+" : "╯"));
   return { lines, maxOffset };
 }
