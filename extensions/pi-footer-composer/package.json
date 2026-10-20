@@ -1,6 +1,6 @@
 {
   "name": "pi-footer-composer",
-  "version": "5.1.4",
+  "version": "5.1.5",
   "description": "A compact Pi footer with independent session, token and context popovers, plus configurable external status groups.",
   "license": "MIT",
   "type": "module",
@@ -43,6 +43,7 @@
     "tsconfig.json",
     "tests/",
     "README.md",
+    "assets/",
     "CHANGELOG.md",
     "DESIGN.md",
     "LICENSE",
