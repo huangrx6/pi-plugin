@@ -10,8 +10,11 @@ export function addMetric(snapshot: Snapshot, sample: Metric): void {
   if (sample.failed) { m.failed++; return; }
   m.llmMs += sample.ms;
   if (sample.ttft !== null) { m.ttftMs += sample.ttft; m.ttftCount++; }
-  // 分子分母严格配对，缺少供应商 output 时不将这次耗时混入 TPS。
-  if (sample.output !== null && sample.ms > 0) { m.rateTokens += sample.output; m.rateMs += sample.ms; }
+  // 从首个非空内容增量计到结束；短回复和突发窗口不参与速度，分子分母严格配对。
+  const generationMs = sample.ttft === null ? null : sample.ms - sample.ttft;
+  if (sample.output !== null && sample.output >= 100 && generationMs !== null && generationMs >= 100) {
+    m.rateTokens += sample.output; m.rateMs += generationMs;
+  }
 }
 export function addMessage(snapshot: Snapshot, message?: Message): void {
   if (message?.role === "user") snapshot.rounds++;

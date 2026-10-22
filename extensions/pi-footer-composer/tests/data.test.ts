@@ -20,7 +20,7 @@ test("current branch aggregation includes all host usage categories and weighted
   assert.equal(cacheHit(s), 1200 / 2430 * 100);
   assert.equal(s.metrics.calls, 0); assert.equal(outputRate(s), null);
 });
-test("speed uses matched successful samples, authoritative zero, and excludes failures", () => {
+test("speed excludes first-token wait and weights successful calls by generation time", () => {
   const s = emptySnapshot();
   for (const sample of [
     { version: 1, kind: "call", ms: 1000, ttft: 100, output: 200, failed: false },
@@ -29,8 +29,42 @@ test("speed uses matched successful samples, authoritative zero, and excludes fa
     { version: 1, kind: "call", ms: 9000, ttft: null, output: null, failed: false },
     { version: 1, kind: "call", ms: 500, ttft: 50, output: 900, failed: true },
   ]) addMetric(s, parseMetric(sample)!);
-  assert.equal(outputRate(s), 80); assert.equal(s.metrics.llmMs, 14000);
+  assert.ok(Math.abs(outputRate(s)! - 400 / 3.6) < 1e-9); assert.equal(s.metrics.llmMs, 14000);
+  assert.equal(s.metrics.rateTokens, 400); assert.equal(s.metrics.rateMs, 3600);
   assert.equal(s.metrics.ttftMs / s.metrics.ttftCount, 200); assert.equal(s.metrics.failed, 1);
+});
+test("speed requires measured first content, at least 100 tokens and a 100ms generation window", () => {
+  for (const values of [
+    { ms: 1000, ttft: null, output: 200 },
+    { ms: 1000, ttft: 100, output: null },
+    { ms: 1000, ttft: 100, output: 0 },
+    { ms: 1000, ttft: 100, output: 99 },
+    { ms: 1000, ttft: 901, output: 200 },
+    { ms: 1000, ttft: 1000, output: 200 },
+    { ms: 0, ttft: 0, output: 200 },
+  ]) {
+    const s = emptySnapshot();
+    addMetric(s, parseMetric({ version: 1, kind: "call", ...values, failed: false })!);
+    assert.equal(outputRate(s), null, JSON.stringify(values));
+    assert.equal(s.metrics.rateTokens, 0); assert.equal(s.metrics.rateMs, 0);
+    assert.equal(s.metrics.llmMs, values.ms);
+  }
+  const s = emptySnapshot();
+  addMetric(s, { version: 1, kind: "call", ms: 1000, ttft: 900, output: 100, failed: false });
+  assert.equal(outputRate(s), 1000);
+  const immediate = emptySnapshot();
+  addMetric(immediate, { version: 1, kind: "call", ms: 1000, ttft: 0, output: 100, failed: false });
+  assert.equal(outputRate(immediate), 100);
+});
+test("saved measurements rebuild speed without first-token wait or tool execution time", () => {
+  const s = snapshotFromEntries([
+    { type: "custom", customType: METRIC_TYPE, data: { version: 1, kind: "call", ms: 4000, ttft: 3000, output: 200, failed: false } },
+    { type: "custom", customType: METRIC_TYPE, data: { version: 1, kind: "call", ms: 5000, ttft: 1000, output: 400, failed: false } },
+    { type: "custom", customType: METRIC_TYPE, data: { version: 1, kind: "tool", ms: 10000 } },
+  ]);
+  assert.equal(outputRate(s), 120);
+  assert.equal(s.metrics.llmMs, 9000); assert.equal(s.metrics.toolMs, 10000);
+  assert.equal(s.metrics.ttftMs / s.metrics.ttftCount, 2000);
 });
 test("monotonic meter includes retry wait, thinking TTFT, tool dispatch and lifecycle reset", () => {
   let now = 0; const meter = createMeter(() => now);
