@@ -18,7 +18,7 @@ const PANEL_MARGIN = 2, PANEL_GAP = 0;
 const plainClick = (e: MouseEvent) => e.button === "left" && !e.shift && !e.alt && !e.ctrl && (e.clickCount ?? 1) === 1;
 export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: FooterConfig, snapshot: () => Snapshot, fallback: (title: string, text: string) => void, input: InputSource = process.stdin) {
   let active: PanelId | null = null, hits: Hit[] = [], disposed = false, scroll = 0, maxOffset = 0;
-  let columns = tui.terminal?.columns ?? 80, bottomInset = 0, summaryRow = 1, footerHeight = 2;
+  let columns = tui.terminal?.columns ?? 80, bottomInset = 0, footerHeight = 1;
   let overlay: ReturnType<NonNullable<Tui["showOverlay"]>> | undefined, unlisten: (() => void) | undefined, unobserve: (() => void) | undefined;
   let generation = 0;
   const hasRoom = (w: number, h: number) => w >= 18 + 2 * PANEL_MARGIN && h - footerHeight - PANEL_GAP - 1 >= PANEL_MIN_HEIGHT + 1;
@@ -82,7 +82,8 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
       // A host callback can switch the card during this same stdin emission.
       if (!active || opened !== generation) return;
       if (event.type === "blur") { close(); return; }
-      const footerY = (tui.terminal?.rows ?? 24) - bottomInset - footerHeight + summaryRow;
+      // The summary is the only footer row, directly under the editor's bottom border.
+      const footerY = (tui.terminal?.rows ?? 24) - bottomInset - footerHeight;
       if (event.y === footerY && hits.some(hit => event.x >= hit.x && event.x < hit.x + hit.width)) return;
       const bounds = overlay?.getBounds?.() ?? { row: options.row, col: options.col, width: options.width, height: options.maxHeight };
       if (event.x < bounds.col || event.x >= bounds.col + bounds.width || event.y < bounds.row || event.y >= bounds.row + bounds.height) close();
@@ -102,21 +103,16 @@ export function createFooter(tui: Tui, theme: Theme, data: FooterData, config: F
     render(width: number) {
       if (disposed || width <= 0) return [];
       columns = width;
-      summaryRow = (tui.terminal?.rows ?? 24) >= 8 ? 1 : 0;
-      footerHeight = 1 + summaryRow;
       const result = summary(snapshot(), config, width, active, theme);
       hits = result.hits;
       if (active) place();
-      if (!summaryRow) return [result.line];
-      const rule = (config.icons === "ascii" ? "-" : "─").repeat(width);
-      const divider = theme.getThinkingBorderColor
-        ? theme.getThinkingBorderColor(snapshot().thinking || "off")(rule)
-        : theme.fg("border", rule);
-      return [divider, result.line];
+      // The editor already draws its bottom border in the thinking color; a second
+      // rule here would duplicate that line whenever no widget sits in between.
+      return [result.line];
     },
     invalidate() {},
     handleMouse(event: MouseEvent): MouseResult {
-      if (disposed || tui.mode === "regular" || event.y !== summaryRow || !plainClick(event)) return undefined;
+      if (disposed || tui.mode === "regular" || event.y !== 0 || !plainClick(event)) return undefined;
       const hit = hits.find(hit => event.x >= hit.x && event.x < hit.x + hit.width);
       if (!hit) return undefined;
       if (event.type === "press") return { handled: true, render: false };

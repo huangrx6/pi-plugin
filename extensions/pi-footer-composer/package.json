@@ -1,6 +1,6 @@
 {
   "name": "pi-footer-composer",
-  "version": "5.1.7",
+  "version": "5.1.8",
   "description": "A compact Pi footer with independent session, token and context popovers, plus configurable external status groups.",
   "license": "MIT",
   "type": "module",

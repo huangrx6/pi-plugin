@@ -30,13 +30,13 @@ function fakeTui() {
     focused?.handleInput?.(raw); return results;
   } };
 }
-const mouse = (x: number, type = "click", extra = {}): MouseEvent => ({ type, button: "left", x, y: 1, screenX: x, screenY: 23, ...extra });
+const mouse = (x: number, type = "click", extra = {}): MouseEvent => ({ type, button: "left", x, y: 0, screenX: x, screenY: 23, ...extra });
 
 test("independent popovers switch, toggle, close with Esc, scroll, resize, and release listeners", () => {
   const f = fakeTui(), config = defaultFooterConfig();
   config.more.sections = [{ label: "诊断", status: "diagnostics" }];
   const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map([["diagnostics", "error line\n".repeat(100)]]) }, config, emptySnapshot, () => assert.fail("unexpected fallback"));
-  const line = footer.render(120)[1], tokensX = visibleWidth(line.slice(0, line.indexOf("▱"))), contextX = visibleWidth(line.slice(0, line.indexOf("◔")));
+  const line = footer.render(120)[0], tokensX = visibleWidth(line.slice(0, line.indexOf("▱"))), contextX = visibleWidth(line.slice(0, line.indexOf("◔")));
   assert.deepEqual(footer.handleMouse(mouse(2, "press")), { handled: true, render: false }); assert.equal(f.overlays.length, 0);
   footer.handleMouse(mouse(2)); assert.equal(f.overlays.length, 1);
   assert.equal(f.overlays[0].options.nonCapturing, false);
@@ -50,7 +50,7 @@ test("independent popovers switch, toggle, close with Esc, scroll, resize, and r
   footer.open("more"); let card = f.overlays.at(-1); const before = card.card.render(54).join("\n");
   card.card.handleMouse(mouse(0, "wheel", { wheelDelta: 1 })); assert.notEqual(card.card.render(54).join("\n"), before);
   f.tui.terminal.columns = 32; f.tui.terminal.rows = 16; footer.render(32);
-  assert.ok(card.options.col + card.options.width <= 32); assert.ok(card.options.row + card.options.maxHeight <= 14);
+  assert.ok(card.options.col + card.options.width <= 32); assert.ok(card.options.row + card.options.maxHeight <= 15);
   assert.deepEqual(f.input("a"), [undefined]); assert.equal(f.listeners.size, 0);
   for (const extra of [{ ctrl: true }, { button: "right" }, { clickCount: 2 }]) assert.equal(footer.handleMouse(mouse(0, "click", extra)), undefined);
   footer.open("more"); footer.dispose(); assert.equal(f.listeners.size, 0); assert.equal(f.overlays.at(-1).hidden, true); assert.deepEqual(footer.render(80), []);
@@ -98,18 +98,18 @@ test("regular mode keeps command access without mouse, and older overlay APIs us
   footer.render(80); assert.equal(footer.handleMouse(mouse(2)), undefined);
   footer.open("tokens"); assert.equal(called, "Token 用量"); footer.dispose();
 });
-test("footer divider is full-width, text is flush left, and close target is centered", () => {
+test("footer summary is one flush-left row directly above the terminal bottom", () => {
   const f = fakeTui();
   const footer = createFooter(f.tui, theme, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), emptySnapshot, () => assert.fail("fallback"));
   const lines = footer.render(120);
-  assert.equal(lines.length, 2); assert.equal(lines[0], "─".repeat(120)); assert.match(lines[1], /^◴/);
-  assert.equal(footer.handleMouse(mouse(0, "click", { y: 0 })), undefined);
-  assert.equal(footer.handleMouse(mouse(0, "click", { y: 2 })), undefined);
+  assert.equal(lines.length, 1); assert.match(lines[0], /^◴/);
+  assert.equal(footer.handleMouse(mouse(0, "click", { y: 1 })), undefined);
+  assert.equal(footer.handleMouse(mouse(0, "click", { y: 4 })), undefined);
   assert.equal(footer.handleMouse(mouse(-1)), undefined);
   footer.handleMouse(mouse(0));
   const card = f.overlays.at(-1), button = panelCloseButton(card.options.width, "unicode"), close = button.column;
   assert.ok(card.options.col >= 2); assert.ok(card.options.col + card.options.width <= 118);
-  assert.ok(card.options.row + card.options.maxHeight <= 22);
+  assert.ok(card.options.row + card.options.maxHeight <= 23);
   assert.equal(card.card.handleMouse(mouse(close, "press", { y: 0 })), undefined);
   for (const dx of [-1, 0, 1, 2]) for (const dy of [-1, 0, 1]) {
     assert.equal(card.card.handleMouse(mouse(close + dx, "press", { y: 2 + dy }))?.handled, true);
@@ -160,17 +160,6 @@ test("very short terminals use the dialog instead of overlapping the footer marg
   footer.dispose();
 });
 
-test("footer divider follows the input border theme without adding empty rows", () => {
-  const f = fakeTui(), s = emptySnapshot(); s.thinking = "high";
-  let selected = "";
-  const t = { ...theme, getThinkingBorderColor: (level: string) => { selected = level; return (text: string) => `input:${text}`; } };
-  const footer = createFooter(f.tui, t, { getExtensionStatuses: () => new Map() }, defaultFooterConfig(), () => s, () => {});
-  const rows = footer.render(20);
-  assert.equal(selected, "high"); assert.equal(rows[0], `input:${"─".repeat(20)}`);
-  assert.equal(rows.length, 2); assert.ok(rows.every(Boolean));
-  footer.dispose();
-});
-
 test("growing and shrinking diagnostics preserve bounds and reset an out-of-range scroll position", () => {
   const f = fakeTui(), config = defaultFooterConfig();
   config.more.sections = [{ label: "诊断", status: "diagnostics" }];
@@ -185,7 +174,7 @@ test("growing and shrinking diagnostics preserve bounds and reset an out-of-rang
   f.tui.terminal.columns = 32; f.tui.terminal.rows = 16; footer.render(32);
   const narrow = card.card.render(card.options.width);
   assert.ok(card.options.col + card.options.width <= 30);
-  assert.ok(card.options.row >= 1 && card.options.row + narrow.length <= 14);
+  assert.ok(card.options.row >= 1 && card.options.row + narrow.length <= 15);
   assert.ok(narrow.every((line: string) => visibleWidth(line) === card.options.width));
   statuses.set("diagnostics", "LSP Active: python");
   f.tui.terminal.columns = 120; f.tui.terminal.rows = 24; footer.render(120);

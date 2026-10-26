@@ -7,7 +7,6 @@ type Rgb = { kind: "rgb"; r: number; g: number; b: number };
 export type Theme = {
   fg(color: string, text: string): string;
   bold?(text: string): string;
-  getThinkingBorderColor?(level: string): (text: string) => string;
   appearance?: "dark" | "light";
   style?(text: string, options: { bg?: Rgb; fg?: Rgb }): string;
 };
