@@ -13,7 +13,7 @@ import type { DisplayMode, Measurement, ThroughputConfig } from "./types.ts";
 export const DEFAULTS: ThroughputConfig = {
   enabled: true,
   display: "full",
-  measurement: "e2e",
+  measurement: "generation",
   history: true,
   throttleMs: DEFAULT_THROTTLE_MS,
 };
@@ -49,7 +49,7 @@ export function normalizeConfig(raw: unknown): ThroughputConfig {
   return {
     enabled: booleanValue(source.enabled, DEFAULTS.enabled),
     display: enumValue<DisplayMode>(source.display, ["full", "tps", "ttft"], DEFAULTS.display),
-    measurement: enumValue<Measurement>(source.measurement, ["stream", "e2e"], DEFAULTS.measurement),
+    measurement: enumValue<Measurement>(source.measurement, ["generation", "stream", "e2e"], DEFAULTS.measurement),
     history: booleanValue(source.history, DEFAULTS.history),
     throttleMs: clampNumber(source.throttleMs, DEFAULTS.throttleMs, 0, 5_000),
   };

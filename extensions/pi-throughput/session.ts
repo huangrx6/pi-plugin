@@ -19,6 +19,10 @@ import { parseSamples } from "./samples.ts";
 import type { BranchEntryLike, Measurement, ThroughputSample, ToolSample } from "./types.ts";
 
 export interface SessionTotals {
+  /** 用户消息数（轮次）。 */
+  rounds: number;
+  /** 助手消息数（步骤）。 */
+  steps: number;
   /** 已结束并计入统计的调用数。 */
   calls: number;
   /** 模型用时：Σ(请求发出 → 消息结束)。 */
@@ -34,9 +38,14 @@ export interface SessionTotals {
   /** e2e 口径的分子与分母。 */
   e2eTokens: number;
   e2eMs: number;
+  /** generation 口径：总输出 token / (e2e − TTFT)。 */
+  generationTokens: number;
+  generationMs: number;
 }
 
 export const EMPTY_TOTALS: SessionTotals = {
+  rounds: 0,
+  steps: 0,
   calls: 0,
   llmMs: 0,
   toolMs: 0,
@@ -46,6 +55,8 @@ export const EMPTY_TOTALS: SessionTotals = {
   streamMs: 0,
   e2eTokens: 0,
   e2eMs: 0,
+  generationTokens: 0,
+  generationMs: 0,
 };
 
 /** 展示用的四项指标；尚未有数据时为 null（渲染成 `--`）。 */
@@ -79,7 +90,11 @@ export function addCall(totals: SessionTotals, sample: ThroughputSample): Sessio
   const counted = sample.estimated === false && tokens !== null;
   const stream = counted && streamTokens !== null && streamMs !== null ? { tokens: streamTokens, ms: streamMs } : null;
   const e2e = counted && e2eMs !== null ? { tokens, ms: e2eMs } : null;
+  const generationMs = ttftMs !== null && e2eMs !== null ? e2eMs - ttftMs : null;
+  const generation = counted && generationMs !== null && generationMs > 0 ? { tokens, ms: generationMs } : null;
   return {
+    rounds: totals.rounds,
+    steps: totals.steps,
     calls,
     llmMs: totals.llmMs + (e2eMs ?? 0),
     toolMs: totals.toolMs,
@@ -89,6 +104,8 @@ export function addCall(totals: SessionTotals, sample: ThroughputSample): Sessio
     streamMs: totals.streamMs + (stream?.ms ?? 0),
     e2eTokens: totals.e2eTokens + (e2e?.tokens ?? 0),
     e2eMs: totals.e2eMs + (e2e?.ms ?? 0),
+    generationTokens: totals.generationTokens + (generation?.tokens ?? 0),
+    generationMs: totals.generationMs + (generation?.ms ?? 0),
   };
 }
 
@@ -101,8 +118,8 @@ export function addTool(totals: SessionTotals, durationMs: unknown): SessionTota
 
 /** 累计值 → 展示指标（平均、Σ/Σ 速率）。 */
 export function deriveMetrics(totals: SessionTotals, measurement: Measurement): SessionMetrics {
-  const tokens = measurement === "stream" ? totals.streamTokens : totals.e2eTokens;
-  const spanMs = measurement === "stream" ? totals.streamMs : totals.e2eMs;
+  const tokens = measurement === "stream" ? totals.streamTokens : measurement === "generation" ? totals.generationTokens : totals.e2eTokens;
+  const spanMs = measurement === "stream" ? totals.streamMs : measurement === "generation" ? totals.generationMs : totals.e2eMs;
   return {
     llmMs: totals.llmMs > 0 ? totals.llmMs : null,
     toolMs: totals.toolMs > 0 ? totals.toolMs : null,
@@ -122,6 +139,11 @@ export function totalsFromEntries(entries: Iterable<unknown>): SessionTotals {
   let totals = EMPTY_TOTALS;
   for (const raw of entries) {
     const entry = raw as BranchEntryLike | null | undefined;
+    if (entry?.type === "message") {
+      if (entry.message?.role === "user") totals = { ...totals, rounds: totals.rounds + 1 };
+      else if (entry.message?.role === "assistant") totals = { ...totals, steps: totals.steps + 1 };
+      continue;
+    }
     if (entry?.type !== "custom") continue;
     if (entry.customType === SAMPLE_TYPE) {
       for (const sample of parseSamples([entry])) totals = addCall(totals, sample);

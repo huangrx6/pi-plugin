@@ -162,3 +162,14 @@ test("branch restoration rejects the same malformed samples as the stats panel",
   ];
   assert.deepEqual(totalsFromEntries(entries), EMPTY_TOTALS);
 });
+
+test("totalsFromEntries counts rounds and steps from message entries", () => {
+  const totals = totalsFromEntries([
+    { type: "message", message: { role: "user" } },
+    { type: "message", message: { role: "assistant" } },
+    { type: "message", message: { role: "assistant" } },
+    { type: "message", message: { role: "user" } },
+  ]);
+  assert.equal(totals.rounds, 2);
+  assert.equal(totals.steps, 2);
+});

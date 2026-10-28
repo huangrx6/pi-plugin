@@ -1,6 +1,6 @@
 {
   "name": "pi-throughput",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Session model/tool time, first-content latency, and measured end-to-end or non-reasoning output throughput.",
   "license": "MIT",
   "type": "module",

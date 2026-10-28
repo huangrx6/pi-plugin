@@ -29,7 +29,7 @@ export const CJK_TOKENS_PER_CHAR = 1;
 export const OTHER_CHARS_PER_TOKEN = 3.5;
 
 /** 状态文本宽度上限（终端列）。 */
-export const MAX_STATUS_WIDTH = 72;
+export const MAX_STATUS_WIDTH = 100;
 
 /** 参与 TTFT / TPS 的流式增量事件类型。 */
 export const DELTA_EVENT_TYPES: readonly string[] = [

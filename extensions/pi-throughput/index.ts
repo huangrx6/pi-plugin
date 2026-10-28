@@ -42,6 +42,7 @@ const DISPLAY_LABEL: Record<DisplayMode, string> = {
 };
 
 const MEASUREMENT_LABEL: Record<Measurement, string> = {
+  generation: "生成阶段（扣 TTFT，含推理）",
   stream: "流式正文（不含推理）",
   e2e: "端到端（含推理与等待）",
 };
@@ -121,7 +122,7 @@ export default function (pi: ExtensionAPI): void {
   }
 
   function summaryOf(): string {
-    return formatSummary(summarize(samples, config.measurement, totals.toolMs));
+    return formatSummary(summarize(samples, config.measurement, totals.toolMs), { rounds: totals.rounds, steps: totals.steps });
   }
 
   function settingsLine(configValue: ThroughputConfig): string {
@@ -162,7 +163,9 @@ export default function (pi: ExtensionAPI): void {
         const next = order[(order.indexOf(config.display) + 1) % order.length] ?? "full";
         apply(ctx, { ...config, display: next });
       } else if (selected.startsWith("TPS 口径")) {
-        apply(ctx, { ...config, measurement: config.measurement === "stream" ? "e2e" : "stream" });
+        const order: Measurement[] = ["generation", "e2e", "stream"];
+        const next = order[(order.indexOf(config.measurement) + 1) % order.length] ?? "generation";
+        apply(ctx, { ...config, measurement: next });
       } else if (selected.startsWith("样本记录")) {
         apply(ctx, { ...config, history: !config.history });
       }
@@ -205,7 +208,7 @@ export default function (pi: ExtensionAPI): void {
         apply(statusCtx, { ...config, display: value });
         return;
       }
-      if (key === "measurement" && (value === "stream" || value === "e2e")) {
+      if (key === "measurement" && (value === "generation" || value === "stream" || value === "e2e")) {
         apply(statusCtx, { ...config, measurement: value });
         return;
       }
@@ -216,7 +219,7 @@ export default function (pi: ExtensionAPI): void {
       statusCtx.ui.notify(
         `${PACKAGE_NAME}：/throughput 打开设置 · /throughput stats 会话统计 · ` +
           "/throughput on|off · /throughput display full|tps|ttft · " +
-          "/throughput measurement stream|e2e · /throughput history on|off · /throughput reload",
+          "/throughput measurement generation|stream|e2e · /throughput history on|off · /throughput reload",
         "info",
       );
     },
@@ -256,7 +259,13 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("message_end", (event, ctx) => {
     const message = (event as { message?: AssistantMessageLike } | undefined)?.message;
+    if (message?.role === "user") {
+      totals = { ...totals, rounds: totals.rounds + 1 };
+      publish(ctx as StatusCtx, true);
+      return;
+    }
     if (message?.role !== "assistant") return;
+    totals = { ...totals, steps: totals.steps + 1 };
     const sample = tracker.finish(message);
     if (sample) {
       samples.push(sample);

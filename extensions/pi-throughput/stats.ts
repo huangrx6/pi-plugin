@@ -76,7 +76,11 @@ function bucket(samples: readonly ThroughputSample[], measurement: Measurement):
   const ttft: number[] = [];
   for (const sample of samples) {
     const rate = sampleTps(sample, measurement);
-    const span = measurement === "stream" ? sample.streamMs : sample.e2eMs;
+    const span = measurement === "stream"
+      ? sample.streamMs
+      : measurement === "generation"
+        ? (sample.ttftMs === null ? null : sample.e2eMs - sample.ttftMs)
+        : sample.e2eMs;
     const usable = !sample.aborted && sample.estimated === false;
     // token 总数同样只认 provider 上报值；估算次数单独记账，不在图里冒充用量。
     if (sample.estimated) estimated += 1;
@@ -148,8 +152,10 @@ function percentileSuffix(bucketLike: MetricBucket): string {
 }
 
 /** 人读汇总；样本为空时给出明确文案而不是空表。 */
-export function formatSummary(summary: ThroughputSummary): string {
-  const name = summary.measurement === "stream" ? "流式正文（不含推理）" : "端到端（含推理与等待）";
+export function formatSummary(summary: ThroughputSummary, progress?: { rounds: number; steps: number }): string {
+  const name = summary.measurement === "generation"
+    ? "生成阶段（首内容 → 结束，不含首内容等待）"
+    : summary.measurement === "stream" ? "流式正文（不含推理）" : "端到端（含推理与等待）";
   if (summary.overall.calls === 0) {
     return `尚未记录调用样本。口径：${name}`;
   }
@@ -159,6 +165,7 @@ export function formatSummary(summary: ThroughputSummary): string {
   const toolMs = summary.toolMs === null ? "--" : formatLatency(summary.toolMs);
   const ttft = overall.avgTtftMs === null ? "--" : formatLatency(overall.avgTtftMs);
   const lines = [
+    ...(progress ? [`会话 ${progress.rounds} 轮 · ${progress.steps} 步`] : []),
     `调用 ${overall.calls} 次 · 中断 ${overall.aborted} 次 · ${overall.tokens} token`,
     `模型用时 ${modelMs} · 工具调用用时 ${toolMs}`,
     `首 token 平均 ${ttft} · 输出速度 ${tps}${percentileSuffix(overall)}`,

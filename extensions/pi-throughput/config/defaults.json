@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "display": "full",
-  "measurement": "e2e",
+  "measurement": "generation",
   "history": true,
   "throttleMs": 250
 }

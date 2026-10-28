@@ -113,7 +113,11 @@ export function formatTokens(tokens: number): string {
 
 /** 样本在指定口径下的 TPS；分母缺失或为零时为 null。 */
 export function sampleTps(sample: ThroughputSample, measurement: Measurement): number | null {
-  const spanMs = measurement === "stream" ? sample.streamMs : sample.e2eMs;
+  const spanMs = measurement === "stream"
+    ? sample.streamMs
+    : measurement === "generation"
+      ? (sample.ttftMs === null ? null : sample.e2eMs - sample.ttftMs)
+      : sample.e2eMs;
   const tokens = measurement === "stream" ? sample.streamTokens : sample.tokens;
   if (spanMs === null || !Number.isFinite(spanMs) || spanMs <= 0) return null;
   if (typeof tokens !== "number" || !Number.isFinite(tokens) || tokens < 0) return null;
@@ -146,6 +150,7 @@ export function buildStatusText(
   const metrics = deriveMetrics(totals, config.measurement);
   const parts: string[] = [];
   if (config.display === "full") {
+    parts.push(`${totals.rounds} 轮 ${totals.steps} 步`);
     parts.push(`llm: ${metrics.llmMs === null ? "--" : formatLatency(metrics.llmMs)}`);
     parts.push(`tools: ${metrics.toolMs === null ? "--" : formatLatency(metrics.toolMs)}`);
   }
@@ -153,7 +158,8 @@ export function buildStatusText(
     parts.push(`ttft: ${metrics.ttftMs === null ? "--" : formatLatency(metrics.ttftMs)}`);
   }
   if (config.display !== "ttft") {
-    parts.push(`${config.measurement}: ${metrics.tps === null ? "--" : `${formatTps(metrics.tps)} t/s`}`);
+    const prefix = config.measurement === "generation" ? "out" : config.measurement;
+    parts.push(`${prefix}: ${metrics.tps === null ? "--" : `${formatTps(metrics.tps)} t/s`}`);
   }
   const waiting = waitingMs(live, now);
   if (waiting !== null) parts.push(`wait ${formatLatency(waiting)}`);

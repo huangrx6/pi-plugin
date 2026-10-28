@@ -122,7 +122,7 @@ test("one call walks placeholder → waiting → persistent metrics and records 
 
   await emit("session_start", { type: "session_start" }, ctx);
   assert.equal(statuses.at(-1)?.key, "pi-throughput");
-  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · e2e: --");
+  assert.equal(statuses.at(-1)?.text, "0 轮 0 步 · llm: -- · tools: -- · ttft: -- · out: --");
 
   await emit("before_provider_request", { type: "before_provider_request", payload: {} }, ctx);
   assert.match(statuses.at(-1)?.text ?? "", /· wait \d+ms$/);
@@ -133,7 +133,7 @@ test("one call walks placeholder → waiting → persistent metrics and records 
   await emit("message_end", assistantEnd(50), ctx);
   assert.match(
     statuses.at(-1)?.text ?? "",
-    /^llm: \d+ms · tools: -- · ttft: \d+ms · e2e: [\d.]+ t\/s$/,
+    /^0 轮 1 步 · llm: \d+ms · tools: -- · ttft: \d+ms · out: [\d.]+ t\/s$/,
   );
   assert.equal(entries.length, 1);
   assert.equal(entries[0]?.customType, SAMPLE_TYPE);
@@ -200,7 +200,7 @@ test("a cancelled call is recorded but does not spend model time", async (t) => 
     { type: "message_end", message: { role: "assistant", usage: { output: 5 }, stopReason: "aborted" } },
     ctx,
   );
-  assert.equal(statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · e2e: --");
+  assert.equal(statuses.at(-1)?.text, "0 轮 1 步 · llm: -- · tools: -- · ttft: -- · out: --");
   assert.equal(entries.length, 1);
   assert.equal((entries[0]?.data as ThroughputSample).aborted, true);
 });
@@ -221,7 +221,7 @@ test("display can be switched off without losing sample history", async (t) => {
   assert.equal(entries.length, 1);
 
   await run("throughput", "on", ctx);
-  assert.match(statuses.at(-1)?.text ?? "", /e2e: /);
+  assert.match(statuses.at(-1)?.text ?? "", /out: /);
 });
 
 test("command subcommands persist configuration", async (t) => {
@@ -323,14 +323,14 @@ test("metrics survive agent_end and a new session re-seeds from its own branch",
   await emit("message_update", delta(30), ctx);
   await emit("message_end", assistantEnd(30), ctx);
   const final = statuses.at(-1)?.text;
-  assert.match(final ?? "", /^llm: .+ · tools: -- · ttft: .+ · e2e: .+ t\/s$/);
+  assert.match(final ?? "", /^\d+ 轮 \d+ 步 · llm: .+ · tools: -- · ttft: .+ · out: .+ t\/s$/);
   await emit("agent_end", { type: "agent_end" }, ctx);
   assert.equal(statuses.at(-1)?.text, final);
 
   // 新会话没有历史：回到占位符，不拿上一个会话的数字充数。
   const empty = createCtx();
   await emit("session_start", {}, empty.ctx);
-  assert.equal(empty.statuses.at(-1)?.text, "llm: -- · tools: -- · ttft: -- · e2e: --");
+  assert.equal(empty.statuses.at(-1)?.text, "0 轮 0 步 · llm: -- · tools: -- · ttft: -- · out: --");
 
   // 恢复的会话：从分支重建四项指标，不重复计入。
   const resumed = createCtx({
@@ -342,7 +342,7 @@ test("metrics survive agent_end and a new session re-seeds from its own branch",
   await emit("session_start", {}, resumed.ctx);
   assert.equal(
     resumed.statuses.at(-1)?.text,
-    "llm: 2.2s · tools: 3.0s · ttft: 380ms · e2e: 55.0 t/s",
+    "0 轮 0 步 · llm: 2.2s · tools: 3.0s · ttft: 380ms · out: 66.7 t/s",
   );
 });
 
@@ -363,9 +363,9 @@ test("stats and status include unsaved calls while history is disabled", async (
   await emit("message_end", assistantEnd(100), ctx);
   await run("throughput", "stats", ctx);
   assert.equal(entries.length, 0);
-  assert.match(statuses.at(-1)?.text ?? "", /e2e: 100 t\/s/);
+  assert.match(statuses.at(-1)?.text ?? "", /out: 111 t\/s/);
   assert.match(selects.at(-1) ?? "", /调用 1 次/);
-  assert.match(selects.at(-1) ?? "", /输出速度 100 t\/s/);
+  assert.match(selects.at(-1) ?? "", /输出速度 111 t\/s/);
   await run("throughput", "history on", ctx);
   await run("throughput", "stats", ctx);
   assert.match(selects.at(-1) ?? "", /调用 1 次/);
@@ -427,5 +427,5 @@ test("zero-token errors and successful empty responses appear in the same sessio
   assert.equal(entries.length, 2);
   assert.match(selects.at(-1) ?? "", /调用 2 次 · 中断 1 次/);
   assert.match(statuses.at(-1)?.text ?? "", /llm: 5\.0s/);
-  assert.match(statuses.at(-1)?.text ?? "", /e2e: 0 t\/s/);
+  assert.match(statuses.at(-1)?.text ?? "", /out: --/);
 });

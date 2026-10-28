@@ -5,8 +5,12 @@
  * 缺字段时一律走安全默认值。
  */
 
-/** stream = 正文/工具参数传输速度；e2e = 含推理与等待的整体输出速度。 */
-export type Measurement = "e2e" | "stream";
+/**
+ * generation = 首内容 → 结束（扣 TTFT，含推理），即模型生成速度；
+ * stream = 正文/工具参数传输速度（不含推理）；
+ * e2e = 含推理与等待的整体吞吐。
+ */
+export type Measurement = "generation" | "e2e" | "stream";
 
 /** 状态文本显示哪些指标。 */
 export type DisplayMode = "full" | "tps" | "ttft";
@@ -99,4 +103,5 @@ export interface BranchEntryLike {
   type?: string;
   customType?: string;
   data?: unknown;
+  message?: { role?: string };
 }
