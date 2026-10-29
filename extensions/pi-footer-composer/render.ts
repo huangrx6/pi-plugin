@@ -30,13 +30,15 @@ export function fit(text: string, width: number): string {
 }
 const percent = (n: number | null | undefined) => typeof n === "number" ? `${Number(n.toFixed(1))}%` : "--";
 export function summary(s: Snapshot, config: FooterConfig, width: number, active: PanelId | null, theme: Theme): { line: string; hits: Hit[] } {
-  const rate = outputRate(s), hit = cacheHit(s), ctx = s.context?.percent == null ? "--" : `${Math.round(s.context.percent)}%`;
-  const speed = s.waitingMs !== null ? `等待 ${(s.waitingMs / 1000).toFixed(1)}s` : rate === null ? "-- tok/s" : `${Math.round(rate)} tok/s`;
+  const rate = s.live ? s.live.rate : outputRate(s), hit = cacheHit(s), ctx = s.context?.percent == null ? "--" : `${Math.round(s.context.percent)}%`;
+  const speed = s.waitingMs !== null ? `等待 ${(s.waitingMs / 1000).toFixed(1)}s` : rate === null ? (s.live ? "生成中" : "-- tok/s") : `${s.live?.estimated ? "≈" : ""}${Math.round(rate)} tok/s`;
+  const total = `${s.live?.estimated ? "≈" : ""}${compactNumber(usageTotal(s))}`;
+  const context = `${s.live && ctx !== "--" ? "≈" : ""}${ctx}`;
   const [a, b, c] = config.icons === "ascii" ? ["S", "T", "C"] : ["◴", "▱", "◔"];
   const profiles: [string, string, string][] = [
-    [`${a} ${s.rounds} 轮 ${s.steps} 步 · ${speed}`, `${b} ${compactNumber(usageTotal(s))} tok · 缓存命中 ${hit === null ? "--" : `${Math.round(hit)}%`}`, `${c} ${ctx}`],
-    [`${a} ${s.rounds}轮${s.steps}步 · ${speed}`, `${b} ${compactNumber(usageTotal(s))} tok`, `${c} ${ctx}`],
-    [`${a} ${s.steps}步`, `${b} ${compactNumber(usageTotal(s))}`, `${c} ${ctx}`],
+    [`${a} ${s.rounds} 轮 ${s.steps} 步 · ${speed}`, `${b} ${total} tok · 缓存命中 ${hit === null ? "--" : `${Math.round(hit)}%`}`, `${c} ${context}`],
+    [`${a} ${s.rounds}轮${s.steps}步 · ${speed}`, `${b} ${total} tok`, `${c} ${context}`],
+    [`${a} ${s.steps}步`, `${b} ${total}`, `${c} ${context}`],
     [a, b, c],
   ];
   const moreLabel = config.icons === "ascii" ? "..." : "···", gap = " ".repeat(config.style.gap);
@@ -101,7 +103,10 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
     add("模型用时", m.calls > m.failed ? duration(m.llmMs) : "—");
     add("工具用时", m.tools > 0 ? duration(m.toolMs) : "—");
     add("首 Token 平均", m.ttftCount ? duration(m.ttftMs / m.ttftCount) : "—");
-    add("输出速度", outputRate(s) === null ? "—" : `${Math.round(outputRate(s)!)} tok/s`);
+    const rate = s.live ? s.live.rate : outputRate(s);
+    if (s.live) add("本次请求", `${duration(s.live.elapsedMs)} · 进行中`);
+    add(s.live ? "当前速度" : "输出速度", rate === null ? "—" : `${s.live?.estimated ? "≈" : ""}${Math.round(rate)} tok/s`);
+    if (s.live?.estimated) note("流式速度按输出字符估算，完成后按实际 Token 校准。");
     if (m.calls < s.steps || m.failed) {
       if (m.calls < s.steps) note(`计时覆盖 ${m.calls}/${s.steps} 步`);
       if (m.failed) note(`已排除 ${m.failed} 次失败或取消`);
@@ -109,20 +114,22 @@ export function panelContent(id: PanelId, s: Snapshot, config: FooterConfig, sta
     return { title: "会话统计", rows };
   }
   if (id === "tokens") {
-    const total = exact(usageTotal(s));
+    const total = `${s.live?.estimated ? "≈" : ""}${exact(usageTotal(s))}`;
     const headerTotal = visibleWidth("Token 用量") + visibleWidth(total) + 2 <= width - 3 - panelCloseButton(0, config.icons).width;
     if (!headerTotal) add("累计", total);
     add("缓存命中", percent(cacheHit(s)));
     add("未缓存输入", exact(s.usage.input));
     add("缓存读取", exact(s.usage.cacheRead));
     if (s.usage.cacheWrite) add("缓存写入", exact(s.usage.cacheWrite));
-    add("输出", exact(s.usage.output));
+    add("输出", `${s.live?.estimated ? "≈" : ""}${exact(s.usage.output)}`);
+    if (s.live) note("流式用量实时刷新；输入、缓存与费用以接口已返回的数据为准，完成后校准。");
     if (s.usage.cost) add("费用", `$${s.usage.cost.toFixed(4)}`);
     return { title: "Token 用量", ...(headerTotal ? { total } : {}), rows };
   }
   if (id === "context") {
     const c = s.context;
-    add("上下文已用", percent(c?.percent));
+    add("上下文已用", `${s.live && c?.percent != null ? "≈" : ""}${percent(c?.percent)}`);
+    if (s.live) note("包含本次流式输出的估算，完成后校准。");
     if (c?.tokens !== null && c?.tokens !== undefined) {
       const filled = Math.round(Math.min(1, Math.max(0, c.tokens / c.contextWindow)) * width);
       group([[span((config.icons === "ascii" ? "#" : "━").repeat(filled), "label"), span((config.icons === "ascii" ? "-" : "─").repeat(width - filled), "rule")]]);

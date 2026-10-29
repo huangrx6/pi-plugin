@@ -37,6 +37,7 @@ export function createMeter(now: () => number = () => performance.now()) {
       if (id) endedTools.add(id);
       return { version: 1, kind: "tool", ms };
     },
+    current() { return started === null ? null : { elapsedMs: Math.max(0, now() - started), generationMs: first === null ? null : Math.max(0, now() - first) }; },
     waiting() { return started === null || first !== null ? null : Math.max(0, now() - started); },
     reset() { started = first = null; tools.clear(); endedTools.clear(); },
   };

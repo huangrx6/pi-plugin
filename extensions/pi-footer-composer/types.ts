@@ -20,6 +20,7 @@ export type Snapshot = {
   model: string; provider: string; thinking: string;
   working: boolean;
   waitingMs: number | null;
+  live?: { estimated: boolean; rate: number | null; elapsedMs: number };
 };
 export function emptySnapshot(): Snapshot {
   return { rounds: 0, steps: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 },

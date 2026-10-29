@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createFooter, type FooterData, type Tui } from "./component.ts";
 import { createFooterConfigStore, defaultFooterConfig, type FooterConfigStore } from "./config.ts";
 import { addMessage, addMetric, refreshContext, snapshotFromEntries } from "./data.ts";
+import { createLiveUsage } from "./live.ts";
 import { createMeter, METRIC_TYPE } from "./metrics.ts";
 import type { Theme } from "./render.ts";
 import type { PanelId } from "./settings.ts";
@@ -18,12 +19,13 @@ type Context = DataContext & {
 };
 export default function (pi: ExtensionAPI, options: { configStore?: FooterConfigStore; now?: () => number } = {}): void {
   const store = options.configStore ?? createFooterConfigStore(), meter = createMeter(options.now);
-  let config = defaultFooterConfig(), snapshot = emptySnapshot(), activeCtx: Context | null = null;
+  const live = createLiveUsage();
+  let config = defaultFooterConfig(), snapshot = emptySnapshot(), display = snapshot, activeCtx: Context | null = null;
   let component: ReturnType<typeof createFooter> | null = null;
   let ticker: ReturnType<typeof setInterval> | undefined;
   let transient: Metric[] = [];
   const stop = () => { if (ticker !== undefined) clearInterval(ticker); ticker = undefined; };
-  const paint = () => { snapshot.waitingMs = meter.waiting(); component?.refresh(); };
+  const paint = () => { snapshot.waitingMs = meter.waiting(); display = live.project(snapshot, meter.current()); component?.refresh(); };
   const persist = (sample: Metric | null) => {
     if (!sample) return;
     addMetric(snapshot, sample);
@@ -34,7 +36,7 @@ export default function (pi: ExtensionAPI, options: { configStore?: FooterConfig
     snapshot = snapshotFromEntries(ctx.sessionManager.getBranch());
     for (const sample of transient) addMetric(snapshot, sample);
     snapshot.working = working;
-    refreshContext(snapshot, ctx); activeCtx = ctx;
+    refreshContext(snapshot, ctx); activeCtx = ctx; display = snapshot;
   };
   const mount = (ctx: Context) => {
     component?.dispose(); component = null; activeCtx = ctx;
@@ -42,7 +44,7 @@ export default function (pi: ExtensionAPI, options: { configStore?: FooterConfig
     if (config.mode === "native") { ctx.ui.setFooter(undefined); return; }
     ctx.ui.setFooter((tui, theme, data) => {
       component?.dispose();
-      component = createFooter(tui, theme, data, config, () => snapshot,
+      component = createFooter(tui, theme, data, config, () => display,
         (title, text) => { void ctx.ui.select(`${title}\n\n${text}`, ["关闭"]); });
       return component;
     });
@@ -78,15 +80,16 @@ export default function (pi: ExtensionAPI, options: { configStore?: FooterConfig
     },
   });
   pi.on("session_start", (_event, ctx: Context) => {
-    stop(); meter.reset(); transient = []; snapshot = emptySnapshot();
+    stop(); meter.reset(); live.reset(); transient = []; snapshot = emptySnapshot();
     try { config = store.load(); }
     catch (error) { config = defaultFooterConfig(); ctx.ui.notify(`Footer 配置无效，使用默认布局：${error instanceof Error ? error.message : String(error)}`, "warning"); }
     rebuild(ctx); mount(ctx);
   });
   pi.on("session_tree", (_event, ctx: Context) => {
-    stop(); meter.reset(); transient = []; component?.close(); snapshot = emptySnapshot(); rebuild(ctx); paint();
+    stop(); meter.reset(); live.reset(); transient = []; component?.close(); snapshot = emptySnapshot(); rebuild(ctx); paint();
   });
   pi.on("agent_start", (_event, ctx: Context) => { activeCtx = ctx; snapshot.working = true; paint(); });
+  pi.on("message_start", event => { if (event.message?.role === "assistant") { live.start(); paint(); } });
   pi.on("before_provider_request", (_event, ctx: Context) => {
     activeCtx = ctx; refreshContext(snapshot, ctx); meter.start(); paint();
     if (ticker === undefined && ctx.hasUI !== false && (!ctx.mode || ctx.mode === "tui")) {
@@ -97,11 +100,13 @@ export default function (pi: ExtensionAPI, options: { configStore?: FooterConfig
   pi.on("message_update", event => {
     const wasWaiting = meter.waiting() !== null;
     meter.delta(event.assistantMessageEvent);
-    if (wasWaiting && meter.waiting() === null) { stop(); paint(); }
+    live.update(event.assistantMessageEvent, event.message?.role === "assistant" ? event.message.usage : undefined);
+    // Keep the 250ms ticker alive through text, thinking and tool-call streaming.
+    if (wasWaiting && meter.waiting() === null) paint();
   });
   pi.on("message_end", (event, ctx: Context) => {
     activeCtx = ctx; addMessage(snapshot, event.message);
-    if (event.message?.role === "assistant") { persist(meter.finish(event.message)); stop(); }
+    if (event.message?.role === "assistant") { persist(meter.finish(event.message)); live.reset(); stop(); }
     paint();
   });
   pi.on("tool_execution_start", event => { if (typeof event.toolCallId === "string") meter.toolStart(event.toolCallId); });
@@ -109,9 +114,9 @@ export default function (pi: ExtensionAPI, options: { configStore?: FooterConfig
     persist(meter.toolEnd(typeof event.toolCallId === "string" ? event.toolCallId : "", event.durationMs)); paint();
   });
   pi.on("turn_end", (_event, ctx: Context) => { activeCtx = ctx; refreshContext(snapshot, ctx); paint(); });
-  pi.on("agent_end", (_event, ctx: Context) => { stop(); meter.reset(); rebuild(ctx); snapshot.working = false; paint(); });
+  pi.on("agent_end", (_event, ctx: Context) => { stop(); meter.reset(); live.reset(); rebuild(ctx); snapshot.working = false; paint(); });
   pi.on("session_compact", (_event, ctx: Context) => { rebuild(ctx); paint(); });
   pi.on("model_select", (event, ctx: Context) => { activeCtx = ctx; refreshContext(snapshot, { ...ctx, model: event.model }); paint(); });
   pi.on("thinking_level_select", event => { snapshot.thinking = cleanText(String(event.level ?? "")).replace(/\n/g, " "); paint(); });
-  pi.on("session_shutdown", () => { stop(); meter.reset(); activeCtx = null; component?.dispose(); component = null; });
+  pi.on("session_shutdown", () => { stop(); meter.reset(); live.reset(); activeCtx = null; component?.dispose(); component = null; });
 }
